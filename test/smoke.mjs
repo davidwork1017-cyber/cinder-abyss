@@ -7929,6 +7929,227 @@ async function main() {
     return '8 件（稀有 3）· 同种子 ' + r.map((x) => x.n).join(' / ') + ' 件一致';
   });
 
+  await uiStep('自动分解其他职业武器（T36）：新存档 / 老存档默认关、开关随存档往返；没有职业时设置里不显示；第一次打开先在行里确认（取消不开、确认过以后再开不问）；开着时捡到别的职业的武器按 G.salvageResult 化成通货（同种子收获一样，拾取记录一件一行、几件并成一行按通货合计、背包满了也分），本职业的、锁定的、烬铸、自己丢下的、拾烬客买的照常进背包，仓库 / 身上 / 背包里已有的不动；关着时和原来一样（不调 salvageResult）', async () => {
+    // 存档：新存档、有职业的新存档、老存档（没有这一项）都是关；存档里是开就读成开
+    let r = await ev((KEY) => {
+      // 关着时存档里没有这个键（从没打开过的存档和以前一字不差，见 game.js 的 opts）
+      const out = { fresh: 'salvageOffCls' in G.newSave().opts, freshCls: 'salvageOffCls' in G.newClassSave('guard').opts, now: 'salvageOffCls' in G.save.opts };
+      const epoch = G.saveEpoch;
+      G.persist();
+      const keep = localStorage.getItem(KEY);
+      const raw = JSON.parse(keep);
+      out.had = 'salvageOffCls' in raw.opts;
+      raw.opts.salvageOffCls = 'yes'; // 不是 true 的值都当关
+      localStorage.setItem(KEY, JSON.stringify(raw));
+      G.loadSave();
+      out.old = 'salvageOffCls' in G.save.opts;
+      raw.opts.salvageOffCls = true;
+      localStorage.setItem(KEY, JSON.stringify(raw));
+      G.loadSave();
+      out.round = G.save.opts.salvageOffCls;
+      G.persist();
+      out.roundStored = JSON.parse(localStorage.getItem(KEY)).opts.salvageOffCls;
+      localStorage.setItem(KEY, keep);
+      G.loadSave();
+      G.saveEpoch = epoch;
+      G.computeStats();
+      out.back = 'salvageOffCls' in G.save.opts;
+      return out;
+    }, SAVE_KEY);
+    assert(r.fresh === false && r.freshCls === false && r.now === false && r.had === false && r.old === false && r.round === true && r.roundStored === true && r.back === false, '新存档 / 老存档应默认关（存档里没有这个键）、开关随存档往返：' + JSON.stringify(r));
+
+    // 设置：没有职业的存档不显示这一行
+    await openSettings();
+    assert(!(await ev(() => !!document.querySelector('#p-view [data-tact="offcls"]'))), '没有职业时设置里不该有「自动分解其他职业武器」');
+    await closeSettings();
+    await ev(() => {
+      const S = G.save;
+      window.__ocKeep = { cls: S.cls, lock: S.clsLock, seen: S.tut.ascls, uniq: JSON.stringify(S.uniq), opts: Object.assign({}, S.opts), equip: Object.assign({}, S.equip), cur: Object.assign({}, S.cur) };
+      S.cls = 'star'; // 引星人：长杖 / 符文弓 / 鹰眼长弓。烬铸「烬断」（太刀）对它是别的职业的武器，前面的步骤已经拾到过（图鉴不多出新的一项）
+      S.clsLock = {};
+      delete S.tut.ascls;
+      delete S.opts.salvageOffCls;
+      G.persist();
+    });
+    const row = () =>
+      ev(() => {
+        const sw = document.querySelector('#p-view [data-tact="offcls"]');
+        const ask = document.querySelector('#p-view .m-row.ask.offcls');
+        const box = (sw || ask).getBoundingClientRect();
+        const fits = Array.from((sw || ask).children).every((n) => { const k = n.getBoundingClientRect(); return k.left >= box.left - 1 && k.right <= box.right + 1 && k.bottom <= box.bottom + 1; });
+        return { sw: !!sw, on: sw ? sw.classList.contains('on') : null, ask: ask ? ask.innerText : '', grp: (sw || ask).closest('.m-grp').querySelector('.m-gt').textContent, txt: sw ? sw.innerText : '', fits, opt: !!G.save.opts.salvageOffCls, seen: !!G.save.tut.ascls, stored: JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).opts.salvageOffCls === true, key: 'salvageOffCls' in G.save.opts };
+      });
+    await openSettings();
+    const s0 = await row();
+    assert(s0.sw && s0.on === false && s0.grp === '拾取' && s0.txt.includes('自动分解其他职业武器') && s0.txt.includes('不动仓库和身上的装备') && s0.fits, '有职业时「拾取」一组里应有这个开关（关着）：' + JSON.stringify(s0));
+    await page.click('#p-view [data-tact="offcls"]');
+    const s1 = await row();
+    assert(!s1.sw && s1.opt === false && !s1.seen && ['引星人用不了的武器', '和手动分解一样', '仓库', '锁定', '烬铸', '渊契'].every((w) => s1.ask.includes(w)) && s1.fits, '第一次打开应先在行里确认、还没打开：' + JSON.stringify(s1));
+    cleanText(s1.ask, '自动分解确认');
+    await page.click('#p-view [data-tact="offcls-no"]');
+    const s2 = await row();
+    assert(s2.sw && s2.on === false && s2.opt === false && !s2.seen && s2.stored === false, '取消后应还是关着、下次还问：' + JSON.stringify(s2));
+    await page.click('#p-view [data-tact="offcls"]');
+    await page.keyboard.press('Escape'); // Esc 先收起确认，不打开
+    const s2b = await ev(() => ({ ask: !!document.querySelector('#p-view .m-row.ask.offcls'), opt: !!G.save.opts.salvageOffCls, view: !!document.querySelector('#p-view [data-tact="offcls"]') }));
+    assert(!s2b.ask && s2b.opt === false && s2b.view, 'Esc 应先收起确认、留在设置里：' + JSON.stringify(s2b));
+    await page.click('#p-view [data-tact="offcls"]');
+    await page.click('#p-view [data-tact="offcls-yes"]');
+    const s3 = await row();
+    assert(s3.sw && s3.on && s3.opt && s3.seen && s3.stored === true, '确认后应打开并存档：' + JSON.stringify(s3));
+    await page.click('#p-view [data-tact="offcls"]');
+    const s4 = await row();
+    await page.click('#p-view [data-tact="offcls"]');
+    const s5 = await row();
+    assert(s4.sw && !s4.on && s4.stored === false && !s4.key && s5.sw && s5.on && s5.stored === true && !s5.ask, '确认过以后关掉（存档里不留这个键）再打开不该再问：' + JSON.stringify([s4, s5]));
+    await closeSettings();
+
+    // 拾取：开着
+    r = await ev(() => {
+      const save = G.save, out = {};
+      const seeded = (a) => () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+      const rnd0 = Math.random;
+      const bi = (t) => G.BASES.weapon.findIndex((b) => b.type === t);
+      const W = (rar, t) => G.rollItem(5, rar, 'weapon', bi(t));
+      const feed = () => Array.from(document.querySelectorAll('#feed .fd.offcls')).map((n) => n.innerText).join(' | ');
+      const curText = (sum) => Object.keys(sum).map((id) => G.CURRENCY[id].name + ' ×' + sum[id]).join('、');
+      T.clearLoot();
+      T.tp(0, 0);
+      save.bag.length = 0;
+      for (const k in save.cur) save.cur[k] = 0;
+      // 身上：一把别的职业的武器（改选职业的老角色可能这样）+ 一枚戒指；背包里：一把别的职业的稀有武器；仓库里：一把别的职业的武器
+      save.equip.weapon = W(2, 'hammer');
+      save.equip.ring = G.rollItem(5, 2, 'ring');
+      const eqSig = () => G.SLOTS.map((s) => (save.equip[s] ? save.equip[s].uid : '')).join();
+      const eq0 = eqSig();
+      const inBag = W(2, 'gatling');
+      save.bag.push(inBag);
+      const st = W(2, 'wand');
+      out.stashOk = G.stash.ok() ? G.stash.put(st, true) : 'na';
+      const stash0 = JSON.stringify(G.stash.list());
+      window.__ocStash = st.uid;
+      const put = (data, x) => { const l = G.spawnLoot('item', data, 0, 0); l.x = x; l.z = 0; l.mesh.position.set(x, 0, 0); return l; };
+      // 1）同种子：拾取时分出来的和直接 G.salvageResult 一样；第一件一行「自动分解 · 名字 → …」，后面的并成「自动分解 N 件 → 合计」
+      const seq = [W(2, 'daggers'), W(1, 'blade'), W(2, 'revolver'), W(1, 'lantern'), W(2, 'katana')];
+      const sum = {};
+      out.seed = [];
+      seq.forEach((it, i) => {
+        const before = Object.assign({}, save.cur);
+        const l = put(it, 0.2);
+        Math.random = seeded(900 + i);
+        const ok = G.pickup(l);
+        Math.random = seeded(900 + i);
+        const exp = G.salvageResult(JSON.parse(JSON.stringify(it)));
+        Math.random = rnd0;
+        const got = {};
+        for (const k in save.cur) if ((save.cur[k] || 0) !== (before[k] || 0)) got[k] = save.cur[k] - (before[k] || 0);
+        for (const k in got) sum[k] = (sum[k] || 0) + got[k];
+        out.seed.push({ ok, same: JSON.stringify(got) === JSON.stringify(exp), got, inBag: save.bag.includes(it), onGround: G.state.loot.includes(l) });
+        if (i === 0) out.feed1 = { txt: feed(), want: '自动分解 · ' + it.name + (curText(exp) ? ' → ' + curText(exp) : '，没有分出东西') };
+      });
+      out.feedN = { txt: feed(), want: '自动分解 ' + seq.length + ' 件 → ' + curText(sum), lines: document.querySelectorAll('#feed .fd.offcls').length };
+      // 2）自动拾取：本职业的、锁定的、烬铸照常进背包；别的职业的化掉。烬铸按完美度 0 掷（图鉴的最高完美度不会被它抬高）；渊契不是武器，也不分
+      const keepers = { own: W(2, 'staff'), ownM: W(1, 'runebow'), lock: Object.assign(W(2, 'wand'), { lk: 1 }), uq: G.rollUnique('jinduan', 5, 0) };
+      out.rq = G.offClsScrap(G.rollRelic(G.RELIC_IDS[0], 5));
+      const gone = [W(2, 'flamer'), W(1, 'banner'), W(2, 'huntbow')];
+      let x = -0.5;
+      for (const k in keepers) put(keepers[k], (x += 0.15));
+      for (const it of gone) put(it, (x += 0.15));
+      const cur1 = JSON.stringify(save.cur);
+      let calls = 0;
+      const sr0 = G.salvageResult;
+      G.salvageResult = (it) => (calls++, sr0(it));
+      G.debug.step(0.6);
+      G.salvageResult = sr0;
+      out.auto = {
+        loot: G.state.loot.length, calls, curUp: JSON.stringify(save.cur) !== cur1,
+        keep: Object.keys(keepers).filter((k) => save.bag.includes(keepers[k])).join(), gone: gone.filter((it) => !save.bag.includes(it)).length,
+        uqOff: G.offClassItem(keepers.uq), feed: feed(), lines: document.querySelectorAll('#feed .fd.offcls').length,
+      };
+      // 3）自己丢下的：捡回来照常进背包（不分）
+      const mine = W(2, 'hammer');
+      save.bag.push(mine);
+      const dl = G.dropItem(mine);
+      out.own = { flag: !!(dl && dl.own), back: G.pickup(dl) && save.bag.includes(mine) };
+      // 4）拾烬客买的：进背包
+      const hadTrader = G.state.trader;
+      const ware = W(2, 'daggers');
+      G.state.trader = { stock: [{ kind: 'item', item: ware, price: {}, sold: false }] };
+      out.trader = G.traderBuy(0) === true && save.bag.includes(ware);
+      G.state.trader = hadTrader;
+      // 5）背包满了：别的职业的照样分掉，本职业的留在地上
+      while (save.bag.length < G.BAG_SIZE) save.bag.push(G.rollItem(1, 0, 'belt'));
+      const fullOff = put(W(2, 'daggers'), 0.1), fullOwn = put(W(2, 'eagle'), -0.1);
+      G.pickup(fullOff);
+      G.pickup(fullOwn);
+      out.full = { off: !G.state.loot.includes(fullOff), own: G.state.loot.includes(fullOwn), n: save.bag.length, max: G.BAG_SIZE };
+      // 不动的东西
+      out.still = { equip: eqSig() === eq0, bag: save.bag.includes(inBag), stash: JSON.stringify(G.stash.list()) === stash0 };
+      T.clearLoot();
+      save.bag.length = 0;
+      return out;
+    });
+    assert(r.seed.every((s) => s.ok && s.same && !s.inBag && !s.onGround), '开着时别的职业的武器应按 G.salvageResult 化成通货（同种子一样）：' + JSON.stringify(r.seed));
+    assert(r.feed1.txt === r.feed1.want, '第一件的拾取记录不对：' + JSON.stringify(r.feed1));
+    assert(r.feedN.txt === r.feedN.want && r.feedN.lines === 1, '几件应并成一行、按通货合计：' + JSON.stringify(r.feedN));
+    assert(r.auto.loot === 0 && r.auto.keep === 'own,ownM,lock,uq' && r.rq === false && r.auto.gone === 3 && r.auto.calls === 3 && r.auto.curUp && r.auto.uqOff, '自动拾取：本职业 / 锁定 / 烬铸 / 渊契应进背包，别的职业的分掉：' + JSON.stringify(r.auto));
+    assert(r.auto.lines === 1 && r.auto.feed.startsWith('自动分解 8 件'), '自动拾取的分解应接着并进同一行：' + JSON.stringify(r.auto));
+    assert(r.own.flag && r.own.back, '自己丢下的应照常捡回来：' + JSON.stringify(r.own));
+    assert(r.trader, '拾烬客买的别的职业的武器应进背包');
+    assert(r.full.off && r.full.own && r.full.n === r.full.max, '背包满了：别的职业的应照样分掉，本职业的留在地上：' + JSON.stringify(r.full));
+    assert(r.still.equip && r.still.bag && r.still.stash, '身上 / 背包里已有的 / 仓库里的不该动：' + JSON.stringify(r.still) + ' stash ' + r.stashOk);
+
+    // 关着：别的职业的武器照常进背包，不调 salvageResult（Math.random 的调用和原来一样）
+    r = await ev(() => {
+      const save = G.save;
+      delete save.opts.salvageOffCls;
+      T.clearLoot();
+      T.tp(0, 0);
+      const bi = (t) => G.BASES.weapon.findIndex((b) => b.type === t);
+      const its = [G.rollItem(5, 2, 'weapon', bi('hammer')), G.rollItem(5, 1, 'weapon', bi('gatling'))];
+      for (const it of its) { const l = G.spawnLoot('item', it, 0, 0); l.x = 0.2; l.z = 0; l.mesh.position.set(0.2, 0, 0); }
+      let calls = 0, rnd = 0;
+      const sr0 = G.salvageResult, r0 = Math.random;
+      G.salvageResult = (it) => (calls++, sr0(it));
+      const l = G.state.loot[0];
+      Math.random = () => (rnd++, r0());
+      G.pickup(l);
+      Math.random = r0;
+      G.debug.step(0.6);
+      G.salvageResult = sr0;
+      const out = { calls, rnd, bag: its.every((it) => save.bag.includes(it)), loot: G.state.loot.length };
+      save.bag.length = 0;
+      return out;
+    });
+    assert(r.calls === 0 && r.rnd === 0 && r.bag && r.loot === 0, '关着时别的职业的武器应照常进背包、不多掷骰子：' + JSON.stringify(r));
+    await ev(() => {
+      const k = window.__ocKeep, S = G.save;
+      if (k.cls === undefined) delete S.cls;
+      else S.cls = k.cls;
+      if (k.lock === undefined) delete S.clsLock;
+      else S.clsLock = k.lock;
+      if (k.seen) S.tut.ascls = k.seen;
+      else delete S.tut.ascls;
+      for (const s of G.SLOTS) delete S.equip[s];
+      Object.assign(S.equip, k.equip);
+      delete S.opts.salvageOffCls;
+      Object.assign(S.opts, k.opts);
+      S.cur = Object.assign({}, k.cur);
+      S.uniq = JSON.parse(k.uniq);
+      S.bag.length = 0;
+      if (window.__ocStash && G.stash.ok()) {
+        G.stash.take(window.__ocStash);
+        S.bag.length = 0;
+      }
+      T.clearLoot();
+      G.computeStats();
+      G.persist();
+      delete window.__ocKeep;
+      delete window.__ocStash;
+    });
+    return '同种子 5 件一致 · 自动拾取分 3 留 4';
+  });
+
   await uiStep('背包页小屏布局：390×844 / 360×780 / 844×390 / 1024×640 / 1280×800 下背包不横向溢出、格子不小于 40 px、标题行按钮和底部提示都在屏幕里、物品浮窗不出屏；含稀有开着时含魔法显示暗勾', async () => {
     const tipUid = await ev(() => {
       const save = G.save;
@@ -28773,6 +28994,19 @@ const UI_PANELS = {
     states: [
       { id: '暂停菜单', go: () => uiPauseOpen() },
       { id: '设置', go: async (D) => { await uiPauseOpen(); await D.tap('#p-menu [data-tact="settings"]', '#pause .m-view[data-view="settings"]'); } },
+      {
+        // T36：「自动分解其他职业武器」第一次打开时行里的确认（布局用的存档有职业，开关在「拾取」一组里）
+        id: '自动分解确认',
+        go: async (D) => {
+          await ev(() => {
+            delete G.save.tut.ascls;
+            delete G.save.opts.salvageOffCls;
+          });
+          await uiPauseOpen();
+          await D.tap('#p-menu [data-tact="settings"]', '#pause .m-view[data-view="settings"]');
+          await D.tap('#pause [data-tact="offcls"]', '#pause [data-tact="offcls-yes"]'); // 只到确认，不点「打开」
+        },
+      },
       {
         id: '删除确认',
         go: async (D) => {

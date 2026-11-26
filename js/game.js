@@ -173,6 +173,8 @@
       // salvageRare 开着时魔法物品也一起分解（界面上「含魔法」显示为勾上且不能点），salvageMagic 本身不改，关掉「含稀有」就回到原来的状态
       // quality：画质档位 high / mid / low（世界层读取，见 G.world.setQuality）；auto = 玩家还没选过，每次启动按设备推断，掉帧时自动降档
       // hitFlash / hitStop / shake：打击手感的三个开关（受击闪光、顿帧、镜头震动），默认都开（vf-vfx2）
+      // salvageOffCls（T36，不在这里）：拾取时自动分解本职业用不了的武器。只在打开时写进 opts（true），关着就没有这个键，
+      // 从没打开过的存档一个新键都不多（和 cls 一样，退回旧代码时整份存档一字不差）；第一次打开要确认，确认过记在 tut.ascls
       opts: { autoWhite: false, hideNormal: false, autoSalvage: false, salvageMagic: false, salvageRare: false, quality: 'auto', hitFlash: true, hitStop: true, shake: true, ambience: true,
         volMaster: 80, volSfx: 80, volAmb: 60, volMusic: 50, mute: false }, // 音量（0–100，见 js/audio.js 的 G.audio.DEFAULTS）和静音
       seenHelp: false,
@@ -586,6 +588,7 @@
       volMaster: toInt(ro.volMaster, 0, 100, 80), volSfx: toInt(ro.volSfx, 0, 100, 80),
       volAmb: toInt(ro.volAmb, 0, 100, 60), volMusic: toInt(ro.volMusic, 0, 100, 50), mute: !!ro.mute,
     };
+    if (ro.salvageOffCls === true) s.opts.salvageOffCls = true; // 自动分解其他职业武器（T36）：只有打开时才有这个键，老存档没有 = 关
     s.seenHelp = !!raw.seenHelp;
     s.seenStory = !!raw.seenStory;
     s.tut = {};
@@ -1239,6 +1242,9 @@
   G.canCast = (id) => !G.castBlock(id);
   // 能不能装上这件物品（只限制武器：别的职业的武器装不上）
   G.canEquip = (it) => !G.offClassItem(it);
+  // 「自动分解其他职业武器」（T36）会不会分掉这件：别的职业的武器，普通 / 魔法 / 稀有，没锁定。
+  // 烬铸、渊契（固定掉落）永远不分；本职业的、没有职业时都不分。开关和来源（自己丢下的不分）在 G.pickup 里看
+  G.offClsScrap = (it) => !!(it && it.slot === 'weapon' && it.rarity >= 0 && it.rarity <= 2 && !it.lk && !it.uq && !it.rq && G.offClassItem(it));
 
   // 起步天赋：本职业白送的那个节点（名字按职业起）
   G.clsNodeOf = (id) => {
@@ -11820,10 +11826,17 @@
 
     // 选项「拾取时自动分解普通物品」：不进背包，直接化成通货（普通物品通常什么也分解不出）
     const scrapped = loot.kind === 'item' && loot.data.rarity === 0 && !!save.opts.autoSalvage && !loot.data.lk; // 锁定的物品（丢出去又捡回来）照常进背包
+    // 选项「自动分解其他职业武器」（T36）：本职业用不了的武器不进背包，按手动分解的规则（G.salvageResult）化成通货。
+    // 玩家自己丢下的（loot.own）照常捡回来；背包满了也能分。开关关着时这里不调 G.salvageResult，Math.random 的调用次数不变
+    const offRes = !scrapped && loot.kind === 'item' && !!save.opts.salvageOffCls && !loot.own && G.offClsScrap(loot.data) ? G.salvageResult(loot.data) : null;
     if (scrapped) {
       const res = G.salvageResult(loot.data);
       for (const id in res) grantCurrency(id, res[id]);
       G.sfx('pickup', { r: 0 });
+    } else if (offRes) {
+      for (const id in offRes) grantCurrency(id, offRes[id]);
+      G.sfx('pickup', { cur: 1 });
+      G.persist();
     } else if (loot.kind === 'item') {
       if (save.bag.length >= BAG_SIZE) {
         toast('背包已满', '#ff8a6a', 'bagfull', 2500);
@@ -11899,7 +11912,7 @@
     state.loot.splice(idx, 1);
     if (W.lootPick) W.lootPick(loot.x, loot.z, hexOf(loot.color), !!(loot.mesh.userData && loot.mesh.userData.bt)); // vf-vfx3：拾取的环 + 飞向脚下的碎晶
     W.removeMesh(loot.mesh);
-    G.ui.onPickup(loot, scrapped); // 拾取记录（带图标）、背包里的「新」标记
+    G.ui.onPickup(loot, scrapped, offRes); // 拾取记录（带图标）、背包里的「新」标记
     return true;
   };
 
@@ -12131,6 +12144,7 @@
     const it = save.bag.splice(i, 1)[0];
     const loot = G.spawnLoot('item', it, P.x, P.z);
     loot.noAuto = true;
+    loot.own = true; // 自己丢下的：捡回来时不自动分解（T36）
     G.persist();
     return loot;
   };

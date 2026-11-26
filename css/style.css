@@ -2362,6 +2362,9 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
 .fd em { font-style: normal; }
 .fd-up { color: #8fe07a; }
 .fd-note { font-size: 11px; color: var(--faint); }
+/* 自动分解其他职业武器（T36）：一行字可能较长（名字 + 几种通货），窄屏折行，不出屏 */
+.fd.offcls { height: auto; min-height: 30px; max-width: min(460px, calc(calc(100 * var(--vw, 1vw)) - 40px)); padding-top: 2px; padding-bottom: 2px; line-height: 17px; white-space: normal; }
+.fd.offcls.noic { padding-left: 10px; }
 @keyframes fd-in {
   from { opacity: 0; transform: translateX(-12px); }
   to { opacity: 1; transform: none; }
@@ -5162,6 +5165,9 @@ button.m-row:hover .switch { border-color: var(--ember-2); }
 .m-row.del { flex-wrap: wrap; }
 .m-dacts { display: flex; gap: 8px; margin-left: auto; }
 .m-row.del .del-warn { flex: 1 1 180px; }
+.m-row.ask { flex-wrap: wrap; } /* 行内确认（T36 自动分解其他职业武器第一次打开）：说明占满一行，按钮放不下就换到下一行靠右 */
+.m-row.ask .opt-text { flex: 1 1 240px; }
+.m-row.ask .opt-text span { color: var(--dim); }
 #pause.set .pause-card { width: min(880px, calc(calc(100 * var(--vw, 1vw)) - 32px)); }
 html.touch-ui #pause.set .pause-card { width: calc(calc(100 * var(--vw, 1vw)) - var(--sa-l) - var(--sa-r) - 16px); }
 html.touch-ui .m-row { min-height: 44px; padding: 3px 0; }
