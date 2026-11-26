@@ -20063,8 +20063,8 @@
           spawnP(_sk.x, _sk.y, _sk.z, Math.sin(a) * sp, rand(0.5, 3), Math.cos(a) * sp, rand(0.35, 0.7), rand(0.12, 0.24), ALLY_RGB.r, ALLY_RGB.g, ALLY_RGB.b, 2, 1.5);
         }
       }
-    } else if (n === 'attack' && crossed(ent, c.k0)) {
-      // 命中帧：拳 / 刃落点扬起一点尘
+    } else if (n === 'attack' && !ent.rig.bowRig && crossed(ent, c.k0)) {
+      // 命中帧：拳 / 刃落点扬起一点尘（骸弓没有落点：出手的骨屑在 minions 的 shootArrow 里，放在搭箭点）
       W.entSocket(ent, 'weapon', _sk);
       const cnt = big ? 14 : 4;
       for (let i = 0; i < cnt; i++) {
@@ -20111,11 +20111,236 @@
   }
 
   // ---------------------------------------------------------------------
+  // 骸弓（T36 thrall-gear）：骨梢暗木反曲弓 + 背上的箭袋 + 右手的骨箭，全部烘进仆从自己的蒙皮网格（不加 draw call）。
+  // 弓的绑定坐标和玩家的长弓一样：握把在左手，两片弓臂沿 ±z，弓弦在 +y 一侧（手心那边）、弓背朝 -y。
+  // 拉弓：动作只管身子（侧身、转头），两只手由 thrallBowLate 的解析 IK 摆：左手把弓举到身前、弓身竖直，右手在弦上往回拉；
+  // 撒放跟着模拟真正射出的那一箭（ent.bowShots，minions 的 shootArrow 里数），同一帧弦回直、弦上没箭，弦往弓背弹过头再收住（0.16 秒）
+  // ---------------------------------------------------------------------
+  const TB_G = [0.31, 0.85, 0.03]; // 握把（左手），右手搭箭点按 x 镜像
+  const TB_TIP = [0.145, 0.49]; // 弓弦挂点：比握把高 / 前后多少（弦靠在反曲梢的弯里，梢头再往前卷一点）
+  const TB_REST = 0.025; // 搭箭点在握把靠弦一侧多少（muzzle 挂点）
+  const TB_DRAW = 0.42; // 拉满时右手离弦的静止位置多远（程序化骨架的臂长；C 模型按 armR.k 换算）
+  const TB_SNAP = 0.035; // 撒放后弦往弓背弹的幅度
+  function thrallBowGear(b, C) {
+    const [gx, gy, gz] = TB_G;
+    const WOOD_D = 0x2a1d16, WOOD = 0x553a28;
+    // 弓臂：暗木的主段 + 骨质的反曲梢（梢头往前卷）
+    for (const s of [1, -1]) {
+      const k = s > 0 ? 'U' : 'L';
+      b.at('wBo').surf(SURF.leather);
+      b.p(gSweep('th/bowW' + k, [[0, 0, s * 0.07], [0, -0.028, s * 0.2], [0, 0.005, s * 0.32], [0, 0.075, s * 0.41]], [0.024, 0.022, 0.018, 0.014], 6), [WOOD_D, WOOD], gx, gy, gz);
+      b.surf(SURF.bone).p(gSweep('th/bowB' + k, [[0, 0.075, s * 0.41], [0, 0.128, s * 0.455], [0, 0.15, s * 0.5], [0, 0.118, s * 0.55]], [0.015, 0.013, 0.011, 0.006], 5), [C.BONE_D, C.BONE], gx, gy, gz);
+      // 木臂和骨梢接口的一道青铜箍
+      b.surf(SURF.gold).p(gCyl(0.018, 0.018, 0.022, 6), C.BRONZE, gx, gy + 0.07, gz + s * 0.405, HALF_PI - s * 0.75);
+      // 弓背上一道刻槽里的光（随元素变色，和剑的血槽一样走 auxMat）
+      b.x(gBox(0.009, 0.009, 0.11), 1, gx, gy - 0.034, gz + s * 0.25, s * -0.27);
+    }
+    // 握把：缠皮，上下各一节椎骨
+    b.surf(SURF.leather).p(gCyl(0.03, 0.03, 0.15, 7), C.LEATHER_D, gx, gy, gz, HALF_PI);
+    b.surf(SURF.bone);
+    for (const s of [1, -1]) b.p(gSph(0.034, 7, 5), [C.BONE_D, C.BONE], gx, gy - 0.004, gz + s * 0.088, 0, 0, 0, 1, 0.8, 0.6);
+    // 弓弦：两段，各从挂点指向弦的中点（拉弓时转向右手，见 thrallBowLate）
+    const half = TB_TIP[1];
+    b.at('bsU').surf(SURF.cloth).p(gCyl(0.0045, 0.0045, half, 4), 0xd8cfb4, gx, gy + TB_TIP[0], gz + half / 2, HALF_PI);
+    b.at('bsL').p(gCyl(0.0045, 0.0045, half, 4), 0xd8cfb4, gx, gy + TB_TIP[0], gz - half / 2, HALF_PI);
+    // 骨箭：箭尾在右手里，沿 +z 指出去（不搭箭时 post 把这个关节缩成 0）
+    const ax = -gx;
+    b.at('wA').surf(SURF.leather).p(gCyl(0.0065, 0.0065, 0.6, 4), 0x4a3526, ax, gy, gz + 0.27, HALF_PI);
+    b.surf(SURF.bone).p(gCone(0.017, 0.07, 4), C.BONE, ax, gy, gz + 0.605, HALF_PI);
+    b.surf(SURF.cloth).p(gBox(0.003, 0.034, 0.075), 0xbfb498, ax, gy, gz + 0.015).p(gBox(0.034, 0.003, 0.075), 0xbfb498, ax, gy, gz + 0.015);
+    // 箭袋：斜背在背上，口朝右肩；皮筒、青铜口沿与底箍，露出三支箭的尾羽；一条皮带从箭袋口绕过右肩
+    const QX = -0.06, QY = 1.37, QZ = -0.14, QR = 0.32, sn = Math.sin(QR), cs = Math.cos(QR);
+    const at = (lx, ly) => [QX + lx * cs - ly * sn, QY + lx * sn + ly * cs]; // 箭袋的局部 (x, y) 绕 z 转 QR
+    b.at('chest').surf(SURF.leather).p(gCyl(0.062, 0.052, 0.46, 8), [C.LEATHER_D, C.LEATHER], QX, QY, QZ, 0, 0, QR);
+    let q = at(0, 0.225);
+    b.surf(SURF.gold).p(gTorus(0.062, 0.011, 4, 10), C.BRONZE, q[0], q[1], QZ, HALF_PI, 0, QR);
+    q = at(0, -0.215);
+    b.p(gCyl(0.054, 0.05, 0.03, 8), C.BRONZE_D, q[0], q[1], QZ, 0, 0, QR);
+    b.surf(SURF.cloth);
+    for (const [dx, dz, h] of [[-0.022, 0.012, 0.3], [0.02, -0.014, 0.27], [0.004, 0.022, 0.285]]) {
+      q = at(dx, h);
+      b.p(gBox(0.004, 0.08, 0.03), 0xbfb498, q[0], q[1], QZ + dz, 0, 0, QR).p(gBox(0.03, 0.08, 0.004), 0xa89c80, q[0], q[1], QZ + dz, 0, 0, QR);
+    }
+    q = at(0, 0.2);
+    b.surf(SURF.leather).p(gSweep('th/qstrap', [[q[0], q[1], QZ + 0.03], [-0.2, 1.53, -0.1], [-0.2, 1.5, 0.03], [-0.13, 1.42, 0.1]], [0.016, 0.016, 0.016, 0.014], 4), C.LEATHER_D, 0, 0, 0);
+  }
+  // 手臂两节的绑定数据（和玩家的 armData 同一套，握点 = 弓把 / 搭箭点；C 模型按离肩多远等比换算，见 remapHand）
+  function thArm(rig, ua, fa, h, w) {
+    const pv = (n) => rig.joints[rig.JI[n]];
+    const a = pv(ua), f = pv(fa), c = pv(h), wj = pv(w);
+    const U = [f.px - a.px, f.py - a.py, f.pz - a.pz], F = [c.px - f.px, c.py - f.py, c.pz - f.pz];
+    const ex = (k) => (wj[k] - wj[k + '0']) - (c[k] - c[k + '0']);
+    const A = {
+      ua: rig.J[ua], fa: rig.J[fa], h: rig.J[h], uaI: rig.JI[ua], faI: rig.JI[fa], hI: rig.JI[h], par: a.parent, U, F,
+      grip: [wj.px0 - c.px0 + ex('px'), wj.py0 - c.py0 + ex('py'), wj.pz0 - c.pz0 + ex('pz')],
+      k: 1,
+    };
+    if (rig.skin4) {
+      const ch = pv('chest'), len = (P) => Math.hypot(P[0], P[1], P[2]);
+      const U0 = [f.px0 - a.px0, f.py0 - a.py0, f.pz0 - a.pz0], F0 = [c.px0 - f.px0, c.py0 - f.py0, c.pz0 - f.pz0];
+      A.k = (len(U) + len(F)) / (len(U0) + len(F0));
+      A.rm = { c0: [a.px0 - ch.px0, a.py0 - ch.py0, a.pz0 - ch.pz0], c1: [a.px - ch.px, a.py - ch.py, a.pz - ch.pz], m0: [a.px0, a.py0, a.pz0], m1: [a.px, a.py, a.pz] };
+    }
+    return A;
+  }
+  // 每帧（姿态解算之前）：撒放 / 搭箭的状态，箭显不显示。只看画面这边的东西（动作进度、ent.bowShots），不碰模拟和随机数
+  function thrallBowPost(ent, o, t, sdt) {
+    minionPost(ent, o, t, sdt);
+    const dt = sdt || 0, c = ent.clip, atk = c && c.name === 'attack' && !ent.dying ? c : null;
+    if (ent.tbW === undefined) { ent.tbW = 0; ent.tbRW = 0; ent.tbHold = 0; ent.tbST = 1e9; ent.tbAt = 0; ent.tbK = 0; ent.tbDk = 0; ent.snapT = -1; }
+    if (atk) {
+      if (ent.tbC !== atk || ent.cK < ent.tbK - 1e-6) ent.tbAt = ent.bowShots | 0; // 新的一箭
+      ent.tbK = ent.cK;
+      ent.tbHold = 0.6; // 射完弓再举一会儿：连射时不放下
+    } else ent.tbHold -= dt;
+    ent.tbC = atk;
+    const shot = !!atk && (ent.bowShots | 0) > ent.tbAt;
+    if (shot && !ent.tbWas) ent.tbST = 0;
+    else ent.tbST += dt;
+    ent.tbWas = shot;
+    let dk = 0;
+    if (atk && !shot && ent.cK <= atk.k0 + 0.2) dk = smooth01(ent.cK / (atk.k0 - 0.05));
+    if (ent.tbDk > 0.5 && dk < 0.1) ent.snapT = 0;
+    else if (ent.snapT >= 0) ent.snapT = ent.snapT + dt > 0.16 ? -1 : ent.snapT + dt;
+    ent.tbDk = dk;
+    const up = !ent.dying && (atk || ent.tbHold > 0);
+    ent.tbW += ((up ? 1 : 0) - ent.tbW) * Math.min(1, dt * (up ? 16 : 5));
+    if (ent.tbW < 1e-3) ent.tbW = 0;
+    // 右手：举弓时搭在弦上（射出后先顺势往后带一下，0.1 秒后回到弦上搭下一支）
+    ent.tbRW += ((up ? 1 : 0) - ent.tbRW) * Math.min(1, dt * (up ? 12 : 6));
+    if (ent.tbRW < 1e-3) ent.tbRW = 0;
+    const vis = ent.tbW > 0.3 && ent.tbRW > 0.5 && !shot && ent.tbST > 0.28 && (!atk || ent.cK <= atk.k0 + 0.2) ? 1 : 0;
+    const J = ent.rig.J;
+    o[J.wA + 6] = o[J.wA + 7] = o[J.wA + 8] = vis;
+  }
+  const _tbT = new Float32Array(9);
+  // 解析 IK 摆一只手：T = 模型空间的（握点位置、指向、刃口）；pole = 胸口坐标系里肘尖的朝向
+  function thReach(ent, A, T, w, px, py, pz) {
+    handFrame(T[3], T[4], T[5], T[6], T[7], T[8], _Rh);
+    const gp = A.grip;
+    const wx = T[0] - (_Rh[0] * gp[0] + _Rh[1] * gp[1] + _Rh[2] * gp[2]);
+    const wy = T[1] - (_Rh[3] * gp[0] + _Rh[4] * gp[1] + _Rh[5] * gp[2]);
+    const wz = T[2] - (_Rh[6] * gp[0] + _Rh[7] * gp[1] + _Rh[8] * gp[2]);
+    ikPole(ent, px, py, pz);
+    solveArm(ent, A, wx, wy, wz, _hm[0], _hm[1], _hm[2], w, _Rh);
+  }
+  // 模型空间里弓上一点（弓的绑定坐标 bx, by, bz）
+  function thBowPt(ent, bx, by, bz, out) {
+    const rig = ent.rig, bj = rig.JI.wBo, bp = rig.joints[bj], M = ent.mdl, m = bj * 12;
+    const lx = bx - bp.px0, ly = by - bp.py0, lz = bz - bp.pz0;
+    out[0] = M[m] * lx + M[m + 1] * ly + M[m + 2] * lz + M[m + 3];
+    out[1] = M[m + 4] * lx + M[m + 5] * ly + M[m + 6] * lz + M[m + 7];
+    out[2] = M[m + 8] * lx + M[m + 9] * ly + M[m + 10] * lz + M[m + 11];
+    return out;
+  }
+  const _tbA = new Float32Array(3), _tbB = new Float32Array(3);
+  function thrallBowLate(ent, sdt) {
+    minionLate(ent);
+    const rig = ent.rig, J = rig.J, o = ent.out, M = ent.mdl, w = ent.tbW || 0;
+    const [gx, gy, gz] = TB_G, TY = gy + TB_TIP[0];
+    if (w <= 0 && !(ent.snapT >= 0)) return;
+    if (w > 0) {
+      // 左手：弓举到身前、略低于肩，弓身竖直（梢略往外斜），弓背朝前
+      const T = _tbT;
+      T[0] = 0.05; T[1] = 1.4; T[2] = 0.5;
+      remapHand(rig.armL, 'model', T, true);
+      T[3] = -0.1; T[4] = 1; T[5] = 0.05; T[6] = 0; T[7] = 0; T[8] = 1;
+      thReach(ent, rig.armL, T, w, 0.4, -1, -0.2);
+      solveRig(ent);
+      const rw = w * (ent.tbRW || 0);
+      if (rw > 1e-3) {
+        // 右手：弦的静止位置 → 往回拉 TB_DRAW（按臂长换算）；射出后顺势往后带一点，再回到弦上
+        const S = thBowPt(ent, gx, TY, gz, _tbA), D = TB_DRAW * rig.armR.k, dk = ent.tbDk || 0;
+        let x = S[0], y = S[1], z = S[2] - D * dk;
+        const st = ent.tbST;
+        if (st < 0.3) {
+          const f = smooth01((st - 0.1) / 0.2), ff = Math.min(1, st / 0.08);
+          const fx = S[0] - 0.07 * ff, fy = S[1] + 0.02 * ff, fz = S[2] - D - 0.05 * ff;
+          x = fx + (S[0] - fx) * f; y = fy + (S[1] - fy) * f; z = fz + (S[2] - fz) * f;
+        }
+        T[0] = x; T[1] = y; T[2] = z;
+        T[3] = 0; T[4] = 0; T[5] = 1; T[6] = 0; T[7] = -1; T[8] = 0;
+        thReach(ent, rig.armR, T, rw, -1, 0.15, -0.5);
+        solveRig(ent);
+      }
+    }
+    // 弓弦：两段转向搭箭点（拉弓时是右手的握点），撒放后往弓背弹两下
+    const bj = rig.JI.wBo, bm = bj * 12, bp = rig.joints[bj], hm = rig.JI.hR * 12, gp = rig.armR.grip;
+    let nx = gx, ny = TY, nz = gz;
+    const hx = M[hm] * gp[0] + M[hm + 1] * gp[1] + M[hm + 2] * gp[2] + M[hm + 3];
+    const hy = M[hm + 4] * gp[0] + M[hm + 5] * gp[1] + M[hm + 6] * gp[2] + M[hm + 7];
+    const hz = M[hm + 8] * gp[0] + M[hm + 9] * gp[1] + M[hm + 10] * gp[2] + M[hm + 11];
+    const dk = (ent.tbDk || 0) * w * (ent.tbRW || 0);
+    if (dk > 0.001) {
+      rotOf(M, bj, _Rh);
+      const ks = o[J.wBo + 6] || 1, qx = (hx - M[bm + 3]) / ks, qy = (hy - M[bm + 7]) / ks, qz = (hz - M[bm + 11]) / ks;
+      const lx = _Rh[0] * qx + _Rh[3] * qy + _Rh[6] * qz + bp.px0;
+      const ly = _Rh[1] * qx + _Rh[4] * qy + _Rh[7] * qz + bp.py0;
+      const lz = _Rh[2] * qx + _Rh[5] * qy + _Rh[8] * qz + bp.pz0;
+      nx += (lx - nx) * dk; ny += (ly - ny) * dk; nz += (lz - nz) * dk;
+    }
+    if (ent.snapT >= 0 && dk < 0.1) {
+      const t = ent.snapT;
+      ny -= TB_SNAP * Math.exp(-t / 0.045) * Math.sin(t * 88);
+    }
+    const half = TB_TIP[1];
+    let vx = nx - gx, vy = ny - TY, vz = nz - (gz + half), vl = Math.hypot(vx, vy, vz) || 1;
+    o[J.bsU] = Math.atan2(vy, -vz);
+    o[J.bsU + 1] = Math.asin(G.clamp(-vx / vl, -1, 1));
+    o[J.bsU + 2] = 0;
+    o[J.bsU + 8] = vl / half;
+    vz = nz - (gz - half);
+    vl = Math.hypot(vx, vy, vz) || 1;
+    o[J.bsL] = Math.atan2(-vy, vz);
+    o[J.bsL + 1] = Math.asin(G.clamp(vx / vl, -1, 1));
+    o[J.bsL + 2] = 0;
+    o[J.bsL + 8] = vl / half;
+    solveJoint(ent, rig.JI.bsU);
+    solveJoint(ent, rig.JI.bsL);
+    if (o[J.wA + 6] > 0) {
+      // 箭：右手 → 弓把上的搭箭点
+      const B = thBowPt(ent, gx, gy + TB_REST, gz, _tbB);
+      rotOf(M, rig.JI.hR, _Rh);
+      const qx = B[0] - hx, qy = B[1] - hy, qz = B[2] - hz, ql = Math.hypot(qx, qy, qz) || 1;
+      const lx = (_Rh[0] * qx + _Rh[3] * qy + _Rh[6] * qz) / ql;
+      const ly = (_Rh[1] * qx + _Rh[4] * qy + _Rh[7] * qz) / ql;
+      const lz = (_Rh[2] * qx + _Rh[5] * qy + _Rh[8] * qz) / ql;
+      o[J.wA] = Math.atan2(-ly, lz);
+      o[J.wA + 1] = Math.asin(G.clamp(lx, -1, 1));
+      o[J.wA + 2] = 0;
+      solveJoint(ent, rig.JI.wA);
+    }
+  }
+  // 骸弓的出手：侧身（左肩朝目标）、转头看着目标；两只手交给 thrallBowLate。k0 = 撒放（对到模拟出箭的那一刻）
+  function thrallBowClips(rig) {
+    rig.bowRig = true;
+    defClip(rig, 'attack', {
+      dur: 0.5, k0: 0.45, lower: ['thL', 'shL', 'ftL', 'thR', 'shR', 'ftR'], fade: 0.06, out: 0.22,
+      keys: {
+        'root.ry': [0, 0, 0.25, -0.35, 0.8, -0.35, 1, 0],
+        'chest.ry': [0, -0.12, 0.25, -0.38, 0.8, -0.38, 1, -0.12],
+        'spine.rx': [0, 0.1, 0.25, 0.02, 0.8, 0.02, 1, 0.1],
+        'chest.rx': [0, 0.06, 0.25, -0.03, -0.45, -0.05, 0.62, 0.02, 1, 0.06],
+        'head.ry': [0, 0.1, 0.25, 0.62, 0.8, 0.62, 1, 0.1],
+        'head.rx': [0, -0.12, 0.25, 0.04, 1, -0.12],
+        'jaw.rx': [0, 0.05, -0.45, 0.22, 0.7, 0.1, 1, 0.05],
+      },
+    });
+  }
+
+  // ---------------------------------------------------------------------
   // 烬骸仆从：精瘦的骷髅剑士，套着几片残甲——左肩暗铁肩甲、歪戴的半盔、一截胫甲；
   // 右手一把豁了口的剑，左臂绑着一面青铜包边的小圆盾；胸腔里烧着一团魂火
   // ---------------------------------------------------------------------
   function thrallRig() {
-    return rigOf('thrall', () => cTry('thrall', (cs) => {
+    return thrallMake(false);
+  }
+  // 骸弓（烬骸仆从的刻式「骸弓」）：同一副骷髅，剑和盾换成骨梢暗木反曲弓 + 背上的箭袋，右手搭一支骨箭（T36 thrall-gear）
+  function thrallBowRig() {
+    return thrallMake(true);
+  }
+  function thrallMake(bow) {
+    return rigOf(bow ? 'thrallBow' : 'thrall', () => cTry('thrall', (cs) => {
       const BONE = 0xece3cc, BONE_D = 0xa69c86, IRON = 0x7a828e, IRON_D = 0x3d434d, BRONZE = 0xbb8e4c, BRONZE_D = 0x6f5329;
       const LEATHER = 0x5c4432, LEATHER_D = 0x35271c, WOOD = 0x6e5038, CLOTH = 0x2c4a47, CLOTH_L = 0x3f655f, CLOTH_IN = 0x132220, HOLE = 0x0a0c0c;
       const b = rigBuilder('thrall', NB_SMALL, cs);
@@ -20125,6 +20350,12 @@
       b.j('thL', 'root', 0.11, 0.92, 0).j('shL', 'thL', 0.12, 0.51, 0.01).j('ftL', 'shL', 0.12, 0.09, 0);
       b.j('thR', 'root', -0.11, 0.92, 0).j('shR', 'thR', -0.12, 0.51, 0.01).j('ftR', 'shR', -0.12, 0.09, 0);
       b.j('rag', 'root', 0, 0.99, 0.13).j('ragB', 'root', 0, 0.99, -0.13);
+      // 骸弓：弓（左手握把）、上下两段弓弦（拉弓时转向右手）、右手捏着的骨箭。共 23 个关节，仍在 NB_SMALL（24）以内
+      if (bow) {
+        const [gx, gy, gz] = TB_G;
+        b.j('wBo', 'hL', gx, gy, gz).j('bsU', 'wBo', gx, gy + TB_TIP[0], gz + TB_TIP[1]).j('bsL', 'wBo', gx, gy + TB_TIP[0], gz - TB_TIP[1]);
+        b.j('wA', 'hR', -gx, gy, gz);
+      }
 
       // --- 骨盆：两片髂骨、骶骨、髋臼；皮腰带 + 青铜扣；左胯一片残破的铁甲裙 ---
       b.at('root').surf(SURF.bone);
@@ -20193,22 +20424,26 @@
       b.at('faR').surf(SURF.gold).p(gCyl(0.044, 0.05, 0.1, 8), [BRONZE_D, BRONZE], -0.305, 1.0, -0.012);
       b.surf(SURF.leather).p(gCyl(0.038, 0.04, 0.04, 8), LEATHER_D, -0.3, 1.075, -0.02);
 
-      // --- 豁口剑：握把沿 +z，刃面竖着；血槽里一道光（随元素变色，见 W.minionElem） ---
-      b.tag('gear'); // 剑和盾：换成 C 模型时留下
-      const WX = -0.31, WY = 0.85, WZ = 0.03;
-      b.at('hR').surf(SURF.leather).p(gCyl(0.021, 0.023, 0.2, 6), LEATHER_D, WX, WY, WZ + 0.02, HALF_PI);
-      b.surf(SURF.metal).p(gSph(0.03, 6, 4), IRON, WX, WY, WZ - 0.095);
-      b.p(gRBox(0.04, 0.2, 0.045, 0.012), [IRON_D, IRON], WX, WY, WZ + 0.13);
-      b.p(gPlate('th/blade', [[-0.045, 0], [0.045, 0], [0.05, 0.16], [0.03, 0.2], [0.052, 0.26], [0.055, 0.5], [0.034, 0.55], [0.05, 0.6], [0.042, 0.7], [0, 0.8], [-0.05, 0.68], [-0.056, 0.42], [-0.033, 0.37], [-0.054, 0.32], [-0.05, 0.1]], 0.012, 0.01), [0x6a7078, 0xb4b9be], WX, WY, WZ + 0.15, HALF_PI, HALF_PI, 0);
-      b.x(gBox(0.038, 0.014, 0.44), 1, WX, WY, WZ + 0.44);
+      b.tag('gear'); // 剑和盾 / 弓和箭袋：换成 C 模型时留下
+      if (!bow) {
+        // --- 豁口剑：握把沿 +z，刃面竖着；血槽里一道光（随元素变色，见 W.minionElem） ---
+        const WX = -0.31, WY = 0.85, WZ = 0.03;
+        b.at('hR').surf(SURF.leather).p(gCyl(0.021, 0.023, 0.2, 6), LEATHER_D, WX, WY, WZ + 0.02, HALF_PI);
+        b.surf(SURF.metal).p(gSph(0.03, 6, 4), IRON, WX, WY, WZ - 0.095);
+        b.p(gRBox(0.04, 0.2, 0.045, 0.012), [IRON_D, IRON], WX, WY, WZ + 0.13);
+        b.p(gPlate('th/blade', [[-0.045, 0], [0.045, 0], [0.05, 0.16], [0.03, 0.2], [0.052, 0.26], [0.055, 0.5], [0.034, 0.55], [0.05, 0.6], [0.042, 0.7], [0, 0.8], [-0.05, 0.68], [-0.056, 0.42], [-0.033, 0.37], [-0.054, 0.32], [-0.05, 0.1]], 0.012, 0.01), [0x6a7078, 0xb4b9be], WX, WY, WZ + 0.15, HALF_PI, HALF_PI, 0);
+        b.x(gBox(0.038, 0.014, 0.44), 1, WX, WY, WZ + 0.44);
 
-      // --- 小圆盾：绑在左前臂外侧，盾面朝 +x；木面、两道铁箍、青铜包边与盾心，盾面上一圈魂火誓印 ---
-      b.at('faL').surf(SURF.leather).p(gCyl(0.215, 0.215, 0.03, 14), [LEATHER_D, WOOD], 0.365, 1.03, 0, 0, 0, HALF_PI);
-      b.surf(SURF.metal).p(gBox(0.012, 0.4, 0.035), IRON, 0.383, 1.03, 0.085).p(gBox(0.012, 0.4, 0.035), IRON, 0.383, 1.03, -0.085);
-      b.surf(SURF.gold).p(gTorus(0.215, 0.022, 4, 18), BRONZE, 0.38, 1.03, 0, 0, HALF_PI, 0);
-      b.p(gDome(0.06, 8, 3), BRONZE, 0.38, 1.03, 0, 0, 0, -HALF_PI);
-      b.g(gTorus(0.12, 0.016, 3, 16), 1.3, 0.388, 1.03, 0, 0, HALF_PI, 0);
-      b.g(gTorus(0.226, 0.01, 3, 18), 0.9, 0.392, 1.03, 0, 0, HALF_PI, 0); // 盾沿一圈魂火描边
+        // --- 小圆盾：绑在左前臂外侧，盾面朝 +x；木面、两道铁箍、青铜包边与盾心，盾面上一圈魂火誓印 ---
+        b.at('faL').surf(SURF.leather).p(gCyl(0.215, 0.215, 0.03, 14), [LEATHER_D, WOOD], 0.365, 1.03, 0, 0, 0, HALF_PI);
+        b.surf(SURF.metal).p(gBox(0.012, 0.4, 0.035), IRON, 0.383, 1.03, 0.085).p(gBox(0.012, 0.4, 0.035), IRON, 0.383, 1.03, -0.085);
+        b.surf(SURF.gold).p(gTorus(0.215, 0.022, 4, 18), BRONZE, 0.38, 1.03, 0, 0, HALF_PI, 0);
+        b.p(gDome(0.06, 8, 3), BRONZE, 0.38, 1.03, 0, 0, 0, -HALF_PI);
+        b.g(gTorus(0.12, 0.016, 3, 16), 1.3, 0.388, 1.03, 0, 0, HALF_PI, 0);
+        b.g(gTorus(0.226, 0.01, 3, 18), 0.9, 0.392, 1.03, 0, 0, HALF_PI, 0); // 盾沿一圈魂火描边
+      } else {
+        thrallBowGear(b, { BONE, BONE_D, LEATHER, LEATHER_D, BRONZE, BRONZE_D });
+      }
       b.tag(null);
 
       // --- 腿：股骨、髌骨、胫腓骨、骨脚；右小腿一截暗铁胫甲，左膝青铜护膝 ---
@@ -20234,9 +20469,19 @@
       sock(rig, 'handL', 'hL', 0, -0.05, 0.02);
       sock(rig, 'head', 'head', 0, 0.13, 0.02);
       sock(rig, 'chest', 'chest', 0, 0.06, 0.06);
+      if (bow) sock(rig, 'muzzle', 'wBo', 0, TB_REST, 0); // 搭箭点：弓把靠弦的一侧（W.muzzleWorld 按它出箭）
       cApply(rig, cs);
-      rig.post = minionPost;
-      rig.late = minionLate;
+      rig.post = bow ? thrallBowPost : minionPost;
+      rig.late = bow ? thrallBowLate : minionLate;
+      if (bow) {
+        rig.armL = thArm(rig, 'uaL', 'faL', 'hL', 'wBo');
+        rig.armR = thArm(rig, 'uaR', 'faR', 'hR', 'wA');
+        if (rig.armL.rm && rig.armR.rm) {
+          const L = rig.armL.rm, R = rig.armR.rm, mid = (a, c) => [(a[0] + c[0]) / 2, (a[1] + c[1]) / 2, (a[2] + c[2]) / 2];
+          L.u0 = R.u0 = mid(L.m0, R.m0);
+          L.u1 = R.u1 = mid(L.m1, R.m1);
+        }
+      }
       rig.loco = function (ent, p, t) {
         const J = rig.J, mv = ent.mv, s = Math.sin(ent.walk), c = Math.cos(ent.walk), id = 1 - mv;
         const run = Math.min(1.25, ent.spd / 5.5) * mv;
@@ -20263,21 +20508,35 @@
         const ga = rig.gait || 0.78; // 腿摆幅（C 模型的骷髅腿短，摆得大一点、步频也高一点，脚才不打滑）
         legCycle(p, J.thL, J.shL, J.ftL, s, c, run, ga, 1.15);
         legCycle(p, J.thR, J.shR, J.ftR, -s, -c, run, ga, 1.15);
-        // 左臂：小臂横在身前举着盾
-        p[J.uaL] = -0.5 - 0.15 * run + 0.03 * br;
-        p[J.uaL + 1] = -0.55;
-        p[J.uaL + 2] = 0.18;
-        p[J.faL] = -1.25 - 0.1 * run;
-        // 右臂：剑尖斜指前下方，跑起来随步子前后摆
-        p[J.uaR] = -0.15 - 0.45 * s * run + 0.03 * br2;
-        p[J.uaR + 2] = -0.14 - 0.05 * run;
-        p[J.faR] = -0.75 - 0.25 * run;
-        p[J.hR] = 0.45 - 0.15 * run;
-        p[J.hR + 1] = 0.2;
+        if (bow) {
+          // 骸弓：左手提弓垂在身侧，弓身竖直、上梢略向前倾，弓弦朝后；右手空着，随步子摆
+          p[J.uaL] = 0.35 * s * run - 0.04 * id + 0.02 * br;
+          p[J.uaL + 2] = 0.16 + 0.04 * run;
+          p[J.faL] = -0.45 * run - 0.35 * id;
+          p[J.hL] = -1.3 - p[J.uaL] - p[J.faL];
+          p[J.hL + 2] = 0.1;
+          p[J.uaR] = -0.5 * s * run + 0.04 * id + 0.02 * br2;
+          p[J.uaR + 2] = -0.12 - 0.04 * run;
+          p[J.faR] = -(0.7 - 0.2 * s) * run - 0.3 * id;
+          p[J.hR] = 0.2;
+        } else {
+          // 左臂：小臂横在身前举着盾
+          p[J.uaL] = -0.5 - 0.15 * run + 0.03 * br;
+          p[J.uaL + 1] = -0.55;
+          p[J.uaL + 2] = 0.18;
+          p[J.faL] = -1.25 - 0.1 * run;
+          // 右臂：剑尖斜指前下方，跑起来随步子前后摆
+          p[J.uaR] = -0.15 - 0.45 * s * run + 0.03 * br2;
+          p[J.uaR + 2] = -0.14 - 0.05 * run;
+          p[J.faR] = -0.75 - 0.25 * run;
+          p[J.hR] = 0.45 - 0.15 * run;
+          p[J.hR + 1] = 0.2;
+        }
         p[J.rag] = -0.06 - 0.32 * run * Math.max(Math.abs(s), 0.4) + 0.04 * br;
         p[J.ragB] = 0.08 + 0.3 * run + 0.05 * Math.sin(t * 2.7 + ent.phase);
       };
       thrallClips(rig);
+      if (bow) thrallBowClips(rig);
       // 人形标准骨架：受击叠一层 UAL 的 Hit_Chest（上身）；持盾的步态和散架的死法是这个角色自己的，保留程序化
       if (cs) stdAnim(rig, cs, { hit: 'Hit_Chest' });
       return rig;
@@ -20865,8 +21124,8 @@
     });
   }
 
-  const MINION_RIG = { thrall: thrallRig, colossus: colossusRig, pyre: pyreRig };
-  const MINION_RING_R = { thrall: 0.82, colossus: 1.6, pyre: 0.75 };
+  const MINION_RIG = { thrall: thrallRig, thrallBow: thrallBowRig, colossus: colossusRig, pyre: pyreRig };
+  const MINION_RING_R = { thrall: 0.82, thrallBow: 0.82, colossus: 1.6, pyre: 0.75 };
   // 召唤物实体。kind：'thrall' | 'colossus'。elemHex（可选）：剑刃血槽 / 拳上符石这些点缀的颜色，
   // 默认魂火青；魂火（眼、胸腔、誓印）、脚环与血条永远是魂火青。之后可用 W.minionElem 改点缀色。
   W.makeMinion = function (kind, elemHex) {
