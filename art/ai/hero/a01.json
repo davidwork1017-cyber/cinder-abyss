@@ -1,0 +1,46 @@
+{
+ "name": "a01",
+ "source": {
+  "name": "hero-a-01",
+  "file": "model.glb",
+  "sha256": "426a2e4aed07deffbf769f85ce512502c85c3d024bfdc1d7ed580f01ce442205"
+ },
+ "fit": {
+  "knee_frac": 0.53,
+  "palm_hint_l": [
+   0,
+   0,
+   1
+  ],
+  "palm_hint_r": [
+   0,
+   0,
+   1
+  ],
+  "hip_up": 0.065
+ },
+ "tris": {
+  "hi": 10000,
+  "lo": 7600
+ },
+ "weights": {
+  "mode": "hybrid",
+  "glb": "rigtest/unirig/hero-a-01/model_rigged.glb",
+  "sha256": "523bf07f628abbdaa86cdf858c0e568a9b57ebdf5f137c305d33b642b6303d4b"
+ },
+ "colour": {
+  "grade": {
+   "sat": 0.72,
+   "tint": [
+    0.9,
+    0.95,
+    1.08
+   ]
+  }
+ },
+ "shape": {
+  "head_scale": 0.88,
+  "knee_flatten": 0.7
+ },
+ "resemblance": "a generic young adventurer: swept ash-lavender hair, teal scarf, open short-sleeve indigo-violet jacket with long back coattails, cream shirt, navy trousers with round knee pads, brown boots. The prompt names no game or IP; no match seen to a known game character's design, colours or emblems."
+}
