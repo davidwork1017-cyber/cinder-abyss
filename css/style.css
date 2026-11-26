@@ -2560,7 +2560,8 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
   border-radius: 3px;
   box-shadow: 0 6px 22px rgba(0, 0, 0, 0.6), 0 0 18px rgba(255, 130, 50, 0.18);
 }
-#coach.on { opacity: 1; transform: none; }
+/* hint-once：点一下提示卡就收起（鼠标、触屏都是）；只有点在画布上的才算游戏输入，点卡片不会放技能 */
+#coach.on { opacity: 1; transform: none; pointer-events: auto; cursor: pointer; }
 body.panel-open #coach { display: none; }
 .co-tag { font-size: 11px; letter-spacing: 4px; color: var(--ember-2); }
 .co-body { margin-top: 3px; font-size: 13.5px; line-height: 23px; color: #f0e2c8; }
@@ -4338,13 +4339,12 @@ html.touch-ui body.quest-on #combo, html.touch-ui #combo { top: calc(var(--sa-t)
 html.touch-ui #combo-n { font-size: 38px; line-height: 38px; }
 html.touch-ui .cb-label { font-size: 11px; letter-spacing: 4px; text-indent: 4px; }
 html.touch-ui .cb-bar { width: 64px; margin-top: 4px; }
-/* 提示卡：顶栏下方居中、不超过 40% 宽、最多两行（点一下展开），不压摇杆区和按钮簇；首领条出来时排到它下面 */
+/* 提示卡：顶栏下方居中、不超过 40% 宽、整句显示（最多四行，改版说明才会到四行），点一下收起；不压摇杆区和按钮簇；首领条出来时排到它下面 */
 html.touch-ui #coach { --cw: min(calc(40 * var(--vw, 1vw)), 360px, calc(calc(100 * var(--vw, 1vw)) - 2 * max(var(--sa-l), var(--sa-r)) - 348px)); left: 50%; top: calc(var(--sa-t) + 56px); width: var(--cw); margin-left: calc(var(--cw) / -2); box-sizing: border-box; padding: 5px 10px 6px; border-left-width: 2px; }
 html.touch-ui #coach.on { pointer-events: auto; }
 html.touch-ui.t-boss #coach { top: calc(var(--sa-t) + 112px); }
 html.touch-ui #coach .co-tag, html.touch-ui #coach .co-ok { display: none; }
-html.touch-ui .co-body { margin-top: 0; font-size: 12px; line-height: 17px; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
-html.touch-ui #coach.t-open .co-body { display: block; -webkit-line-clamp: unset; }
+html.touch-ui .co-body { margin-top: 0; font-size: 12px; line-height: 17px; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden; }
 html.touch-ui #feed { left: calc(var(--sa-l) + 8px); bottom: auto; top: calc(var(--sa-t) + 100px); }
 html.touch-ui #toasts { top: calc(var(--sa-t) + 116px); }
 html.touch-ui #big-toast { top: 30%; }
@@ -4466,9 +4466,6 @@ html.touch-ui:not(.t-lp) #tip { display: none !important; }
 /* 触屏的按键表：标签都很短，左列按内容收窄，说明占满剩下的宽度 */
 html.touch-ui .hk-keys { width: auto; min-width: 52px; }
 html.touch-ui .hk > span:last-child { flex: 1; min-width: 0; }
-/* 打起来以后提示卡收成一行、变淡（js/touch.js 加 t-min；点一下展开） */
-html.touch-ui #coach.on.t-min:not(.t-open) { opacity: 0.55; }
-html.touch-ui #coach.t-min:not(.t-open) .co-body { -webkit-line-clamp: 1; }
 
 /* 触屏：旁白卡放在顶栏、提示卡下方居中，字小一号、可以折行，不压小地图 / 追踪条、摇杆区和按钮簇 */
 html.touch-ui #narr { bottom: auto; top: calc(var(--sa-t) + 104px); max-width: calc(calc(100 * var(--vw, 1vw)) - 2 * max(var(--sa-l), var(--sa-r)) - 360px); font-size: 13px; line-height: 1.5; }

@@ -602,6 +602,8 @@
       volAmb: toInt(ro.volAmb, 0, 100, 60), volMusic: toInt(ro.volMusic, 0, 100, 50), mute: !!ro.mute,
     };
     if (ro.salvageOffCls === true) s.opts.salvageOffCls = true; // 自动分解其他职业武器（T36）：只有打开时才有这个键，老存档没有 = 关
+    // 新手提示开关（hint-once）：只有在设置里动过才有这个键；没有 = 按存档算默认（10 级以上、进过轮回或打通烬渊深处的默认关，见 ui.js hintsOn）
+    if (typeof ro.hints === 'boolean') s.opts.hints = ro.hints;
     s.seenHelp = !!raw.seenHelp;
     s.seenStory = !!raw.seenStory;
     s.tut = {};

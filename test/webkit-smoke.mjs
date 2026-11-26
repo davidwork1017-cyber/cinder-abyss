@@ -836,6 +836,47 @@ await step('竖屏（iPhone 竖着拿）：标题画面点「横屏开始」→ 
   return '锁横屏 ' + (t0.lock ? '有' : '无') + ' → 旋转 ' + t1.st.rot + '（' + t1.vw + '×' + t1.vh + '），重载后接着转；走了 ' + (m.x - g0.x).toFixed(2) + ' m，主攻 ' + c.casts + ' 次，背包铺满' + (pre.settle ? '（量位移前先把手上的动作做完：' + pre.settle + ' 帧，' + JSON.stringify(pre.was) + '）' : '');
 });
 
+// hint-once：用户在旋转横屏里玩（主屏幕 App）。新手提示卡排在顶栏下面、不压画面中央、最多四行；一出现就记为看过；真手指点一下就收起（不放技能）
+await step('新手提示卡（hint-once）：旋转横屏里「捡到通货」那条排在顶栏下面、不压画面中央；出现即记为看过，点一下收起', async () => {
+  const rot = await ev(() => G.touch.state().rot);
+  await ev(() => {
+    const S = G.save;
+    G.ui.close();
+    G.debug.god(true);
+    G.clearEnemies();
+    S.opts.hints = true;
+    const tut = {};
+    for (const id of G.ui.hints().all) if (id !== 'craft') tut[id] = 1;
+    S.tut = tut;
+    if (!S.bag.length) G.debug.giveItem(1, 'helm');
+    G.ui.hintsGap(0);
+    G.debug.hold(false);
+  });
+  await page.waitForTimeout(800);
+  await ev(() => { G.save.cur.dust = (G.save.cur.dust || 0) + 1; });
+  await until(() => G.ui.hints().current === 'craft' && document.getElementById('coach').classList.contains('on'), null, 30000);
+  await page.waitForTimeout(400); // 淡入
+  const r = await ev(() => {
+    const co = document.getElementById('coach');
+    const b = G.rectToFrame(co.getBoundingClientRect()), top = G.rectToFrame(document.getElementById('t-top').getBoundingClientRect());
+    const W = G.viewW(), H = G.viewH();
+    return {
+      b: { l: Math.round(b.left), t: Math.round(b.top), r: Math.round(b.right), bt: Math.round(b.bottom) }, W, H, topB: Math.round(top.bottom),
+      centre: b.left < W / 2 && b.right > W / 2 && b.top < H / 2 && b.bottom > H / 2,
+      lines: Math.round(G.rectToFrame(co.querySelector('.co-body').getBoundingClientRect()).height / 17),
+      txt: co.innerText.replace(/\s+/g, ' '), seen: !!JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).tut.craft, vis: G.ui.hints().visFor,
+    };
+  });
+  assert(r.b.t >= r.topB - 1 && r.b.l >= 0 && r.b.r <= r.W && !r.centre && r.lines <= 4 && r.txt.includes('通货') && r.txt.includes('「包」'), '提示卡应在顶栏下面、不压画面中央、最多四行：' + JSON.stringify(r));
+  assert(r.seen && r.vis >= 6 && r.vis <= 8, '一出现就应记为看过、亮 6–8 秒：' + JSON.stringify(r));
+  await tap('#coach');
+  await page.waitForTimeout(300);
+  const after = await ev(() => ({ cur: G.ui.hints().current, on: document.getElementById('coach').classList.contains('on'), casts: !!G.player.cast, gap: G.ui.hints().gapLeft }));
+  await ev(() => G.debug.hold(true));
+  assert(after.cur === null && !after.on && !after.casts && after.gap > 25000, '点一下提示卡应收起、不放技能：' + JSON.stringify(after));
+  return (rot || '不转') + ' ' + r.W + '×' + r.H + '：卡片 ' + (r.b.r - r.b.l) + '×' + (r.b.bt - r.b.t) + '（' + r.lines + ' 行，顶栏下 ' + (r.b.t - r.topB) + ' px），点一下收起';
+});
+
 await step('iPhone 圆角：四角各一块半径 47 px 的遮罩，标题、职业选择、开场故事、HUD（提示卡、旁白卡、首领条、F 键）、背包、技能、暂停菜单、开场卡片的字和按钮都不碰', async () => {
   const c2 = await browser.newContext(Object.assign({}, dev));
   const p2 = await c2.newPage();

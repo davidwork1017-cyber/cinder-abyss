@@ -516,6 +516,7 @@ async function install() {
       },
     });
     T.hintsSeen(); // 情境提示按真实时间走，除了专门测它的那一步，其余步骤里都关掉
+    G.save.opts.hints = true; // hint-once：测试角色是高等级的老存档（默认关），专门测提示的步骤要它开着；设置里动过一样会写这个键
     G.debug.hold(true);
   });
 }
@@ -800,7 +801,7 @@ async function timedMain() {
       G.player.mana = G.player.maxMana;
       G.persist();
     });
-  await uiStep('计时｜新手提示：做到之后「做到了」不会一闪而过（按下翻滚 1.9 秒后才换掉）', async () => {
+  await uiStep('计时｜新手提示：做到之后「做到了」不会一闪而过（按下翻滚 1.1 秒后才换掉）', async () => {
     // 和原步骤走到这里时一样：本次从 1 级玩上来的角色升到 3 级，基础提示只差翻滚，身边一只不动的敌人
     await ev(() => {
       T.arena();
@@ -820,7 +821,7 @@ async function timedMain() {
     await seen('dodge');
     await hint(); // 原步骤在这里读一次提示状态（「做到了」的断言在 test:func 里），往返照样做一次
     await until(() => G.ui.hints().current !== 'dodge');
-    assert(Date.now() - t0 >= 1900, '提示在做到之后消失得太快：' + (Date.now() - t0) + ' ms');
+    assert(Date.now() - t0 >= 1100, '提示在做到之后消失得太快：' + (Date.now() - t0) + ' ms'); // hint-once：「做到了」只留 1.2 秒（原 2 秒，断言原为 ≥ 1900）
     const ms = Date.now() - t0;
     await hintsEnd();
     return ms + ' ms 后换掉';
@@ -845,7 +846,8 @@ async function timedMain() {
     const tf = Date.now();
     await shown('flask');
     const r = await hint();
-    assert(Date.now() - tf < 5000 && !r.tut.includes('passive') && r.txt.includes('生命药剂'), '濒死时喝药的提示应立刻顶掉正在显示的面板提示：' + JSON.stringify(r));
+    // hint-once：被顶掉的那条也算看过（出现即记），原断言是 !r.tut.includes('passive')
+    assert(Date.now() - tf < 5000 && r.tut.includes('passive') && r.txt.includes('生命药剂'), '濒死时喝药的提示应立刻顶掉正在显示的面板提示：' + JSON.stringify(r));
     const ms = Date.now() - tf;
     await hintsEnd();
     return ms + ' ms 顶上来';
@@ -9109,6 +9111,7 @@ async function main() {
       T.arena();
       T.hintsSeen();
       delete G.save.tut.blank;
+      G.ui.hintsGap(0);
       G.save.blankGems = [];
       const P = G.player;
       const l = G.spawnLoot('blank', {}, P.x, P.z);
@@ -9142,7 +9145,7 @@ async function main() {
     });
   });
 
-  await uiStep('新手提示：按情境逐条出现、做到即消失、不挡操作，看过的写进存档；面板里有对应的提示条；老角色跳过基础操作', async () => {
+  await uiStep('新手提示：按情境逐条出现、出现即记为看过（只出一次）、做到即消失、点一下收起、两条之间隔 30 秒，看过的写进存档；面板里有对应的提示条；老角色跳过基础操作', async () => {
     const hint = () => ev(() => Object.assign(G.ui.hints(), { cls: document.getElementById('coach').className, txt: document.getElementById('coach').innerText, tut: Object.keys(G.save.tut).join() }));
     const shown = (id) => until((id) => G.ui.hints().current === id && G.ui.hints().state === 'show' && document.getElementById('coach').classList.contains('on'), id).catch(() => {
       throw new Error('提示「' + id + '」没有出现');
@@ -9168,14 +9171,24 @@ async function main() {
     let r = await hint();
     // 远程改版又加了几条（拿上远程武器、量表满、长弓改名、新区域……），按下限比
     assert(r.txt.includes('移动') && r.all.length >= 19, '第一条提示应是移动（至少 19 条，含武器技、旧存档的武器改版与成长改版说明）：' + r.txt + ' / ' + r.all.join());
+    // hint-once：出现那一刻就记进存档（原来要做到才记）
+    r = await ev(() => ({ mem: !!G.save.tut.move, stored: !!JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).tut.move, vis: G.ui.hints().visFor }));
+    assert(r.mem && r.stored && r.vis >= 6 && r.vis <= 8, '提示一出现就应记为看过、写进存档，亮 6–8 秒：' + JSON.stringify(r));
+    // hint-once：提示卡点得到（点一下收起），原断言是 pointerEvents === 'none'（只有点在画布上的才算游戏输入，见 main.js）
     r = await ev(() => { const c = T.rect('#coach'), k = T.rect('#keyhints'), f = T.rect('.orb-wrap.left'); return { c, under: c.t >= k.b, aboveOrb: c.b <= f.t, pe: getComputedStyle(document.getElementById('coach')).pointerEvents }; });
-    assert(r.under && r.aboveOrb && r.c.l >= 0 && r.pe === 'none', '提示卡的位置不对或挡住了操作：' + JSON.stringify(r));
+    assert(r.under && r.aboveOrb && r.c.l >= 0 && r.pe === 'auto', '提示卡的位置不对：' + JSON.stringify(r));
     await page.keyboard.down('KeyD');
     try {
-      await seen('move');
+      await until(() => G.ui.hints().state === 'done').catch(() => { throw new Error('走了几步，移动提示没有显示「做到了」'); });
     } finally {
       await page.keyboard.up('KeyD');
     }
+    await until(() => G.ui.hints().current === null);
+    r = await hint();
+    assert(r.gapLeft > 28000, '收起之后下一条至少隔 30 秒：' + JSON.stringify(r));
+    await frames(10);
+    assert((await hint()).current === null, '间隔内不应出下一条');
+    await ev(() => G.ui.hintsGap(0));
     await shown('attack');
     await holdInput(0, true);
     try {
@@ -9185,23 +9198,23 @@ async function main() {
     }
     await frames(3);
     r = await hint();
-    assert(r.current === 'attack' && !r.tut.includes('attack'), '只用了一个键，提示不应消失');
+    assert(r.current === 'attack' && r.state === 'show', '只用了一个键，提示不应消失'); // hint-once：原来还断言 attack 没记进 tut；现在出现即记
     await holdInput(1, true);
     try {
-      await seen('attack');
+      await until(() => G.ui.hints().current !== 'attack' || G.ui.hints().state === 'done').catch(() => { throw new Error('两个键都用过后攻击提示没有收起'); });
     } finally {
       await holdInput(1, false);
     }
     r = await ev(() => Object.keys(JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).tut).sort().join());
     assert(r === 'attack,move', '看过的提示没有写进存档：' + r);
     // 没有敌人时不提示翻滚；背包里有东西时提示背包，并在背包页里接着提示
-    await ev(() => { G.save.tut.dodge = 1; G.debug.giveItem(1, 'helm'); });
+    await ev(() => { G.save.tut.dodge = 1; G.debug.giveItem(1, 'helm'); G.ui.hintsGap(0); });
     await shown('bag');
     await page.keyboard.press('KeyI');
     r = await ev(() => ({ banner: (document.querySelector('.inv-tips.coach') || {}).innerText || '', hidden: getComputedStyle(document.getElementById('coach')).display }));
     assert(r.banner.includes('右键') && r.hidden === 'none', '背包页里应有对应的提示条：' + JSON.stringify(r));
     await page.click('.cell[data-item]', { button: 'right' });
-    await seen('bag');
+    await until(() => G.ui.hints().current !== 'bag' || G.ui.hints().state === 'done');
     await until(() => !document.querySelector('.inv-tips.coach')).catch(() => {
       throw new Error('做到之后面板里的提示条没有收掉');
     });
@@ -9214,12 +9227,12 @@ async function main() {
     });
     await shown('dodge');
     r = await hint();
-    assert(!r.veteran && r.txt.includes('翻滚') && !r.tut.includes('dodge'), '升到 3 级的新角色应照常看到翻滚提示：' + JSON.stringify(r));
-    // 做到了：立刻记为看过，但卡片要留到读得完为止（至少 4 秒），不会一闪而过（「1.9 秒后才换掉」看墙钟，在 test:timed 里）
+    assert(!r.veteran && r.txt.includes('翻滚') && r.tut.includes('dodge'), '升到 3 级的新角色应照常看到翻滚提示（出现即记）：' + JSON.stringify(r)); // hint-once：原为 !r.tut.includes('dodge')
+    // 做到了：显示「做到了」，卡片至少留 2.5 秒（hint-once：原来至少 4 秒，断言原为 minShow >= 4；「1.1 秒后才换掉」看墙钟，在 test:timed 里）
     await page.keyboard.press('Space');
-    await seen('dodge');
+    await until(() => G.ui.hints().state === 'done');
     r = await hint();
-    assert(r.state === 'done' && r.cls.includes('done') && r.minShow >= 4, '做到之后应显示「做到了」：' + JSON.stringify(r));
+    assert(r.state === 'done' && r.cls.includes('done') && r.minShow >= 2.5, '做到之后应显示「做到了」：' + JSON.stringify(r));
     await until(() => G.ui.hints().current !== 'dodge');
     await ev(() => { G.clearEnemies(); G.player.roll.cd = 0; });
     // 读档时已经 3 级以上的老角色：基础操作的提示直接跳过（只在读档那一刻判定）
@@ -9235,7 +9248,7 @@ async function main() {
     });
     r = await hint();
     assert(r.current === null && r.veteran, '老角色不应看到基础提示：' + JSON.stringify(r));
-    // 要开面板才做得了的提示（天赋）亮着时生命见底：喝药的提示立刻顶上来，被顶掉的那条不算看过，之后还会再出
+    // 要开面板才做得了的提示（天赋）亮着时生命见底：喝药的提示立刻顶上来；hint-once：被顶掉的那条也算看过，之后不再出
     await ev(() => {
       G.save.tut = { move: 1, attack: 1, dodge: 1, combo: 1, poise: 1, loot: 1, bag: 1, craft: 1, support: 1, execute: 1, boss: 1, portal: 1, wskill: 1 };
       G.resetPassives();
@@ -9245,27 +9258,43 @@ async function main() {
     await ev(() => { G.player.life = G.player.maxLife * 0.2; });
     await shown('flask');
     r = await hint();
-    assert(!r.tut.includes('passive') && r.txt.includes('生命药剂'), '濒死时喝药的提示应立刻顶掉正在显示的面板提示：' + JSON.stringify(r)); // 「5 秒内」看墙钟，在 test:timed 里
+    // hint-once：原断言 !r.tut.includes('passive')（被顶掉的不算看过）
+    assert(r.tut.includes('passive') && r.txt.includes('生命药剂'), '濒死时喝药的提示应立刻顶掉正在显示的面板提示：' + JSON.stringify(r)); // 「5 秒内」看墙钟，在 test:timed 里
     await ev(() => { G.player.life = G.player.maxLife; });
-    await seen('flask');
+    await until(() => G.ui.hints().current !== 'flask');
+    // hint-once：被顶掉的天赋提示不再出（原来这里会再出一次）
+    await ev(() => G.ui.hintsGap(0));
+    await sleep(1500);
+    r = await hint();
+    assert(r.current !== 'passive' && r.current !== 'flask', '看过的提示（被顶掉的也算）不应再出：' + JSON.stringify(r));
+    // 打起来了：需要清静的提示收起（hint-once：已经算看过，不再出）
+    await ev(() => { delete G.save.tut.passive; G.ui.hintsGap(0); });
     await shown('passive');
-    // 打起来了：先收起，不占着提示位，也不算看过
     await ev(() => { T.mob('husk', 7, 0); });
     await until(() => G.ui.hints().current !== 'passive').catch(() => {
       throw new Error('战斗开始后，需要清静的提示没有收起');
     });
     r = await hint();
-    assert(!r.tut.includes('passive'), '被战斗打断的提示不应算作看过：' + JSON.stringify(r));
+    assert(r.tut.includes('passive'), '被战斗打断的提示也算看过（只出一次）：' + JSON.stringify(r)); // hint-once：原断言 !r.tut.includes('passive')
     await frames(20);
     assert((await hint()).current !== 'passive', '身边有敌人时不应再弹出需要清静的提示');
-    await ev(() => { G.clearEnemies(); });
+    await ev(() => { G.clearEnemies(); G.ui.hintsGap(0); });
+    await sleep(1500);
+    assert((await hint()).current !== 'passive', '打完之后被打断的提示不应再出');
+    // 点一下提示卡：立刻收起，不放技能
+    await ev(() => { delete G.save.tut.passive; G.ui.hintsGap(0); });
     await shown('passive');
+    const cr = await ev(() => T.rect('#coach'));
+    await page.mouse.click(cr.x, cr.y);
+    await until(() => G.ui.hints().current === null).catch(() => { throw new Error('点一下提示卡没有收起'); });
+    r = await ev(() => ({ cast: !!G.player.cast, gap: G.ui.hints().gapLeft, cls: document.getElementById('coach').className }));
+    assert(!r.cast && r.gap > 28000 && !r.cls.includes('on'), '点提示卡应只收起提示、不放技能，之后隔 30 秒：' + JSON.stringify(r));
     // 帮助页可以重置
     await page.keyboard.press('KeyH');
     await page.click('[data-act="topic"][data-topic="keys"]'); // B4a：按钮在「操作」这一节的最下面（帮助页记着上次看的话题）
     await page.click('[data-act="tut-reset"]');
-    r = await ev(() => ({ n: Object.keys(G.save.tut).length, txt: document.querySelector('.help-foot').innerText }));
-    assert(r.n === 0 && r.txt.includes('已重置'), '帮助页的「重新显示新手提示」无效');
+    r = await ev(() => ({ n: Object.keys(G.save.tut).length, txt: document.querySelector('.help-foot').innerText, on: G.save.opts.hints }));
+    assert(r.n === 0 && r.txt.includes('已重置') && r.on === true, '帮助页的「重新显示新手提示」无效：' + JSON.stringify(r));
     await closePanel();
     await ev((keep) => {
       G.debug.hold(true);
@@ -9280,6 +9309,126 @@ async function main() {
       G.player.mana = G.player.maxMana;
       G.persist();
     }, keep);
+  });
+
+  await uiStep('新手提示只出一次（hint-once）：出现即记，读档后不再出，不点不做 8 秒内自己收起；设置里「新手提示」关掉后不出（每页的一次性说明也不出，改版说明照出）；老存档按等级 / 轮回 / 通关定默认；帮助页「重新显示新手提示」重新打开', async () => {
+    const hint = () => ev(() => Object.assign(G.ui.hints(), { cls: document.getElementById('coach').className, txt: document.getElementById('coach').innerText }));
+    // ms 毫秒内一直没有新手提示（改版说明不算）
+    const none = async (ms, what) => {
+      const t = Date.now();
+      while (Date.now() - t < ms) {
+        const h = await hint();
+        if (h.current && !h.notes.includes(h.current)) throw new Error(what + '：' + JSON.stringify(h));
+        await sleep(200);
+      }
+    };
+    const pageHint = () => ev(() => { G.ui.open('inv'); const n = !!document.querySelector('#panel-body .pg-note.hint'); G.ui.close(); return n; });
+    const keep = await ev(() => {
+      T.arena();
+      const k = { level: G.save.level, xp: G.save.xp };
+      G.save.level = 5;
+      G.computeStats();
+      G.save.bag.length = 0;
+      G.save.blankGems = [];
+      G.save.opts.hints = true;
+      const tut = {};
+      for (const id of G.ui.hints().all) if (id !== 'passive') tut[id] = 1;
+      G.save.tut = tut;
+      G.resetPassives();
+      G.ui.refresh();
+      G.debug.hold(false);
+      return k;
+    });
+    await page.mouse.move(900, 450);
+    // 1) 出现那一刻就记进存档；不点也不做，最多 8 秒自己收起
+    await until(() => G.ui.hints().current === 'passive' && document.getElementById('coach').classList.contains('on')).catch(() => { throw new Error('天赋提示没有出现'); });
+    const t0 = Date.now();
+    let r = await ev(() => ({ mem: !!G.save.tut.passive, stored: !!JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).tut.passive, vis: G.ui.hints().visFor }));
+    assert(r.mem && r.stored && r.vis >= 6 && r.vis <= 8, '提示一出现就应记为看过、写进存档，亮 6–8 秒：' + JSON.stringify(r));
+    await until(() => G.ui.hints().current === null, null, 15000).catch(() => { throw new Error('提示亮了 15 秒还没收起'); });
+    const secs = (Date.now() - t0) / 1000;
+    assert(secs <= 9.5, '提示应在 8 秒左右自己收起：' + secs + ' 秒');
+    // 2) 读档（等同刷新页面）：天赋点还在，提示不再出
+    await ev(() => { G.persist(); G.loadSave(); G.computeStats(); G.debug.hold(false); });
+    r = await ev(() => ({ free: G.passivePoints().free, seen: !!G.save.tut.passive, on: G.ui.hints().on }));
+    assert(r.free > 0 && r.seen && r.on, '读档后天赋点还在、提示记为看过：' + JSON.stringify(r));
+    await none(3000, '读档后看过的提示不应再出');
+    // 3) 设置里关掉：「操作」一组的「新手提示」开关
+    const row = () => ev(() => {
+      const sw = document.querySelector('#p-view [data-tact="hints"]');
+      return sw ? { on: sw.classList.contains('on'), txt: sw.innerText, grp: sw.closest('.m-grp').querySelector('.m-gt').textContent, opt: G.save.opts.hints, stored: JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).opts.hints } : null;
+    });
+    await openSettings();
+    let sw = await row();
+    assert(sw && sw.on && sw.txt.includes('新手提示') && sw.txt.includes('只出一次') && sw.grp === '操作', '设置「操作」里应有「新手提示」开关（开着）：' + JSON.stringify(sw));
+    cleanText(sw.txt, '新手提示开关');
+    await page.click('#p-view [data-tact="hints"]');
+    sw = await row();
+    assert(sw && !sw.on && sw.opt === false && sw.stored === false, '点一下应关掉并存档：' + JSON.stringify(sw));
+    await closeSettings();
+    await ev(() => {
+      for (const id of ['passive', 'bag', 'move', 'attack']) delete G.save.tut[id];
+      G.debug.giveItem(1, 'helm');
+      G.ui.hintsGap(0);
+      G.debug.hold(false);
+    });
+    await none(3000, '关掉「新手提示」后不应出新手提示');
+    r = await ev(() => { localStorage.removeItem('cinder-abyss-ui-seen'); return true; });
+    assert(!(await pageHint()), '关掉「新手提示」后背包页底部的一次性说明也不应出');
+    // 改版说明不是教学：关着也照出（每条一次）
+    await ev(() => { delete G.save.tut.zone5; G.newZoneNotice = true; G.ui.hintsGap(0); });
+    await until(() => G.ui.hints().current === 'zone5').catch(() => { throw new Error('关掉「新手提示」后改版说明也应照出'); });
+    await ev(() => { document.getElementById('coach').click(); G.newZoneNotice = false; });
+    r = await hint();
+    assert(r.current === null && r.notes.includes('zone5') && !r.notes.includes('passive'), '点一下应收起改版说明：' + JSON.stringify(r));
+    // 4) 没动过开关的存档（没有 opts.hints）：10 级以上、进过轮回或打通烬渊深处的默认关，其余默认开；新存档没有这个键
+    r = await ev(() => {
+      const KEY = 'cinder-abyss-save-v1';
+      const base = localStorage.getItem(KEY);
+      const out = { fresh: 'hints' in G.newSave().opts };
+      const load = (o) => {
+        const raw = Object.assign(JSON.parse(base), o);
+        raw.opts = Object.assign({}, raw.opts);
+        delete raw.opts.hints;
+        localStorage.setItem(KEY, JSON.stringify(raw));
+        G.loadSave();
+        const h = G.ui.hints();
+        return h.on + (h.explicit ? '!' : '') + ('hints' in G.save.opts ? '+key' : '');
+      };
+      try {
+        out.l5 = load({ level: 5, maxTier: 0, tier: 0, cleared: {} });
+        out.l9 = load({ level: 9, maxTier: 0, tier: 0, cleared: { ash: 0, frost: 0 } });
+        out.l10 = load({ level: 10, maxTier: 0, tier: 0, cleared: {} });
+        out.tier = load({ level: 6, maxTier: 1, tier: 0, cleared: {} });
+        out.abyss = load({ level: 9, maxTier: 0, tier: 0, cleared: { ash: 0, frost: 0, storm: 0, abyss: 0 } });
+      } finally {
+        localStorage.setItem(KEY, base);
+        G.loadSave();
+        G.computeStats();
+      }
+      return out;
+    });
+    assert(!r.fresh && r.l5 === 'true' && r.l9 === 'true' && r.l10 === 'false' && r.tier === 'false' && r.abyss === 'false', '没动过开关时的默认不对：' + JSON.stringify(r));
+    const defs = r;
+    // 5) 帮助页「重新显示新手提示」：看过的清空、开关回到开（写进存档）、每页的一次性说明重新出
+    await page.keyboard.press('KeyH');
+    await page.click('[data-act="topic"][data-topic="keys"]');
+    await page.click('[data-act="tut-reset"]');
+    r = await ev(() => ({ n: Object.keys(G.save.tut).length, on: G.save.opts.hints, stored: JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).opts.hints }));
+    assert(r.n === 0 && r.on === true && r.stored === true, '「重新显示新手提示」应清空看过的记录并打开开关：' + JSON.stringify(r));
+    await closePanel();
+    assert(await pageHint(), '重新显示之后背包页底部的一次性说明应重新出');
+    await ev((keep) => {
+      G.debug.hold(true);
+      T.hintsSeen();
+      G.save.opts.hints = true;
+      G.save.level = keep.level;
+      G.save.xp = keep.xp;
+      G.save.bag.length = 0;
+      G.computeStats();
+      G.persist();
+    }, keep);
+    return '出现即记 · ' + secs.toFixed(1) + ' 秒自己收起 · 读档不再出 · 关掉后 3 秒内 0 条 · 默认 ' + JSON.stringify(defs);
   });
 
   await step('面板内的提示：toast 不压页签栏和面板内容', async () => {
@@ -10864,6 +11013,7 @@ async function main() {
       G.computeStats();
       T.hintsSeen();
       delete G.save.tut.combo;
+      G.ui.hintsGap(0);
     });
     await frames(20);
     assert((await ev(() => G.ui.hints().current)) === null, '身边没有敌人时不应提示连击');
@@ -10878,6 +11028,7 @@ async function main() {
       G.clearEnemies();
       delete G.save.tut.poise;
       delete G.save.tut.execute;
+      G.ui.hintsGap(0); // hint-once：连击提示收起后要隔 30 秒，这里直接放行
       window.E = T.mob('brute', 4, 0, { elite: true });
     });
     await shown('poise');
@@ -14065,10 +14216,12 @@ async function main() {
     });
     const seen = {};
     for (let i = 0; i < 2; i++) {
-      await until(() => ['zone5', 'bowmig'].includes(G.ui.hints().current) && !G.save.tut[G.ui.hints().current], null, 40000).catch(() => { throw new Error('读进旧存档后应依次提示新区域与远程改版：' + JSON.stringify(seen)); });
-      const h = await ev(() => ({ id: G.ui.hints().current, txt: document.getElementById('coach').innerText }));
+      // hint-once：出现即记为看过（原来等 !G.save.tut[current]）；两条之间隔 30 秒，读完一条点掉并放行下一条
+      await until((ids) => ['zone5', 'bowmig'].includes(G.ui.hints().current) && !ids.includes(G.ui.hints().current), Object.keys(seen), 40000).catch(() => { throw new Error('读进旧存档后应依次提示新区域与远程改版：' + JSON.stringify(seen)); });
+      const h = await ev(() => ({ id: G.ui.hints().current, txt: document.getElementById('coach').innerText, tut: !!G.save.tut[G.ui.hints().current] }));
+      assert(h.tut, '改版说明一出现就应记为看过：' + JSON.stringify(h));
       seen[h.id] = h.txt;
-      await ev((id) => { G.save.tut[id] = 1; }, h.id);
+      await ev(() => { document.getElementById('coach').click(); G.ui.hintsGap(0); });
     }
     await ev((keep) => {
       G.debug.hold(true);
@@ -28095,12 +28248,13 @@ async function touchSteps() {
 
   await step('触屏：开场卡片、背包、技能、天赋、地图、帮助、浮窗、暂停菜单里没有鼠标 / 键盘说法（右键 / 左键 / 悬停 / Alt / WASD / Shift，Esc / Enter 角标）；点物品 → 详情里点「装备」穿上；长按看详情；长按不会误穿', async () => {
     await touchPage();
-    // 打一场（没开面板）：触屏文字处理一次都不该跑（只盯面板 / 浮窗 / 菜单，不盯 HUD）；提示卡打起来 4 秒后收成一行
+    // 打一场（没开面板）：触屏文字处理一次都不该跑（只盯面板 / 浮窗 / 菜单，不盯 HUD）。
+    // hint-once：提示卡打起来以后不再收成一行（战斗中只出紧急提示、6–8 秒就收、点一下收起），这里只打 4 秒
     const busy = await ev(async () => {
       const P = G.player;
       for (let i = 0; i < 8; i++) T.mob('husk', Math.sin(i) * 4, Math.cos(i) * 4);
       const co = document.getElementById('coach');
-      co.querySelector('.co-body').textContent = '提示卡测试：打起来以后四秒收成一行，点一下展开';
+      co.querySelector('.co-body').textContent = '提示卡测试：打起来以后照常显示，点一下收起';
       co.dataset.hint = 'touchtest';
       co.className = 'on';
       await new Promise((r) => setTimeout(r, 0)); // 上面改提示卡文字的那一次处理先跑完（MutationObserver 是微任务）
@@ -28109,19 +28263,19 @@ async function touchSteps() {
       G.input.mouse.b[0] = true;
       const t0 = performance.now();
       await new Promise((res) => {
-        const f = () => (co.classList.contains('t-min') || performance.now() - t0 > 30000 ? res() : requestAnimationFrame(f));
+        const f = () => (performance.now() - t0 > 4000 ? res() : requestAnimationFrame(f));
         requestAnimationFrame(f);
       });
       G.input.mouse.b[0] = false;
       G.debug.hold(true);
       const st = G.touch.state();
-      const out = { calls: st.txt.calls - c0, ms: st.txt.ms, min: co.classList.contains('t-min'), sec: +((performance.now() - t0) / 1000).toFixed(1), lines: Math.round(co.querySelector('.co-body').getBoundingClientRect().height / 17) };
+      const out = { calls: st.txt.calls - c0, ms: st.txt.ms, sec: +((performance.now() - t0) / 1000).toFixed(1), lines: Math.round(co.querySelector('.co-body').getBoundingClientRect().height / 17) };
       co.className = '';
       for (const e of G.state.enemies) if (e.atkCd === 1e9) e.dead = true;
       return out;
     });
     assert(busy.calls === 0, '没开面板时触屏文字处理不该跑：' + JSON.stringify(busy));
-    assert(busy.min && busy.lines === 1, '打起来后提示卡应收成一行：' + JSON.stringify(busy));
+    // hint-once：原断言 busy.min && busy.lines === 1（打起来后收成一行）——这个行为去掉了
     const scan = (where) =>
       ev((where) => {
         const bad = [];
@@ -29033,7 +29187,8 @@ async function touchSteps() {
         const co = document.getElementById('coach');
         co.querySelector('.co-body').textContent = txt;
         co.dataset.hint = 'hudtest';
-        co.className = 'on' + (open ? ' t-open' : '');
+        co.className = 'on'; // hint-once：提示卡整句显示（最多四行），不再有 t-open
+        void open;
       }, [txt, open]);
     const setNarr = (on) =>
       ev((on) => {
@@ -29062,7 +29217,7 @@ async function touchSteps() {
               else st.removeProperty('--t-safe-' + k);
             }
           }, [size, mirror, sa]);
-          for (const [st, txt, open, narr] of [['两行提示卡', SHORT, false, false], ['点开的长提示', LONG, true, false], ['两行提示卡 + 旁白卡', SHORT, false, true], ['点开的长提示 + 旁白卡', LONG, true, true]]) {
+          for (const [st, txt, open, narr] of [['两行提示卡', SHORT, false, false], ['长提示（整句）', LONG, true, false], ['两行提示卡 + 旁白卡', SHORT, false, true], ['长提示（整句） + 旁白卡', LONG, true, true]]) {
             await setCoach(txt, open);
             await setNarr(narr);
             await frames(2);
