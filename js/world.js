@@ -7605,9 +7605,10 @@
       list.push(x, -0.1, z, (rnd() - 0.5) * 0.08, rnd() * TAU, (rnd() - 0.5) * 0.08, s, s * (0.95 + 0.1 * rnd()), s, 1);
     }
     if (!list.length) return null;
-    const t = zoneTexture(TEX, 'albedo', { wrap: false });
-    t.encoding = T.sRGBEncoding; // 反照率是 sRGB 编码的（布景的顶点色、调色板都按线性算）
-    const im = ctx.instanced(g, ctx.own(ctx.makeToonMat({ map: t, vertexColors: true, flat: true })), list, true, null);
+    // 反照率是 sRGB 编码的：和贴花层一样不标 SRGBColorSpace（标了会用硬件 sRGB 格式、在线性空间里过滤），按原始数据过滤、采样后在着色器里解码（DECODE_VIDEO_TEXTURE）
+    const m = ctx.makeToonMat({ map: zoneTexture(TEX, 'albedo', { wrap: false }), vertexColors: true, flat: true });
+    m.defines = { DECODE_VIDEO_TEXTURE: '' };
+    const im = ctx.instanced(g, ctx.own(m), list, true, null);
     if (im) im.visible = !ctx.low;
     return im;
   }
