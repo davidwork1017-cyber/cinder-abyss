@@ -147,6 +147,59 @@ export async function questReady(p) {
   if (r.on && r.op >= 0.95) return '';
   return '素材包已载完，' + r.n + ' 帧后主线追踪条' + (r.on ? '还没淡入（不透明度 ' + r.op + '）' : '还没出来') + '（主线 ' + r.q + '，标题画面 ' + r.title + '）';
 }
+// 主线追踪条完全显出来（可见区一步，train 2）：原来 questReady 之后固定等 600 ms 再量，机器很忙时 WebKit 一秒只画一两帧，
+// 淡入（0.3 秒）还没画出来就量了，报「主线追踪条没出来」又说不清为什么。这里分两段等：
+//   1. 看到（墙钟最多 15 秒）：#quest.on、连同祖先的透明度 ≥ 0.95、不是 display:none、没有 body.panel-open、有尺寸（在不在 HUD 范围里仍由后面原样的 rotFrameJudge 判）；
+//   2. 稳住（墙钟最多再 15 秒）：看到以后至少再过 3 帧、且至少 500 ms，期间每帧都还是完全显着；中途掉了（真的被藏掉）照样不合格。
+// 返回空串 = 好了；否则三种说法分开：一直没显出来 / 显出来以后又没了 / 画面卡（这么久只画了几帧），都带各项状态、各个隐藏条件和帧数
+export async function questVisible(p, holdFrames = 3, holdMs = 500) {
+  await p.evaluate(() => {
+    window.__qvS = { n: 0, seen: -1, seenT: 0, t0: performance.now() };
+    window.__qvState = () => {
+      const q = document.getElementById('quest'), it = document.getElementById('intro');
+      let op = 1;
+      for (let x = q; x && x.nodeType === 1; x = x.parentElement) op *= +getComputedStyle(x).opacity;
+      const r = q ? q.getBoundingClientRect() : null;
+      const s = { on: !!(q && q.classList.contains('on')), op: Math.round(op * 100) / 100, disp: q ? getComputedStyle(q).display : '无', panel: document.body.classList.contains('panel-open'), w: r ? Math.round(r.width) : 0, h: r ? Math.round(r.height) : 0 };
+      s.ok = s.on && s.op >= 0.95 && s.disp !== 'none' && !s.panel && s.w > 0 && s.h > 0;
+      s.intro = !!(it && it.classList.contains('on'));
+      s.story = !!G.ui.storyOn();
+      s.title = !!G.ui.titleOn();
+      s.pause = !!G.ui.paused();
+      s.loading = !!(G.world.assetsLoading && G.world.assetsLoading());
+      s.pending = !!(G.world.assetsPending && G.world.assetsPending());
+      return s;
+    };
+  });
+  const snap = () => p.evaluate(() => { const S = window.__qvS; return Object.assign(window.__qvState(), { n: S.n, seenAt: S.seen, sec: Math.round((performance.now() - S.t0) / 100) / 10 }); });
+  // 1. 看到
+  const seen = await p
+    .waitForFunction(() => {
+      const S = window.__qvS;
+      S.n++;
+      if (!window.__qvState().ok) return false;
+      S.seen = S.n;
+      S.seenT = performance.now();
+      return true;
+    }, null, { polling: 'raf', timeout: 15000 })
+    .then(() => true, () => false);
+  if (!seen) return '15 秒内主线追踪条一直没完全显出来：' + JSON.stringify(await snap());
+  // 2. 稳住
+  const h = await p
+    .waitForFunction(([hf, hm]) => {
+      const S = window.__qvS;
+      S.n++;
+      const s = window.__qvState();
+      if (!s.ok) return Object.assign(s, { n: S.n, seenAt: S.seen, dropped: true });
+      return S.n - S.seen >= hf && performance.now() - S.seenT >= hm ? { ok: true } : false;
+    }, [holdFrames, holdMs], { polling: 'raf', timeout: 15000 })
+    .catch(() => null);
+  if (h) {
+    const r = await h.jsonValue();
+    return r.ok ? '' : '主线追踪条完全显出来以后第 ' + (r.n - r.seenAt) + ' 帧又没了：' + JSON.stringify(r);
+  }
+  return '主线追踪条显出来了，但画面卡住：15 秒里只画了几帧，没等满 ' + holdFrames + ' 帧：' + JSON.stringify(await snap());
+}
 // 重新打开（载入 / 重载）：先回到刚打开的视口，go() 等页面好了，再 settle()
 export async function launch(p, dev, go) {
   await p.setViewportSize({ width: dev.width, height: dev.height - dev.sb });
