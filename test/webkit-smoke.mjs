@@ -732,7 +732,7 @@ await step('iPhone 圆角：四角各一块半径 47 px 的遮罩，标题、职
 
 // UI-R B4b：用户的玩法是主屏幕 App、锁着自动旋转横着拿，游戏一直在旋转横屏里（用户截图 notes/user-feedback/iphone-rotated-title-2026-11-24.png）。
 // iOS 主屏幕 App（状态栏 black-translucent）里网页从屏幕最顶上画起，innerHeight 却少算了状态栏那一截：这里照这个样子模拟（navigator.standalone、screen 是整块屏幕、innerHeight 少 59 px）
-await step('旋转横屏 · 主屏幕 App（UI-R B4b）：iPhone 393×852 / 430×932，有没有状态栏 59 px + 底部横条 34 px 的安全区，布局视口少算状态栏时（test/devices.mjs 的模型）——画面盖满整块屏幕（±2 px）、画到屏幕底；标题画面（有存档，6 个按钮）过 a–f、不碰圆角；HUD 和背包不碰圆角；方向记在设备上，重新打开接着转，⟲ 换过的方向也记住', async () => {
+await step('旋转横屏 · 主屏幕 App（UI-R B4b）：iPhone 393×852 / 430×932，有没有状态栏 59 px + 底部横条 34 px 的安全区，布局视口少算状态栏时（test/devices.mjs 的模型）——画面盖满整块屏幕（±2 px）、画到屏幕底，3D 画布和叠加层也盖满；标题画面（有存档，6 个按钮）过 a–f、不碰圆角；HUD 和背包不碰圆角；方向记在设备上，重新打开接着转，⟲ 换过的方向也记住', async () => {
   const out = [];
   const bad = [];
   for (const [W, H] of [[393, 852], [430, 932]]) {
@@ -808,6 +808,8 @@ await step('旋转横屏 · 主屏幕 App（UI-R B4b）：iPhone 393×852 / 430�
         // 进游戏：HUD、背包
         await pev(() => G.ui.hideTitle());
         await p.waitForTimeout(900);
+        // rot-safe2：3D 画布和叠加层盖满整块屏幕、按画面尺寸渲染（be309c4 在真机上画布停在布局视口那么高）
+        bad.push(...rotCanvasJudge(await pev(rotCanvasProbe), where));
         await corner('HUD');
         await pev(() => G.ui.open('inv'));
         await p.waitForTimeout(500);
