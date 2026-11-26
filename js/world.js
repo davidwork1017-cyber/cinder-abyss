@@ -19773,11 +19773,13 @@
   // ai3d-golem：首领包里的反照率贴图（JPEG data URL）→ 贴图（sRGB、不翻转：UV 是 glTF 的 v 朝下），每份数据只建一次
   function bossMap(d) {
     if (d._map) return d._map;
-    const im = new Image(), tx = new T.Texture(im);
+    // 包加载时已经解码好的图（js/assets.js 的 decodePack）直接用；万一还没好，等它加载完再上传
+    const im = d._img || new Image(), tx = new T.Texture(im);
     tx.flipY = false;
     tx.colorSpace = T.SRGBColorSpace;
-    im.onload = () => { tx.needsUpdate = true; };
-    im.src = d.tex;
+    if (im.complete && im.naturalWidth) tx.needsUpdate = true;
+    else im.addEventListener('load', () => { tx.needsUpdate = true; });
+    if (!d._img) im.src = d.tex;
     d._map = tx;
     return tx;
   }
