@@ -898,15 +898,16 @@
       },
     },
     frost: {
-      packs: ['zone-frost', 'rock-grey', 'ground'], // models-drop：摆放表里的 CC0 模型在这一区一个都摆不出来（多种子实测 0 个），不再加载 models 包
+      packs: ['zone-frost', 'ground'], // tex-t3：冰面 / 雪地 / 岩石换成脚本画的贴图（p_ice / p_snow / p_frock，tools/gen-paint-textures.mjs，在 zone-frost 包里），不再要照片的 rock-grey 包（雷鸣遗迹、坠星裂谷还在用）。models-drop：摆放表里的 CC0 模型在这一区一个都摆不出来（多种子实测 0 个），不再加载 models 包
       mats: [
         // zones-frost：冻土岛，冷青灰（不按 def.path 推），贴图起伏压低；粗糙地面是带雪的冻泥，略亮略暖一点，把大片的冰面打散
-        { tex: 'Ice002', tile: 7.5, con: 0.34, nrm: 0.5, rough: 0.7, k: 0.36, sat: 0.7, col: 0x55707c },
-        { tex: 'Snow013', tile: 4.5, con: 0.7, nrm: 1.2, rough: 1, k: 0.38, sat: 0.6, col: 0x5e6c78 },
-        { tex: 'Rock035', tile: 6.5, con: 1.0, nrm: 1.0, rough: 1, k: 1.0 },
+        // tex-t3：三套都换成脚本画的平铺贴图（大块冰板 + 几道压裂缝、风吹的积雪、层状岩；低频，没有照片那种细碎的裂网）
+        { tex: 'p_ice', tile: 7.5, con: 0.6, nrm: 0.5, rough: 0.7, k: 0.36, sat: 0.7, col: 0x55707c },
+        { tex: 'p_snow', tile: 4.5, con: 0.9, nrm: 1.2, rough: 1, k: 0.38, sat: 0.6, col: 0x5e6c78 },
+        { tex: 'p_frock', tile: 6.5, con: 1.0, nrm: 1.0, rough: 1, k: 1.0 },
       ],
       lava: null,
-      rock: { tex: 'Rock035', tile: 2.8, nrm: 1.1, cap: 0x6a7a8a, capAll: 0.3 }, // phase 3：雪盖 0xb4c8d6 / 0.6 → 0x8296aa / 0.45；zones-frost：再压一档（水边的石头是这一区的「岩壁」）
+      rock: { tex: 'p_frock', tile: 2.8, nrm: 1.1, cap: 0x6a7a8a, capAll: 0.3 }, // tex-t3：Rock035 → p_frock。phase 3：雪盖 0xb4c8d6 / 0.6 → 0x8296aa / 0.45；zones-frost：再压一档（水边的石头是这一区的「岩壁」）
       grade: { sat: 1.12, con: 1.1, lift: 0x04081a, gain: 0xf4faff, vig: 0.22, sh: 0x5a70c0, hi: 0xfff0e0, tk: 0.1, shS: 0.85 },
       bloom: { th: 0.97, k: 0.16, r: 0.32 }, // 卡通：泛光只留给最亮的特效核心，不再给整片画面罩一层雾
       patch: 0.15, // zones-polish：岛上的粗糙地面斑块像泥印子，0.55 → 0.15
