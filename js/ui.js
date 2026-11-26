@@ -5849,6 +5849,20 @@
   // 异兆（D4）：计时条（守隙 / 缚匣 / 试锋 / 落烬）、祈坛增益小签、拾烬客面板、背包里的烛芯
   // ============================================================
   const encHud = { bar: null, fill: null, name: null, txt: null, buff: null, key: '', bkey: '', note: null, told: {}, on: false, notes: [] };
+  function initEncHud() {
+    const b = document.createElement('div');
+    b.id = 'enc-bar';
+    b.innerHTML = '<div class="eb-name"></div><div class="eb-track"><i class="eb-fill"></i></div><div class="eb-txt"></div>';
+    $('hud').appendChild(b);
+    encHud.bar = b;
+    encHud.name = b.querySelector('.eb-name');
+    encHud.fill = b.querySelector('.eb-fill');
+    encHud.txt = b.querySelector('.eb-txt');
+    const t = document.createElement('div');
+    t.id = 'enc-buff';
+    $('zone-box').appendChild(t);
+    encHud.buff = t;
+  }
   // 事件条上的一句话（toast-zero：异兆不弹 toast，开始的目标、结果、祈坛增益、用法都写在这一条里）。
   // o：{ kind, txt, st: 'go' 开始（计时条前 ENC_GO_MS 毫秒先写目标句）| 'ok' / 'fail' 结果 | 'hint' 用法（once：同一种这次游戏只提示一次）, color }
   const ENC_GO_MS = 2500, ENC_NOTE_MS = 2600, ENC_HINT_MS = 3200;
