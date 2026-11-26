@@ -133,7 +133,8 @@ export function rotCanvasJudge(o, where) {
   const cover = (b) => b && b[0] <= 1 && b[1] <= 1 && b[2] >= o.W - 1 && b[3] >= o.H - 1;
   if (!cover(o.gl)) bad.push(where + ' 3D 画布没盖满屏幕：' + JSON.stringify(o.gl) + '（屏幕 ' + o.W + '×' + o.H + '）');
   if (!cover(o.ov)) bad.push(where + ' 叠加层没盖满屏幕：' + JSON.stringify(o.ov));
-  if (!o.vs || o.vs.w !== Math.max(1, o.frame[0]) || o.vs.h !== Math.max(1, o.frame[1])) bad.push(where + ' 渲染尺寸 ' + (o.vs ? o.vs.w + '×' + o.vs.h : '?') + ' 和画面 ' + o.frame.join('×') + ' 对不上');
+  // 渲染尺寸只在有 G.world.viewSize 的版本上对（老版本只看上面的盖满）
+  if (o.vs && (o.vs.w !== Math.max(1, o.frame[0]) || o.vs.h !== Math.max(1, o.frame[1]))) bad.push(where + ' 渲染尺寸 ' + o.vs.w + '×' + o.vs.h + ' 和画面 ' + o.frame.join('×') + ' 对不上');
   if (o.mm && o.ov && (o.mm[0] < o.ov[0] - 0.5 || o.mm[1] < o.ov[1] - 0.5 || o.mm[2] > o.ov[2] + 0.5 || o.mm[3] > o.ov[3] + 0.5)) bad.push(where + ' 小地图伸出叠加层（被切）：小地图 ' + o.mm.map(Math.round).join(',') + '，叠加层 ' + o.ov.map(Math.round).join(','));
   return bad;
 }
