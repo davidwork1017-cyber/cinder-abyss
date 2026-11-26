@@ -1,6 +1,6 @@
 # 自产素材流水线
 
-烬渊的 3D 素材逐步换成我们自己用脚本生成的件：不用 AI 生成 3D，也不在 Blender 里手工建模，形状、配色、细节全部写在 `art/` 下的 Python 脚本里，由无头 Blender（CPU）执行。风格和预算见 [art-style.md](art-style.md)。
+烬渊的 3D 素材逐步换成我们自己用脚本生成的件：不在 Blender 里手工建模，形状、配色、细节全部写在 `art/` 下的 Python 脚本里，由无头 Blender（CPU）执行。风格和预算见 [art-style.md](art-style.md)。2026-11-26 起，静态布景另外试点用 AI 生成的模型做源，见文末「AI 生成的布景件」。
 
 游戏和 `npm test` 都不需要 Blender：生成物（`assets/ca/` 下的 GLB 和清单、`js/assets/kit-*.js` 素材包）一起提交，GitHub Pages 直接发这些文件，不需要 CI 构建。
 
@@ -143,3 +143,37 @@ npm run build:art && git status --short assets/ca js/assets   # 没有输出 = �
 ```
 
 身子长的首领（衔星巨兽）加 `--scale 10.5`（正交相机的取景宽度，米；缺省 7.2）。
+
+## AI 生成的布景件（ai3d-pilot）
+
+只用于静态布景和摆件，首领、角色和带动作的东西照旧走上面的生成脚本。现在只有试点的一件（`ca/frost_waystone`）。许可证和来源的规矩见 `assets/README.md` 的「AI 生成」。
+
+源模型由用户生成：文生图（Z-Image Turbo），再图生 3D（TRELLIS.2 或 Pixal3D），得到一个带 PBR 贴图的 GLB。用户把它上传到编排者的收件箱，不进仓库。导入走同一条流水线，没有另起一套：
+
+1. `art/catalog.py` 加一项 `gen='ai'`，`args` 给三样：
+   - `prov`：来源记录 `assets/ai/<件>/provenance.json` 的路径；
+   - `lod`：用哪一档，`processing.lods` 里的 `hi` 或 `lo`；
+   - `mode`：外观，`albedo`（缺省）或 `vc`。
+2. 来源记录里有：源文件的 sha256、提示词、种子、每个组件的版本和许可证、审查结论，以及给 `art/ai/importer.py` 的处理参数 `processing`。处理参数包括：
+   - `rot_deg`：摆正。Pixal3D 的输出按概念图的相机倾斜，TRELLIS.2 的是正的；不知道角度时可以开 `level`，用底部拟合一个平面转平；
+   - `height` / `sink`：真实高度和埋进地面的深度；
+   - `weld` / `min_island` / `float_h`：焊接 UV 缝（源模型沿 UV 缝是断开的，不焊的话减面以后会裂）和删碎块；
+   - `lods`：每一档的三角形数，预算看 `art/budgets.json` 的 `aiprop`：`tris` 是高 / 中画质，`lodTris` 是低画质；
+   - `tex`：反照率贴图的 id、边长，低档要显示时加 `lo_px`，再加 `grade`；
+   - `vc`：调色板版本用哪几行。
+3. `npm run build:art` 时用环境变量 `CA_AI_INBOX` 指向收件箱（目录下是 `<名字>/model.glb`）。导入器依次做这几步：
+   1. 导入，合成一个网格；
+   2. 摆正，焊接，删掉非流形的面和飘在空中的小碎块；
+   3. 原点放在包围盒的水平中心，贴地，缩放到真实高度；
+   4. 减面（Decimate · Collapse），比例按实测修正到预算以内；
+   5. 出外观，二选一：
+      - `albedo`：保留源 UV 和生成的反照率贴图。贴图先把 UV 岛外的空白往外填，免得缩图时缝边渗进底色；再在线性空间里调明暗，用 `tint` 按游戏里的灰度校准；然后盒式缩到 512（低档 256），存成 `assets/ai/<件>/albedo.jpg`。GLB 里不带图，材质叫 `ai_albedo`。顶点色只烘 AO，和脚本件同一套烘焙；
+      - `vc`：每个面取反照率的平均色，量化到共享调色板的几行，和脚本件一样一面一色，不要贴图。
+4. 没有源文件的机器上，构建保留已经提交的生成物，全量构建照样逐字节一致；源文件的 sha256 和来源记录对不上就报错。同一台机器、同一个 Blender 版本重复构建，GLB 和贴图 JPEG 都逐字节相同。
+5. 打包：`albedo` 外观的件焊接成带索引的紧凑网格（`tools/glb.mjs` 的 `packAi`：位置、UV、AO 色、索引），不存法线，游戏端用平直着色。贴图登记在 `tools/asset-sources.json` 的 `textures`（`ai` 类、只有 albedo），打进 `zone-<区>` 包，按贴图预算算显存。
+6. check-art 对 AI 件多查这几项：来源记录齐全，并和清单记的源文件 sha256 一致；没有机器路径或个人信息；目录里没有概念图；贴图登记和尺寸对；重新打包逐字节一致。
+
+游戏端：几何体带 `userData.tex`（贴图 id），材质用 `makeToonMat({ map: zoneTexture(id, 'albedo', { wrap: false }), flat: true })`，贴图按 sRGB 解码。摆放和别的布景一样，用一个实例化网格，随机数用自己的一路。路标石见 `world.js` 的 `frostStones`。
+
+开发和测试导入器不用真模型：拿 `assets/` 里的 CC0 GLB 细分到二三十万面、倾斜一下就能当输入，这份测试输入不提交。
+
