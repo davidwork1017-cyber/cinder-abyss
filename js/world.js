@@ -19929,6 +19929,12 @@
     if (!ent.echo) bossLook(ent);
     if (W.onBossSwap) W.onBossSwap(ent);
   }
+  // 工具用（tools/story 的烘焙）：把画面时钟（着色器的 uTime：发光圈的呼吸、水面、火光闪烁）定到给定值。
+  // 页面刚打开、模拟还没停住之前跑过的实时帧数每次不一样，不定住的话两次烘出来的发光强度不同。游戏本身不调用
+  W.debugTime = function (t) {
+    wtime = t;
+    uTime.value = t;
+  };
   W.debugBossPack = function (on) {
     bossPackOff = !on;
     if (on) for (const k in BOSS_SPEC) if (bossData(k)) bossQueueSwap(k);

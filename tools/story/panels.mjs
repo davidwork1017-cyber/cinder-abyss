@@ -251,7 +251,7 @@ export const PANELS = {
       { name: 'actors', mode: 'actors', fx: false, hide: ['points', 'normalfx'] },
     ],
   },
-  // 首领包（新模型）没有 taunt / call / howl：按格子退到一个蓄力的定格姿势（巨像举锤、霜织者举手、监察者双手交叉、烬渊之主举剑），0.6 s 播完、40 帧后停在收尾
+  // 首领包（新模型）没有 taunt / call / howl：按格子退到一个蓄力的定格姿势（巨像举锤、霜织者举手、监察者张开双手（眼不被挡住）、烬渊之主张翼持剑），0.6 s 播完、40 帧后停在收尾
   // ---------- 7 守关的（一页四格）：熔渣巨像 / 霜织者 / 雷霆监察者，下面一整条：拿着烬铸武器的主角对着烬渊之主 ----------
   p7a: {
     zone: 0, aspect: 1.05, fog: [16, 60], bosses: ['golem'],
@@ -320,7 +320,7 @@ export const PANELS = {
       b.awake = false;
       b.ang = 0.3;
       G.world.setEnt(b.ent, b.x, b.z, b.ang);
-      if (G.world.play(b.ent, 'taunt', { hold: true }) || G.world.play(b.ent, 'call', { hold: true }) || G.world.play(b.ent, 'cross_w', { hold: true, dur: 0.6 }));
+      if (G.world.play(b.ent, 'taunt', { hold: true }) || G.world.play(b.ent, 'call', { hold: true }) || G.world.play(b.ent, 'barrage_w', { hold: true, dur: 0.6 }));
       for (let i = 0; i < 40; i++) G.world.animEnt(b.ent, 1 / 60, false);
       window.__actors = [b.ent.group];
       window.__focus = [b.x, b.z];
@@ -350,7 +350,7 @@ export const PANELS = {
       b.awake = false;
       b.ang = 0;
       G.world.setEnt(b.ent, b.x, b.z, b.ang);
-      if (G.world.play(b.ent, 'taunt', { hold: true }) || G.world.play(b.ent, 'call', { hold: true }) || G.world.play(b.ent, 'slam_w', { hold: true, dur: 0.6 }));
+      if (G.world.play(b.ent, 'taunt', { hold: true }) || G.world.play(b.ent, 'call', { hold: true }) || G.world.play(b.ent, 'fan_w', { hold: true, dur: 0.6 }));
       for (let i = 0; i < 40; i++) G.world.animEnt(b.ent, 1 / 60, false);
       for (let i = 0; i < 30; i++) G.world.animEnt(P.ent, 1 / 60, false);
       window.__actors = [P.ent.group, b.ent.group];
