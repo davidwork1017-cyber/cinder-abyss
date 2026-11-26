@@ -10,8 +10,8 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { GAME_URL, diagStep, outerTimeoutWarning } from './harness.mjs'; // 引入 harness 也就装上了它的信号处理：SIGTERM 时打 KILLED、立即退出
 import { uiLayoutCheck, uiBlankPoint } from './ui-layout.mjs';
 import { cornerScenes, cornerHud, cornerCheck } from './corner-mask.mjs';
-import { STANDALONE_DEVICES, MOBILE_DEFAULT, standaloneContext } from './devices.mjs';
-import { HUD_PARTS, PAINT_SRC, rotFrameProbe, rotFrameJudge } from './rot-standalone.mjs';
+import { STANDALONE_DEVICES, MOBILE_DEFAULT, standaloneContext, launch, questReady, lateGrow, converged } from './devices.mjs';
+import { HUD_PARTS, PAINT_SRC, rotFrameProbe, rotFrameJudge, rotCanvasProbe, rotCanvasJudge } from './rot-standalone.mjs';
 
 let passed = 0, failed = 0;
 const lines = [];
@@ -593,6 +593,7 @@ await step('内存：低档连走五个区三圈（每区打首领、清怪）�
   const st0 = await ev(() => ({ zi: G.state.zoneIdx, tier: G.state.tier, q: G.world.quality(), god: !!G.player.god }));
   const laps = [];
   let deep = null;
+  const ups = []; // zone-ready：每次进区等到 PBR 外观以后，上一次原地重建的记录
   try {
     await ev(() => {
       G.debug.hold(true);
@@ -622,6 +623,7 @@ await step('内存：低档连走五个区三圈（每区打首领、清怪）�
         await ev((zi) => G.enterZone(zi, 0), zi);
         await until(() => !G.world.assetsPending() && G.world.gfxInfo().hd, null, 60000);
         if (zi === 3 && !deep) deep = await ev(() => G.world.abyssDeepProbe());
+        ups.push(await ev(() => (G.world.zoneUpInfo ? G.world.zoneUpInfo() : null)));
         await ev(() => {
           const S = G.state;
           G.debug.step(0.1);
@@ -662,6 +664,10 @@ await step('内存：低档连走五个区三圈（每区打首领、清怪）�
     await until(() => !G.world.assetsPending(), null, 60000).catch(() => {});
   }
   const [l1, l2, l3] = laps;
+  // zone-ready：WebKit 有并行编译，素材晚到的区（释放过贴图、再进来）原地换 PBR 外观时走后台编译（compileAsync）再换
+  const ext = await ev(() => G.world.renderer.extensions.has('KHR_parallel_shader_compile'));
+  const asyncUps = ups.filter((u) => u && u.async);
+  if (ext) assert(asyncUps.length > 0, '有并行编译时原地重建应先在后台编好新材质再换：' + JSON.stringify(ups.filter(Boolean).slice(-3)));
   // 贴图留 6 张余量：有些全局贴图第一次用到才建、建了就一直留着（异兆道具的环 / 符文这类随机出现的东西可能第二圈才第一次碰到）；漏掉整区的贴图一圈是几十张
   for (const l of [l2, l3]) assert(l.geo - l1.geo <= 3 && l.tex - l1.tex <= 6 && l.prog - l1.prog <= 3, '后两圈没回到第一圈的水平：' + JSON.stringify(laps));
   for (const l of [l2, l3]) assert(l.upMs <= UPLOAD_MAX_MS, '再进区有一次贴图上传 ' + l.upMs + ' ms（' + l.upAt + '）');
@@ -669,7 +675,7 @@ await step('内存：低档连走五个区三圈（每区打首领、清怪）�
   const hw = l1.rss != null && l2.rss != null && l3.rss != null ? l3.rss - Math.max(l1.rss, l2.rss) : null;
   if (hw != null) assert(hw <= RSS_LAP2_MB, '回收后第三圈 WebProcess 比前两圈的高水位还高 ' + hw.toFixed(0) + ' MB：' + JSON.stringify(laps));
   const rss = hw != null ? 'WebProcess 每圈末 ' + l1.rss.toFixed(0) + ' / ' + l2.rss.toFixed(0) + ' / ' + l3.rss.toFixed(0) + ' MB（第三圈 − 高水位 ' + (hw >= 0 ? '+' : '') + hw.toFixed(0) + '）' : 'RSS 量不到（不是 Linux）';
-  return rss + ' ｜ 几何体 ' + l1.geo + ' → ' + l2.geo + ' → ' + l3.geo + '，贴图 ' + l1.tex + ' → ' + l2.tex + ' → ' + l3.tex + '，程序 ' + l1.prog + ' → ' + l2.prog + ' → ' + l3.prog + ' ｜ 最长一次贴图上传 第一圈 ' + l1.upMs + ' ms（' + l1.upAt + '）/ 第二、三圈 ' + Math.max(l2.upMs, l3.upMs) + ' ms ｜ 深渊底传像素 ' + deep.dataMs + ' ms / 传画布 ' + deep.canvasMs + ' ms';
+  return rss + ' ｜ 几何体 ' + l1.geo + ' → ' + l2.geo + ' → ' + l3.geo + '，贴图 ' + l1.tex + ' → ' + l2.tex + ' → ' + l3.tex + '，程序 ' + l1.prog + ' → ' + l2.prog + ' → ' + l3.prog + ' ｜ 最长一次贴图上传 第一圈 ' + l1.upMs + ' ms（' + l1.upAt + '）/ 第二、三圈 ' + Math.max(l2.upMs, l3.upMs) + ' ms ｜ 深渊底传像素 ' + deep.dataMs + ' ms / 传画布 ' + deep.canvasMs + ' ms ｜ 原地换外观走后台编译 ' + asyncUps.length + ' 次';
 });
 
 await step('M2：iPhone 没有震动接口，设置里不显示「震动」；长按地图上的区域卡片出详情，松手留着', async () => {
@@ -854,22 +860,26 @@ await step('iPhone 圆角：四角各一块半径 47 px 的遮罩，标题、职
 
 // UI-R B4b：用户的玩法是主屏幕 App、锁着自动旋转横着拿，游戏一直在旋转横屏里（用户截图 notes/user-feedback/iphone-rotated-title-2026-11-24.png）。
 // iOS 主屏幕 App（状态栏 black-translucent）里网页从屏幕最顶上画起，innerHeight 却少算了状态栏那一截：这里照这个样子模拟（navigator.standalone、screen 是整块屏幕、innerHeight 少 59 px）
-await step('旋转横屏 · 主屏幕 App（UI-R B4b）：iPhone 393×852 / 430×932，有没有状态栏 59 px + 底部横条 34 px 的安全区，布局视口少算状态栏时（test/devices.mjs 的模型）——画面盖满整块屏幕（±2 px）、画到屏幕底；标题画面（有存档，6 个按钮）过 a–f、不碰圆角；HUD 和背包不碰圆角；方向记在设备上，重新打开接着转，⟲ 换过的方向也记住', async () => {
+await step('旋转横屏 · 主屏幕 App（UI-R B4b）：iPhone 393×852 / 430×932，有没有状态栏 59 px + 底部横条 34 px 的安全区，布局视口少算状态栏时（test/devices.mjs 的模型）——画面盖满整块屏幕（±2 px）、画到屏幕底，3D 画布和叠加层也盖满；标题画面（有存档，6 个按钮）过 a–f、不碰圆角；HUD 和背包不碰圆角；方向记在设备上，重新打开接着转，⟲ 换过的方向也记住', async () => {
   const out = [];
   const bad = [];
   for (const [W, H] of [[393, 852], [430, 932]]) {
     for (const ins of [false, true]) {
       // rot-safe：换成 test/devices.mjs 的主屏幕 App 模型（原来只让 innerHeight 少 59 px，网页照样画满整块屏幕，查不出 2026-11-25 的黑边和被裁的 HUD）。
       // 安全区仍由下面的 setIns 按 ins 设；量圆角时 __ihBug 关掉（圆角按真的屏幕算）
-      const c = await standaloneContext(browser, { width: W, height: H, dpr: 3, sb: 59, hb: 34 }, { safe: false });
+      // rot-safe2：模型按真机读数改了（刚打开时整个视口少状态栏，随后 innerHeight / 可视区 / 100lvh 变成整块屏幕、clientHeight 不变），载入和重载走 launch()
+      const sdev = { width: W, height: H, dpr: 3, sb: 59, hb: 34 };
+      const c = await standaloneContext(browser, sdev, { safe: false });
       const where = W + '×' + H + (ins ? ' + 安全区' : '');
       const errs = [];
       try {
         let p = await c.newPage();
         p.on('pageerror', (e) => errs.push('pageerror: ' + (e.stack || e.message)));
         const pev = (f, a) => p.evaluate(f, a);
-        await p.goto(GAME_URL);
-        await p.waitForFunction(() => window.G && G.ui && G.ui.titleOn && G.ui.titleOn() && document.getElementById('title').classList.contains('ready'), null, { timeout: 120000 });
+        await launch(p, sdev, async () => {
+          await p.goto(GAME_URL);
+          await p.waitForFunction(() => window.G && G.ui && G.ui.titleOn && G.ui.titleOn() && document.getElementById('title').classList.contains('ready'), null, { timeout: 120000 });
+        });
         // 放一个存档（标题画面是 6 个按钮的样子），重新打开
         await pev(() => {
           const x = G.newClassSave('hunt');
@@ -878,8 +888,10 @@ await step('旋转横屏 · 主屏幕 App（UI-R B4b）：iPhone 393×852 / 430�
           localStorage.setItem('cinder-abyss-save-v1', JSON.stringify(x));
           localStorage.setItem(G.touch.keys.HINT_KEY, '1');
         });
-        await p.reload();
-        await p.waitForFunction(() => window.G && G.ui && G.ui.titleOn && G.ui.titleOn() && document.getElementById('title').classList.contains('ready'), null, { timeout: 120000 });
+        await launch(p, sdev, async () => {
+          await p.reload();
+          await p.waitForFunction(() => window.G && G.ui && G.ui.titleOn && G.ui.titleOn() && document.getElementById('title').classList.contains('ready'), null, { timeout: 120000 });
+        });
         const setIns = () => pev((on) => { const st = document.documentElement.style; for (const k of ['t', 'b']) { if (on) st.setProperty('--t-safe-' + k, k === 't' ? '59px' : '34px'); else st.removeProperty('--t-safe-' + k); } }, ins);
         await setIns();
         await pev(() => G.touch.setRot('cw'));
@@ -924,6 +936,8 @@ await step('旋转横屏 · 主屏幕 App（UI-R B4b）：iPhone 393×852 / 430�
         // 进游戏：HUD、背包
         await pev(() => G.ui.hideTitle());
         await p.waitForTimeout(900);
+        // rot-safe2：3D 画布和叠加层盖满整块屏幕、按画面尺寸渲染（be309c4 在真机上画布停在布局视口那么高）
+        bad.push(...rotCanvasJudge(await pev(rotCanvasProbe), where));
         await corner('HUD');
         await pev(() => G.ui.open('inv'));
         await p.waitForTimeout(500);
@@ -979,8 +993,10 @@ await step('旋转横屏 · 主屏幕 App · 可见区（rot-safe）：iPhone 17
         });
         const pev = (f, a) => p.evaluate(f, a);
         const ready = () => p.waitForFunction(() => window.G && G.ui && G.ui.titleOn && G.ui.titleOn() && document.getElementById('title').classList.contains('ready'), null, { timeout: 120000 });
-        await p.goto(GAME_URL);
-        await ready();
+        await launch(p, dev, async () => {
+          await p.goto(GAME_URL);
+          await ready();
+        });
         await pev(() => {
           const x = G.newClassSave('hunt');
           x.level = 7;
@@ -988,17 +1004,21 @@ await step('旋转横屏 · 主屏幕 App · 可见区（rot-safe）：iPhone 17
           localStorage.setItem('cinder-abyss-save-v1', JSON.stringify(x));
           localStorage.setItem(G.touch.keys.HINT_KEY, '1');
         });
-        await p.reload();
-        await ready();
+        await launch(p, dev, async () => {
+          await p.reload();
+          await ready();
+        });
         const rot = await pev(() => G.rot && G.rot.dir);
         if (rot !== dir) bad.push(where + ' 打开时没接着转：' + rot);
         await pev(() => G.ui.hideTitle());
-        await p.waitForFunction(() => { const q = document.getElementById('quest'); return q && q.classList.contains('on'); }, null, { timeout: 15000 }).catch(() => {});
+        // rot-safe2：先等素材包、再按帧等追踪条（原来固定等 15 秒，机器忙时素材包没载完，375×812 偶尔报「主线追踪条没出来」）
+        const qw = await questReady(p);
+        if (qw) bad.push(where + ' ' + qw);
         await p.waitForTimeout(600);
         const o = await pev(rotFrameProbe, [HUD_PARTS, PAINT_SRC]);
         const j = rotFrameJudge(o, dev, where);
         bad.push(...j.bad);
-        if (!o.parts.find((x) => x.name === '主线追踪条').boxes.length) bad.push(where + ' 主线追踪条没出来');
+        if (!qw && !o.parts.find((x) => x.name === '主线追踪条').boxes.length) bad.push(where + ' 主线追踪条没出来');
         // 设备信息（只在默认设备上点一次）：设置里收着，点开是一块等宽字，字段齐
         if (dev === MOBILE_DEFAULT && dir === 'cw') {
           await pev(() => G.ui.pause());
@@ -1012,7 +1032,8 @@ await step('旋转横屏 · 主屏幕 App · 可见区（rot-safe）：iPhone 17
             await pev(() => document.querySelector('[data-tact="devinfo"]').click());
             await p.waitForTimeout(300);
             const txt = await pev(() => { const e = document.getElementById('m-dev'); return e && e.getClientRects().length ? e.textContent.replace(/ +/g, ' ') : ''; });
-            const miss = ['屏幕 402×874', '窗口 402×812', '可视区 402×812', '像素比 3', '安全区', '主屏幕 standalone true', '旋转 开 cw', '方向', '画面 874×402', '画到', 'html', 'clientHeight 812', '版本 v'].filter((k) => !txt.includes(k));
+            // rot-safe2：真机上窗口、可视区是整块屏幕（874），只有 clientHeight 少状态栏；画到 / 画布 / 高度按新读数
+            const miss = ['屏幕 402×874', '窗口 402×874', '可视区 402×874', '像素比 3', '安全区', '主屏幕 standalone true', '旋转 开 cw', '方向', '画面 874×402', '画布 874×402 · 缓冲', '渲染 874×402', '画到 画布到竖着的屏幕 y 874 · HUD 到 812 · 底边让出 62', '高度 clientHeight 812 · innerHeight 874 · 可视区 874 · 100lvh 874', 'html', 'clientHeight 812', '版本 v'].filter((k) => !txt.includes(k));
             if (!shut || miss.length) bad.push(where + ' 设备信息：' + (shut ? '' : '一开始没收着 ') + (miss.length ? '缺 ' + miss.join('、') : ''));
           }
         }
@@ -1025,6 +1046,100 @@ await step('旋转横屏 · 主屏幕 App · 可见区（rot-safe）：iPhone 17
   }
   assert(!bad.length, bad.length + ' 处不合格：' + bad.slice(0, 6).join(' ｜ '));
   return out.join('，') + '；HUD 都在可见区里，设备信息点得开';
+});
+
+// rot-safe2（2026-11-25）：rot-safe 上线后真机（be309c4）还是不对：3D 画布只画到竖着的屏幕 y 812，下面一条暗边，叠加层上的小地图被切，
+// 主攻键、主线追踪条却画过了 812（notes/user-feedback/iphone-rotated-after-rotsafe-2026-11-25.png；设备信息：窗口 402×874、可视区 874、clientHeight 812）。
+// 原因：刚打开时视口是 812，之后变成 874，world.js 的 resize 先跑、读到旧尺寸，画布停在 812；HUD 按 874 摆。
+// 模型见 test/devices.mjs（standaloneContext + launch / settle）。在 be309c4 上这一步不过（画布到 812、小地图被切、主攻键伸出 812）
+await step('旋转横屏 · 主屏幕 App · 画布铺满、HUD 在 clientHeight 以内（rot-safe2）：真机读数的模型（刚打开时视口少状态栏，随后 innerHeight / 可视区 / 100lvh 变成整块屏幕、clientHeight 不变），iPhone 17 Pro 402×874 cw / ccw、393×852 cw、375×812 cw——3D 画布和叠加层盖满整块屏幕、按画面尺寸渲染，小地图整个在叠加层里，HUD 和字都在 clientHeight 以内；「画面测试」打得开、七条色带和顶部对照齐、刷新就关', async () => {
+  const out = [];
+  const bad = [];
+  const runs = [[STANDALONE_DEVICES[0], 'cw'], [STANDALONE_DEVICES[0], 'ccw'], [STANDALONE_DEVICES[1], 'cw'], [STANDALONE_DEVICES[2], 'cw']];
+  let lateInfo = '';
+  for (const [dev, dir] of runs) {
+    const where = dev.width + '×' + dev.height + ' ' + dir;
+    const c = await standaloneContext(browser, dev, { rot: dir });
+    const errs = [];
+    try {
+      const p = await c.newPage();
+      p.on('pageerror', (e) => errs.push('pageerror: ' + (e.stack || e.message)));
+      p.on('response', (r) => {
+        if (r.status() >= 400) errs.push('HTTP ' + r.status() + ' ' + r.url());
+      });
+      const pev = (f, a) => p.evaluate(f, a);
+      const ready = () => p.waitForFunction(() => window.G && G.ui && G.ui.titleOn && G.ui.titleOn() && document.getElementById('title').classList.contains('ready'), null, { timeout: 120000 });
+      await launch(p, dev, async () => {
+        await p.goto(GAME_URL);
+        await ready();
+      });
+      await pev(() => {
+        const x = G.newClassSave('hunt');
+        x.level = 7;
+        x.seenHelp = x.seenStory = true;
+        localStorage.setItem('cinder-abyss-save-v1', JSON.stringify(x));
+        localStorage.setItem(G.touch.keys.HINT_KEY, '1');
+      });
+      await launch(p, dev, async () => {
+        await p.reload();
+        await ready();
+      });
+      await pev(() => G.ui.hideTitle());
+      const qw = await questReady(p); // 先等素材包、再按帧等追踪条（HUD 检查要它在）
+      if (qw) bad.push(where + ' ' + qw);
+      await p.waitForTimeout(600);
+      const o = await pev(rotCanvasProbe);
+      bad.push(...rotCanvasJudge(o, where));
+      const f = await pev(rotFrameProbe, [HUD_PARTS, PAINT_SRC]);
+      bad.push(...rotFrameJudge(f, dev, where).bad);
+      if (o.ch !== dev.height - dev.sb || o.ih !== dev.height) bad.push(where + ' 模型没生效：clientHeight ' + o.ch + ' innerHeight ' + o.ih);
+      // 画面测试（只在默认设备 cw 上）：设置 → 设备信息 → 画面测试，色带齐；刷新就关
+      if (dev === MOBILE_DEFAULT && dir === 'cw') {
+        await pev(() => G.ui.pause());
+        await p.waitForTimeout(300);
+        await pev(() => document.querySelector('#p-menu [data-tact="settings"]').click());
+        await p.waitForTimeout(300);
+        await pev(() => document.querySelector('[data-tact="devinfo"]').click());
+        await p.waitForTimeout(300);
+        const sw = await pev(() => !!document.querySelector('[data-tact="devprobe"]'));
+        if (!sw) bad.push(where + ' 设备信息里没有「画面测试」');
+        else {
+          await pev(() => document.querySelector('[data-tact="devprobe"]').click());
+          await p.waitForTimeout(400);
+          const pr = await pev(() => {
+            const els = Array.from(document.querySelectorAll('.t-probe'));
+            const txt = els.map((e) => e.textContent).join('|');
+            return { n: els.length, txt, gl: G.world.probe && G.world.probe.gl, ov: G.world.probe && G.world.probe.ov, on: G.touch.probeOn(), html: getComputedStyle(document.documentElement).backgroundColor, clip: document.getElementById('gl').style.clipPath || document.getElementById('gl').style.webkitClipPath || '' };
+          });
+          const need = ['固定底', 'html 绝对', 'body 100lvh', 'html 底色', 'body 底色', '画布', '叠加层', '顶部对照'].filter((k) => !pr.txt.includes(k));
+          if (!pr.on || need.length || !pr.gl || !pr.ov || !/polygon/.test(pr.clip) || !/255, 0, 255/.test(pr.html)) bad.push(where + ' 画面测试：' + JSON.stringify({ on: pr.on, n: pr.n, need, gl: !!pr.gl, ov: !!pr.ov, clip: pr.clip.slice(0, 20), html: pr.html }));
+          // 3D 画布上那条在 clientHeight 以下（竖着的屏幕坐标）
+          const gy = await pev((r) => { const a = G.toScreen(r[0], r[1]), b = G.toScreen(r[0] + r[2], r[1] + r[3]); return [Math.min(a.y, b.y), Math.max(a.y, b.y)]; }, pr.gl);
+          if (!(gy[0] >= dev.height - dev.sb - 1 && gy[1] <= dev.height + 1)) bad.push(where + ' 画面测试的画布色带不在屏幕底那一截：' + gy.join('–'));
+          await launch(p, dev, async () => {
+            await p.reload();
+            await ready();
+          });
+          const off = await pev(() => ({ on: G.touch.probeOn(), n: document.querySelectorAll('.t-probe').length, w: !!G.world.probe }));
+          if (off.on || off.n || off.w) bad.push(where + ' 画面测试刷新后没关：' + JSON.stringify(off));
+        }
+      }
+      // 晚长高（只在 375×812 上，zone-ready 全套里就是它停在 768）：resize 处理完 html 才长高、再没有事件，画面也要自己跟上
+      if (dev === STANDALONE_DEVICES[2]) {
+        await p.setViewportSize({ width: dev.width, height: dev.height - dev.sb });
+        await converged(p, Object.assign({}, dev, { height: dev.height - dev.sb })).then((w) => { if (w) bad.push(where + ' 回到刚打开的视口没跟上：' + w); });
+        const lg = await lateGrow(p, dev);
+        if (lg.why) bad.push(where + ' 晚长高（resize 处理完 html 才长高，之后没有事件）：' + lg.why);
+        else lateInfo = '；晚长高：先停在 ' + lg.stuck + '，自己跟上 ' + dev.height;
+      }
+      if (errs.length) bad.push(where + ' 页面报错：' + errs.join(' | '));
+      out.push(where + ' 画布到 ' + Math.round(o.gl ? o.gl[3] : 0) + '、渲染 ' + (o.vs ? o.vs.w + '×' + o.vs.h : '?') + '、主角 x ' + (o.hero ? o.hero.fx : '?'));
+    } finally {
+      await c.close();
+    }
+  }
+  assert(!bad.length, bad.length + ' 处不合格：' + bad.slice(0, 6).join(' ｜ '));
+  return out.join('，') + '；HUD 在 clientHeight 以内，画面测试开得了、刷新就关' + lateInfo;
 });
 
 await browser.close();

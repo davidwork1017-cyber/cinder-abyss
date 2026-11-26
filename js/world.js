@@ -1434,7 +1434,7 @@
     quality: qualId, post: !!(post.ok && qual.post), bloom: !!(post.ok && qual.post && qual.bloom), dpr, scale: qual.scale || 1,
     smaa: !!(post.ok && qual.post && post.smaa && post.smaa.enabled), fxaa: !!(!(post.ok && qual.post) && post.fx && qual.fxaa),
     decals: !!(zoneGroup && zoneGroup.getObjectByName('groundDecals')), decalsOn: !!(zoneGroup && zoneGroup.getObjectByName('groundDecals') && zoneGroup.getObjectByName('groundDecals').visible), layer: !!(zoneFx && zoneFx.layer),
-    hd: !!(zoneFx && zoneFx.hd), fires: zoneFx && zoneFx.fires ? zoneFx.fires.list.length : 0, mist: !!(zoneFx && zoneFx.mist && zoneFx.mist.visible),
+    hd: !!(zoneFx && zoneFx.hd) && !staleZone, fires: zoneFx && zoneFx.fires ? zoneFx.fires.list.length : 0, mist: !!(zoneFx && zoneFx.mist && zoneFx.mist.visible),
   });
   // 测试用（asset-lib）：当前区域摆放表里每个布景模型 key → 来自哪个素材包、实际摆了几个（场景里用这个几何体的实例数）
   W.propSources = () => {
@@ -2673,22 +2673,81 @@
         pendingZone = null;
         showLoading(false);
       }
-      // 贴图到了而当前是程序化外观，或者模型包后到了而当前没摆布景：原地重建一次
-      const up = gfxReady(gx) && (!zoneFx || !zoneFx.hd || (!zoneFx.props && propsReady(gx)));
-      if (up && W.zone === zone && zoneGroup) {
-        disposeZone();
-        safeBuildVisuals(zone);
-        // 换外观时画面先压暗一下再淡入，不是生硬地一跳
-        try {
-          const cv = renderer.domElement;
-          cv.style.transition = 'none';
-          cv.style.opacity = '0.25';
-          void cv.offsetWidth;
-          cv.style.transition = 'opacity 0.45s ease-out';
-          cv.style.opacity = '1';
-        } catch (e) { /* 忽略 */ }
-      }
+      // 贴图到了而当前是程序化外观，或者模型包后到了而当前没摆布景：原地重建一次（等这个区先画出来，见 upgradeLater）
+      if (zoneUpgrade(zone, gx)) upgradeLater(zone, gx);
     });
+  }
+  const zoneUpgrade = (zone, gx) => W.zone === zone && !!zoneGroup && gfxReady(gx) && (!zoneFx || !zoneFx.hd || (!zoneFx.props && propsReady(gx)));
+  // zone-ready：原地重建（程序化 → PBR，或者布景模型后到）要等这个区先画出来再做——先画 2 帧（画面没在画的时候最多等 1.5 秒），
+  // 再等一个空闲的时刻（最多 0.8 秒）。重建以后的第一帧要编新材质（布景、PBR 地面），软件渲染下一下 2–2.5 秒；原来素材包一到就重建，
+  // 贴图解码变快以后（tex-t1）首区的布景包常常在进区后半秒内到，这一帧就紧挨着进区，进区就绪看起来慢了 2.5 秒（一半次数），玩家也是一进区就卡。
+  // 外观、重建本身都不变，只是什么时候做
+  let zoneFrames = 0; // W.render 每画一帧 +1（只看差值）
+  let upInfo = null;
+  W.zoneUpInfo = () => upInfo; // 测试用：上一次原地重建时这个区建好以后已经画了几帧、等了多久
+  function upgradeLater(zone, gx) {
+    if (zone.upPending) return;
+    zone.upPending = true;
+    const t0 = performance.now(), f0 = zoneFrames;
+    // 换外观时画面先压暗一下再淡入，不是生硬地一跳
+    const fade = () => {
+      try {
+        const cv = renderer.domElement;
+        cv.style.transition = 'none';
+        cv.style.opacity = '0.25';
+        void cv.offsetWidth;
+        cv.style.transition = 'opacity 0.45s ease-out';
+        cv.style.opacity = '1';
+      } catch (e) { /* 忽略 */ }
+    };
+    const go = () => {
+      zone.upPending = false;
+      if (!zoneUpgrade(zone, gx)) return;
+      upInfo = { zone: zone.def.id, frames: zoneFrames - (zone.frame0 || 0), waitMs: Math.round(performance.now() - t0), async: false };
+      // 有并行编译（KHR_parallel_shader_compile，iPhone 的 WebKit 有，软件渲染的 Chrome 没有）：新外观先藏着建好、旧外观照常显示，
+      // 新材质在后台编好（compileAsync）、贴图传上去以后再换，换的那一帧不用等编译。没有的话照原样当场换（第一帧现编）
+      if (renderer.extensions.has('KHR_parallel_shader_compile') && renderer.compileAsync && zoneGroup) {
+        dropStale();
+        staleZone = { g: zoneGroup, disp: zoneDisp };
+        icull = null;
+        zoneGroup = null;
+        zoneDisp = [];
+        zoneFx = null;
+        safeBuildVisuals(zone);
+        const g = zoneGroup;
+        if (!g) return void dropStale();
+        g.visible = false;
+        upInfo.async = true;
+        const ta = performance.now();
+        const swap = () => {
+          if (zoneGroup !== g) return; // 期间又换了区 / 重建了：disposeZone 已经收掉旧外观
+          const seen = new Set();
+          g.traverse((o) => {
+            for (const m of o.material ? (Array.isArray(o.material) ? o.material : [o.material]) : []) {
+              for (const k of ['map', 'normalMap', 'emissiveMap', 'bumpMap', 'roughnessMap', 'aoMap', 'alphaMap']) if (m[k] && m[k].isTexture && m[k].image && !seen.has(m[k])) seen.add(m[k]), renderer.initTexture(m[k]);
+              if (m.uniforms) for (const u in m.uniforms) { const t = m.uniforms[u] && m.uniforms[u].value; if (t && t.isTexture && t.image && !seen.has(t)) seen.add(t), renderer.initTexture(t); }
+            }
+          });
+          dropStale();
+          g.visible = true;
+          if (upInfo) upInfo.compileMs = Math.round(performance.now() - ta);
+          fade();
+        };
+        renderer.compileAsync(g, camera, scene).then(swap, swap);
+        return;
+      }
+      disposeZone();
+      safeBuildVisuals(zone);
+      fade();
+    };
+    const wait = () => {
+      if (W.zone !== zone) return void (zone.upPending = false);
+      if (zoneFrames - f0 < 2 && performance.now() - t0 < 1500) return void setTimeout(wait, 50);
+      // 空闲回调只拿来等「空闲了」，重建本身另起一个任务做：重建 50–70 ms，放在空闲回调里会超过它的时限（也算进图标预热的空闲切片）
+      if (window.requestIdleCallback) requestIdleCallback(() => setTimeout(go, 0), { timeout: 800 });
+      else setTimeout(go, 200);
+    };
+    wait();
   }
   // 空闲时预取下一个区域的素材包，走到那里时不用再等
   // mem-hunt：首领包按区加载。当前区的首领进区刷首领时就要（W.makeBoss → bossPackLater），下一区的首领跟下一区的素材一起在这里预取，
@@ -2726,7 +2785,10 @@
     };
     setTimeout(tick, 1500);
   }
-  W.assetsPending = () => !!pendingZone || retierN > 0;
+  // zone-ready：素材到了、原地换外观还在排队（upgradeLater）或者新外观还在后台编译（staleZone）也算没齐：外观要换完才算就绪（测试 / 工具等它）。
+  // 界面（主线追踪条、旁白的「打完了」）只看素材包本身（W.assetsLoading），和原来一样：不因为换外观排队多等
+  W.assetsLoading = () => !!pendingZone || retierN > 0;
+  W.assetsPending = () => W.assetsLoading() || !!(W.zone && W.zone.upPending) || !!staleZone;
   W.zonePacks = (id) => (ZONE_GFX[id] ? ZONE_GFX[id].packs.slice() : null); // 测试用（tex-t2）：区要的素材包
   // 启动时先等首个区域的素材（最多 maxMs 毫秒），开场就是完整画面；等待期间整屏盖一层「正在载入场景…」
   W.preloadZone = function (idx, maxMs) {
@@ -3114,6 +3176,9 @@
     pMat.uniforms.uScale.value = (vh * glDpr) / (2 * Math.tan((BASE_FOV * Math.PI) / 360));
     if (W.zone) buildMinimap(W.zone);
   };
+  // 画布现在按多大摆的（rot-safe2）：renderer.setSize 用的画面尺寸、3D 画布和叠加层的像素尺寸。
+  // touch.js 每帧拿它和 G.viewW / G.viewH 对：旋转横屏量出来的画面变了而这里还是旧的，就补一次 resize（iOS 主屏幕 App 2026-11-25 画布只到 812 的原因）
+  W.viewSize = () => ({ w: vw, h: vh, gl: renderer ? [renderer.domElement.width, renderer.domElement.height] : [0, 0], ov: ocv ? [ocv.width, ocv.height] : [0, 0] });
 
   // ===== 区域地形（terrain）=====
   // 每个区由生成器（GEN.*）输出一份纯数据的布局说明 spec：房间 / 连接 / 挖空 / 危险区 / 地标 / 怪群槽位 / 宝箱，
@@ -10303,8 +10368,17 @@
     keptMats.clear();
     progKeep.clear();
   };
+  // 原地重建时还在显示的旧外观（有并行编译时新外观的材质编好才换，见 upgradeLater）
+  let staleZone = null;
+  function dropStale() {
+    if (!staleZone) return;
+    scene.remove(staleZone.g);
+    for (const d of staleZone.disp) retire(d);
+    staleZone = null;
+  }
   function disposeZone() {
     icull = null;
+    dropStale();
     if (!zoneGroup) return;
     scene.remove(zoneGroup);
     for (const d of zoneDisp) retire(d);
@@ -11233,6 +11307,7 @@
     zone.map = L.map || rasterize(zone.spec); // 不消耗 Math.random，放在外观前面：建外观时 W.walkable 就能用（新生成器在 makeLayout 里校验时已经建好）
     zone.ms = { layout: t1 - t0 - (L.map ? L.map.ms : 0), raster: zone.map.ms };
     W.zone = zone;
+    zone.frame0 = zoneFrames;
     // tex-t2：解码好的贴图图像只留当前区和下一区的（离开的区释放，再进来时从包里留着的原文重新解码）
     if (G.assets && G.assets.release) zone.ms.released = G.assets.release(keepPacks(def));
     const t2 = performance.now();
@@ -12659,8 +12734,25 @@
   function finishPose(ent, t, sdt) {
     const rig = ent.rig, o = ent.out;
     if (rig.post) rig.post(ent, o, t, sdt);
+    if (ent.flinchCd > 0) ent.flinchCd -= sdt;
     // 受击：朝攻击行进的方向一仰，同时先压扁再回弹
-    if (ent.hitT > 0 && ent.clip && ent.clip.steady) {
+    if (ent.hitT > 0 && ent.flinch) {
+      // boss-flinch：首领 / 精英的小抖动，只叠在 hitJ（躯干、头）上；一起动作（蓄力 / 出手 / 破防 / 死亡）立刻停掉
+      ent.hitT -= sdt;
+      if (ent.clip) ent.hitT = 0;
+      else {
+        const u = 1 - Math.max(0, ent.hitT) / ent.hitDur, env = u < 0.3 ? smooth01(u / 0.3) : 1 - smooth01((u - 0.3) / 0.7);
+        const hj = rig.hitJ, k = ent.hitS * env;
+        if (hj) for (let i = 0; i < hj.length; i++) {
+          o[hj[i]] += ent.hitZ * k * (i ? 1.3 : 1);
+          o[hj[i] + 2] -= ent.hitX * k * (i ? 1.3 : 1);
+        }
+        else {
+          o[0] += ent.hitZ * k;
+          o[2] -= ent.hitX * k;
+        }
+      }
+    } else if (ent.hitT > 0 && ent.clip && ent.clip.steady) {
       // boss-golem：蓄力 / 出手（steady）期间不仰、不压扁、不叠受击动作，只在 hitJ 上朝攻击方向抖一下（最多 0.12 弧度），读招的姿势不晃
       ent.hitT -= sdt;
       const u = 1 - Math.max(0, ent.hitT) / ent.hitDur, hj = rig.hitJ;
@@ -12805,14 +12897,37 @@
     return c ? c.k0 * c.dur : 0;
   };
   // 受击反应：ang 是这一击行进的方向（世界朝向角），strength 约 0.5（轻）~ 2（终结技）
-  W.hitReact = function (ent, ang, strength) {
+  // boss-flinch：首领 / 精英（ent.hitTier）挨打只有一下小的叠加抖动（躯干 / 头几度、约 0.14 s），不再整个人一仰 + 压扁 + 受击动作：
+  //   - 小的一下只闪白、不动；大的一下才抖：这一击 ≥ 最大生命的 FLINCH_BIG，或重技能（手感 ≥ 2）的暴击（o.frac / o.heavyCrit，没传 o 时按 strength ≥ 2 算大）；
+  //   - 每只每 FLINCH_GAP 秒最多抖一次，窗口里再挨打不续；
+  //   - 蓄力 / 出手 / 收招（o.busy：模拟里在出招、冲刺、破防）和任何在播的动作（蓄力、出手、破防、死亡）里一律不动，读招的姿势不晃；破防有自己的 broken 动作。
+  //   只动外观：模拟、架势、时序都不读这些值，也不取随机数
+  const FLINCH_BIG = 0.02, FLINCH_GAP = 0.5, FLINCH_DUR = 0.14;
+  const FLINCH_AMP = { boss: 0.05, elite: 0.08 }; // 弧度：首领约 3°，精英约 4.5°（头再多三成）
+  W.FLINCH = { big: FLINCH_BIG, gap: FLINCH_GAP, dur: FLINCH_DUR, amp: FLINCH_AMP }; // 测试读
+  W.hitReact = function (ent, ang, strength, o) {
     if (!ent || ent.removed) return;
     const a = ang - ent.group.rotation.y, s = strength === undefined ? 1 : strength;
+    const tier = ent.hitTier;
+    if (tier) {
+      if (ent.clip || ent.dying || (o && o.busy)) return;
+      const big = o ? o.frac >= FLINCH_BIG || !!o.heavyCrit : s >= 2;
+      if (!big || ent.flinchCd > 0) return;
+      ent.flinchCd = FLINCH_GAP;
+      ent.hitX = Math.sin(a);
+      ent.hitZ = Math.cos(a);
+      ent.hitS = FLINCH_AMP[tier] || FLINCH_AMP.boss;
+      ent.hitDur = ent.hitT = FLINCH_DUR;
+      ent.flinch = true;
+      ent.flinchN = (ent.flinchN || 0) + 1;
+      return;
+    }
     ent.hitX = Math.sin(a);
     ent.hitZ = Math.cos(a);
     ent.hitS = Math.min(2.2, s);
     ent.hitDur = 0.24 + 0.08 * Math.min(2, s);
     ent.hitT = ent.hitDur;
+    ent.flinch = false;
   };
 
   // 挂点的世界坐标：weapon（武器尖端）/ hand / head / chest。结果写进 out（不传则新建一个对象返回）；
@@ -17892,6 +18007,7 @@
     else ent.uRim.value.setRGB(0.2, 0.15, 0.1);
     // （旧：暗色的 C 模型轮廓光 ×1.5。卡通配色下角色不再是暗色，靠 TOON 的轮廓光分开，不再加强）
     if (elite) {
+      ent.hitTier = 'elite'; // boss-flinch：挨打只有小的叠加抖动（见 W.hitReact）
       // 精英：更大、发光更强，轮廓上镀一圈金
       ent.k = 1.35;
       ent.body.scale.setScalar(1.35);
@@ -19936,6 +20052,7 @@
     // boss-golem：首领包已经在就直接用脚本生成的新模型，否则先用程序化外观、等包到了在闲着的时候原地换（newEnt 取随机数的次数两边一样）
     const glb = bossGlbRig(kind);
     const ent = newEnt(kind, glb || BOSS_RIG[kind](), warmGround ? 0xe6e9f6 : 0xf2ece6, eh, 1.15); // 卡通：染色收轻，同小怪
+    ent.hitTier = 'boss'; // boss-flinch：挨打只有小的叠加抖动（见 W.hitReact）
     ent.bossWarm = warmGround;
     if (glb) bossLook(ent);
     if (!glb && BOSS_SPEC[kind] && !bossPackOff && !window.CA_PROCEDURAL_CHARS && !warm) {
@@ -29940,6 +30057,7 @@
       'void main(){ vec2 p = vUv * 2.0 - 1.0; float r = length(p); if (r > 1.0) discard;',
       '  float t = atan(p.x, p.y) / 6.28318 + 0.5; float a = 0.0;',
       '  if (vK > 1.5) { if (r < 0.955) discard; gl_FragColor = vec4(mix(vC, vec3(1.0), 0.1), vA > 0.66 ? 0.9 : (vA > 0.33 ? 0.55 : 0.25)); return; }', // 冲击环：只有一道细环（k = 2）
+      '  if (vK < -0.5) { if (r > 0.97) discard; gl_FragColor = vec4(vC, 0.06 * (vA > 0.66 ? 1.0 : (vA > 0.33 ? 0.62 : 0.3))); return; }', // 磐垒的护域铺底（k = -1）：整片很淡的加色，没有花样
       '  if (r > 0.9) a = (t <= vK || vK >= 0.999) ? 1.0 : 0.25;',
       '  else if (r > 0.7 && r < 0.78) { float s = fract(t * 6.0 + uTime * 0.25); a = s < 0.6 ? 0.75 : 0.0; }',
       '  if (a <= 0.0) discard; float k = vA > 0.66 ? 1.0 : (vA > 0.33 ? 0.62 : 0.3);',
@@ -31439,13 +31557,41 @@
     }
   }
   W.render = function () {
+    zoneFrames++;
     autoQualityWatch();
     ldFill();
     if (post.ok && qual.post) post.composer.render();
     else if (post.fx && qual.fxaa) post.fx.render();
     else renderer.render(scene, camera);
     drawOverlay();
+    if (W.probe) drawProbe(W.probe);
   };
+  // 设置 → 设备信息 → 「画面测试」（rot-safe2，js/touch.js 的 probe()）：在 3D 画布和叠加层上各涂一条色带，看真机上画布画到哪。
+  // W.probe = { gl: [x, y, w, h], ov: [x, y, w, h] }，画面坐标（CSS px）；平时是 null，什么都不做
+  W.probe = null;
+  const _probeC = new T.Color();
+  function drawProbe(pr) {
+    if (pr.gl) {
+      const [x, y, w, h] = pr.gl;
+      renderer.getClearColor(_probeC);
+      const a = renderer.getClearAlpha();
+      renderer.setRenderTarget(null);
+      renderer.setScissor(x, vh - y - h, w, h); // GL 的原点在左下
+      renderer.setScissorTest(true);
+      renderer.setClearColor(0x30ff30, 1);
+      renderer.clear(true, false, false);
+      renderer.setScissorTest(false);
+      renderer.setClearColor(_probeC, a);
+    }
+    if (pr.ov) {
+      const [x, y, w, h] = pr.ov, g = octx;
+      g.save();
+      g.setTransform(dpr, 0, 0, dpr, 0, 0);
+      g.fillStyle = '#3b6cff';
+      g.fillRect(x, y, w, h);
+      g.restore();
+    }
+  }
 
   // =====================================================================
   // class-d2b1：提灯（点灯 / 借火 / 灯海 / 续火）和特殊弹（铁水弹 / 雷楔 / 霜霰弹 / 反冲弹）的特效。
