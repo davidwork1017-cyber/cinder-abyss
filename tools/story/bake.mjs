@@ -45,6 +45,16 @@ try {
       pe.group.visible = true;
       if (pe.ring) pe.ring.visible = false;
     });
+    // 画格里有首领：先把脚本生成的首领包载进来（游戏里是进区、图标预热完以后才懒加载的；不等的话拍到的是原来的程序化外观）
+    if (P.bosses) {
+      const ok = await S.ev(async (ks) => {
+        const r = {};
+        for (const k of ks) { const p = 'boss-' + k; if (G.assets.known(p)) await G.assets.need([p]); r[k] = !!(G.world.bossRig && G.world.bossRig(k)); }
+        return r;
+      }, P.bosses);
+      console.log(id, 'boss packs', JSON.stringify(ok));
+      if (Object.values(ok).some((v) => !v)) throw new Error(id + ': boss pack missing ' + JSON.stringify(ok));
+    }
     await S.ev(P.setup);
     // ready：场景里关键的东西建好了没有（比如深渊的崖口：换区后地形有一部分是在空档里补算的）
     if (P.ready) {
