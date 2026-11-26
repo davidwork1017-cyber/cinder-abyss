@@ -119,21 +119,26 @@
   "min_island": 0.002,
   "float_h": 0.08,
   "lods": {
-   "hi": 3000,
-   "lo": 1200
+   "hi": 3000
   },
   "tex_lod": "hi",
   "tex": {
    "id": "frost_waystone",
    "dir": "assets/ai/frost_waystone",
    "px": 512,
-   "lo_px": 256,
+   "lo_px": null,
    "quality": 90,
    "dilate": 24,
    "grade": {
+    "tint": [
+     0.48,
+     0.53,
+     0.6
+    ],
     "gain": 1.0,
     "sat": 1.0
-   }
+   },
+   "grade_note": "游戏里实测（霜骨沼泽高画质、游戏镜头）：原色石身平均灰度 49–54%、p85 65–71%，比主角（p85 约 60%）亮；乘 (0.48, 0.53, 0.60) 后石身约 35%（地面 25–35% 那一档），雪还是最亮的地方"
   },
   "vc": {
    "rows": [

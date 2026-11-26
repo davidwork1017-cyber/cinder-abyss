@@ -257,10 +257,13 @@ def l2s(x):
 
 
 def _grade(img, g):
-    """轻调明暗（线性空间）：gain 整体倍数、sat 饱和度（围绕 Rec.709 亮度）、gamma 中间调、lift 抬暗部"""
+    """轻调明暗（线性空间）：tint 每个通道的倍数（按游戏里的灰度校准：压到地面 / 岩壁那一档、往区域的冷色里收）、gain 整体倍数、
+    sat 饱和度（围绕 Rec.709 亮度）、gamma 中间调、lift 抬暗部"""
     if not g:
         return img
     lin = s2l(img)
+    if g.get('tint'):
+        lin = lin * np.array(g['tint'], dtype=np.float64)
     y = (lin @ np.array([0.2126, 0.7152, 0.0722]))[..., None]
     lin = y + (lin - y) * g.get('sat', 1.0)
     lin = np.clip(lin, 0, None) * g.get('gain', 1.0)
@@ -293,20 +296,20 @@ def _save_jpg(img, path, quality):
 
 
 def write_textures(px, uvs_src, spec, log):
-    """反照率：岛外空白往外填 → 调明暗 → 盒式缩到 px / lo_px → assets/ai/<slug>/albedo.jpg 和 lo/albedo.jpg"""
+    """反照率：岛外空白往外填 → 调明暗 → 盒式缩到 px（和 lo_px）→ assets/ai/<slug>/albedo.jpg（和 lo/albedo.jpg）"""
     t = spec['tex']
     h, w, _ = px.shape
     mask = _raster_mask(uvs_src, w, h)
     img = _dilate(px, mask, t.get('dilate', 24))
     img = _grade(img, t.get('grade'))
     out = os.path.join(ROOT, t['dir'])
-    sizes = [('albedo.jpg', t['px']), (os.path.join('lo', 'albedo.jpg'), t['lo_px'])]
+    sizes = [('albedo.jpg', t['px'])] + ([(os.path.join('lo', 'albedo.jpg'), t['lo_px'])] if t.get('lo_px') else [])  # lo_px：低画质也显示时的小图（tools/asset-sources.json 写 lo: true）
     for rel, n in sizes:
         f = w // n
         if f < 1 or w % n or h != w:
             raise RuntimeError('源贴图 %dx%d 不能整数缩到 %d' % (w, h, n))
         _save_jpg(_box(img, f) if f > 1 else img, os.path.join(out, rel), t.get('quality', 90))
-    log['tex'] = dict(src=[w, h], px=t['px'], lo_px=t['lo_px'], coverage=round(float(mask.mean()), 4))
+    log['tex'] = dict(src=[w, h], px=t['px'], lo_px=t.get('lo_px'), coverage=round(float(mask.mean()), 4))
 
 
 def _sample(px, uv):

@@ -7561,6 +7561,56 @@
     return out;
   }
   // 灯：栈道两头的立灯（灯柱在 frostDeck 里），灯罩是不受光的亮块 + 地上一小片冷光
+  // ai3d-pilot：路标石——风化的石柱立在碎石和积雪的基座上，第一件 AI 生成的布景件（ca/frost_waystone，art/ai/importer.py；来源见 assets/ai/frost_waystone/provenance.json）。
+  // 纯外观：不进布局、没有碰撞（布局的 cuts 会改可走区域），立在岛边可走区域外面一点的浅水里（和水边的石头一样），只挑背向镜头的岸（外法线朝 -z），
+  // 不挡可走的地面、预警圈和主角。避开门口、栈道、骨柱 / 头骨 / 脊骨和立灯，彼此隔开 14 m 以上，一区 3–6 块，随机朝向。
+  // 随机数用自己的一路（布局的 vseed 派生，不取 Math.random），前后的布景摆放一个不挪；岸边的采样不带抖动（抖动要取 Math.random）。
+  // 一个实例化网格：反照率贴图（512，zone-frost 包的 frost_waystone）× 烘好的 AO 顶点色，平直着色；高 / 中画质同一档几何体，低画质不显示（visible = false：+0 次 draw，
+  // 实例照样建好，布景指纹和高档一样；低档的贴图整套不解码）
+  function frostStones(zone, ctx) {
+    const g = G.assets && G.assets.geo('ca/frost_waystone'), TEX = 'frost_waystone'; // 贴图 id 和包里记的一致（g.userData.tex）
+    if (!g || g.userData.tex !== TEX || !G.assets.tex(TEX)) return null;
+    const rnd = mulberry32(((zone.vseed >>> 0) ^ 0x3a7d51c9) >>> 0), sd = ctx.sd;
+    const doors = zone.links.map((L) => L.door), avoid = [];
+    for (const f of zone.feats) {
+      if (f.kind === 'pillar' || f.kind === 'skull' || f.kind === 'lamp') avoid.push([f.x, f.z, f.kind === 'skull' ? 6 : 3.5]);
+      else if (f.kind === 'spine') for (const q of f.pts) avoid.push([q[0], q[1], 3]);
+    }
+    const cand = [];
+    ctx.edgeSamples(2.4, 0, (x, z, kind, nx, nz) => {
+      if (nz > -0.4) return; // 只要背向镜头的岸
+      const o = 0.5, px = x + nx * o, pz = z + nz * o; // 基座（半径约 0.6 m）压在岸线上
+      if (doors.some((d) => Math.hypot(d.x - px, d.z - pz) < 4.5)) return;
+      if (avoid.some((a) => Math.hypot(a[0] - px, a[1] - pz) < a[2])) return;
+      if (W.walkable(px + nx * 1.4, pz + nz * 1.4, -1.2)) return; // 外面紧挨着别的可走区域（栈道 / 窄水道对岸）：不放
+      const d = sd(px, pz);
+      if (d > -0.3 || d < -0.9) return;
+      cand.push(px, pz);
+    }, { kinds: [MAT.VOID, MAT.WATER] });
+    const n = cand.length / 2, order = [];
+    for (let i = 0; i < n; i++) order.push(i);
+    for (let i = n - 1; i > 0; i--) {
+      const j = Math.floor(rnd() * (i + 1)), t = order[i];
+      order[i] = order[j];
+      order[j] = t;
+    }
+    const list = [];
+    for (const i of order) {
+      if (list.length >= 60) break; // 最多 6 块
+      const x = cand[i * 2], z = cand[i * 2 + 1];
+      let ok = true;
+      for (let k = 0; k < list.length; k += 10) if (Math.hypot(list[k] - x, list[k + 2] - z) < 14) ok = false;
+      if (!ok) continue;
+      const s = 0.92 + 0.22 * rnd();
+      list.push(x, -0.1, z, (rnd() - 0.5) * 0.08, rnd() * TAU, (rnd() - 0.5) * 0.08, s, s * (0.95 + 0.1 * rnd()), s, 1);
+    }
+    if (!list.length) return null;
+    const t = zoneTexture(TEX, 'albedo', { wrap: false });
+    t.encoding = T.sRGBEncoding; // 反照率是 sRGB 编码的（布景的顶点色、调色板都按线性算）
+    const im = ctx.instanced(g, ctx.own(ctx.makeToonMat({ map: t, vertexColors: true, flat: true })), list, true, null);
+    if (im) im.visible = !ctx.low;
+    return im;
+  }
   function frostLamps(zone, ctx) {
     const B = [], Gl = [];
     for (const f of zone.feats) {
@@ -7590,6 +7640,7 @@
       st.thin = frostThin(zone, ctx);
       st.shore = frostShore(zone, ctx);
       st.lamps = frostLamps(zone, ctx);
+      st.stones = frostStones(zone, ctx); // ai3d-pilot：路标石（AI 生成的布景件），放在最后、用自己的种子：前面的布景一个不挪
       // 首领场地的法阵压暗：zones-integrate 起是 ZONE_GFX.frost.sigil 旋钮
       frostLive = { zone, st, cracked: {}, tid: -1, t: 0 };
       return st;
@@ -7599,6 +7650,7 @@
       if (low !== st.low) {
         st.low = low;
         if (st.shore.reeds) st.shore.reeds.visible = !low;
+        if (st.stones) st.stones.visible = !low; // ai3d-pilot：路标石低画质不显示（摆放照旧，布景指纹各档一致）
         if (st.water && st.water.U) st.water.U.uMotion.value = low ? 0 : 1;
       }
       // 薄冰的预警：平时裂纹淡淡地呼吸；站上去裂纹越来越亮、闪得越来越快；裂开后发白、圆盘变暗（露出下面的水），复原前慢慢退回去

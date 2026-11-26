@@ -21,7 +21,7 @@
     "g_cover_storm": { "src": "generated", "page": "tools/gen-ground-textures.mjs（程序化生成）", "class": "cover", "kinds": ["albedo", "arh"] },
     "g_cover_abyss": { "src": "generated", "page": "tools/gen-ground-textures.mjs（程序化生成）", "class": "cover", "kinds": ["albedo", "arh"] },
     "g_cover_rift": { "src": "generated", "page": "tools/gen-ground-textures.mjs（程序化生成）", "class": "cover", "kinds": ["albedo", "arh"] },
-    "frost_waystone": { "src": "ai", "page": "assets/ai/frost_waystone/provenance.json（AI 生成的布景件，art/ai/importer.py 处理）", "class": "ai", "kinds": ["albedo"], "lo": true }
+    "frost_waystone": { "src": "ai", "page": "assets/ai/frost_waystone/provenance.json（AI 生成的布景件，art/ai/importer.py 处理）", "class": "ai", "kinds": ["albedo"], "skipLow": true }
   },
   "sources": {
     "ual": {
