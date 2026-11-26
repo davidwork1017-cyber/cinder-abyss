@@ -4274,8 +4274,8 @@ html.touch-ui #gl { cursor: default; }
 html.touch-ui #touch { display: block; }
 html.touch-ui.title-on #t-top, html.touch-ui.title-on #t-stick, html.touch-ui.title-on #t-f { display: none; }
 #t-safe { position: fixed; top: var(--sa-t); right: var(--sa-r); bottom: var(--sa-b); left: var(--sa-l); visibility: hidden; pointer-events: none; }
-/* 主屏幕 App 的旋转横屏（rot-safe，js/touch.js 的 measure()）：iOS 的布局视口比屏幕少状态栏那一截，网页只画到文档盒子的底边。
-   html 撑到 100lvh（整块屏幕高），画面按 html 量出来的高摆，底下就不留黑边 */
+/* 主屏幕 App 的旋转横屏（rot-safe / rot-safe2，js/touch.js 的 measure()）：iOS 的初始包含块（clientHeight）比屏幕少状态栏那一截，网页只画到文档盒子的底边。
+   html 撑到 100lvh（整块屏幕高），画面和画布按 html 量出来的高摆，底下就不留暗边；HUD 只摆在 clientHeight 那一块里 */
 html.t-rot.t-stand { min-height: 100vh; min-height: 100lvh; }
 
 /* 左上：生命 / 法力横条 + 面板入口 */

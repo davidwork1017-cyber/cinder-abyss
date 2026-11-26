@@ -43,6 +43,11 @@ function runLog(msg) {
     appendFileSync(path.join(logDir(), 'run.log'), hhmmss() + ' ' + msg + '\n');
   } catch (e) {}
 }
+const FAULT_GOTO = process.env.CINDER_FAULT_GOTO || '';
+// 往这次运行的 run.log 里记一行（测试脚本用：重开浏览器、冻结 / 解冻界面布局的浏览器）
+export function runNote(msg) {
+  runLog(msg);
+}
 // 测试脚本在每一步开始时告诉这里步骤名（记进日志、意外退出时报出来）
 export function diagStep(name) {
   diag.step = name;
@@ -214,10 +219,18 @@ export async function launch({ width = 1440, height = 900, url = GAME_URL, title
   page.on('console', (m) => {
     if (m.type() === 'error') errors.push('console.error: ' + m.text());
   });
+  // CINDER_FAULT_GOTO=<步骤名开头>：故障注入（验证「开浏览器失败之后」那条路用）。这一步里第一次开浏览器时导航到一个连不上的地址，
+  // 只注入一次，step() 收尾时的重开照常成功（test/README.md「Chrome 中途退出」）
+  if (FAULT_GOTO && !diag.faulted && diag.step.startsWith(FAULT_GOTO)) {
+    diag.faulted = true;
+    url = 'http://127.0.0.1:9/';
+    runLog('fault 注入：「' + diag.step.slice(0, 80) + '」这一次导航到连不上的地址');
+  }
   try {
     await page.goto(url);
   } catch (e) {
-    // 载入超时（机器忙）时调用方拿不到 browser，不关就一直开着跑游戏、占核，后面的步骤跟着超时
+    // 导航失败（机器太忙 load 超时、连不上）：这个浏览器关掉再抛出去，不留一个空跑的 Chrome
+    runLog('goto 失败「' + diag.step.slice(0, 80) + '」：' + String(e && e.message ? e.message : e).split('\n')[0].slice(0, 200));
     await browser.close().catch(() => {});
     throw e;
   }
