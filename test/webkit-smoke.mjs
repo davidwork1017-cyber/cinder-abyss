@@ -219,6 +219,8 @@ await step('面板布局（UI-R B1 + B4a）：844×340 / 390×844 下背包（�
     for (let i = 0; i < 20; i++) G.debug.giveItem(i % 3, slots[i % slots.length], undefined, 28);
     const rare = G.debug.giveItem(2, 'ring', undefined, 28).uid;
     if (G.stash && G.stash.ok()) for (let i = G.stash.list().length; i < 10; i++) G.stash.put(G.rollItem(20, i % 3, slots[i % slots.length]), true);
+    delete s.tut.ascls; // T36：设置里的「自动分解其他职业武器」点一下出确认（布局检查只看确认，不打开）
+    delete s.opts.salvageOffCls;
     G.computeStats();
     return { rare: '.cell[data-item="' + rare + '"]' };
   });
@@ -247,6 +249,8 @@ await step('面板布局（UI-R B1 + B4a）：844×340 / 390×844 下背包（�
       ['帮助', ['help', 'keys'], []],
       ['帮助·武器', ['help', 'keys'], ['[data-act="topic"][data-topic="weapon"]']],
       ['设置', ['pause'], ['#p-menu [data-tact="settings"]'], false, '#pause .pause-card'],
+      // T36：「自动分解其他职业武器」第一次打开时行里的确认（这里的角色有职业，准备时清掉了「确认过」）
+      ['自动分解确认', ['pause'], ['#p-menu [data-tact="settings"]', '#pause [data-tact="offcls"]'], false, '#pause .pause-card'],
     ];
     for (const [id, open, taps, card, roots] of states) {
       n++;
