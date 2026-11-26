@@ -18,7 +18,7 @@ export function rotFrameProbe([parts, paintSrc]) {
   const paint = (0, eval)('(' + paintSrc + ')')();
   const W = window.screen.width, H = window.screen.height;
   const b = document.body.getBoundingClientRect();
-  const out = { W, H, paint, body: { l: b.left, t: b.top, r: b.right, b: b.bottom }, parts: [], text: [], icb: window.innerHeight };
+  const out = { W, H, paint, body: { l: b.left, t: b.top, r: b.right, b: b.bottom }, parts: [], text: [], icb: document.documentElement.clientHeight };
   // 小地图探针
   let mp = document.getElementById('__mm-probe');
   if (!mp && document.body) {
@@ -96,6 +96,49 @@ export function rotFrameJudge(o, dev, where) {
   return { bad, lines };
 }
 
+// rot-safe2：画布（用户截图 2026-11-25：3D 画布只画到 812，叠加层上的小地图被切，DOM 的主攻键、主线追踪条画过 812）。
+// 页面里跑：3D 画布 / 叠加层在竖着的屏幕上的矩形、world 按多大渲染、画面多大、小地图（叠加层上画的，按 W.mmTouch）的矩形、主攻键 / 主线追踪条的底边
+export function rotCanvasProbe() {
+  const r = (e) => {
+    if (!e) return null;
+    const b = e.getBoundingClientRect();
+    return [b.left, b.top, b.right, b.bottom].map((v) => Math.round(v * 10) / 10);
+  };
+  const vs = G.world.viewSize ? G.world.viewSize() : null;
+  const mt = G.world.mmTouch;
+  let mm = null;
+  if (mt) {
+    const a = G.toScreen(mt.x, mt.y), c = G.toScreen(mt.x + 110, mt.y + 110);
+    mm = [Math.min(a.x, c.x), Math.min(a.y, c.y), Math.max(a.x, c.x), Math.max(a.y, c.y)];
+  }
+  // 主角在画面上的位置（镜头对着主角：画布只有 812 宽时它在 406，铺满时在 437；用户截图里约 405）
+  let hero = null;
+  try {
+    const P = G.player;
+    const v = new THREE.Vector3(P.x, 1, P.z).project(G.world.camera);
+    const fr = G.rectToFrame(document.getElementById('gl').getBoundingClientRect()); // 画布在画面里实际多大
+    hero = { fx: Math.round(((v.x + 1) / 2) * fr.width), fy: Math.round(((1 - v.y) / 2) * fr.height) };
+  } catch (e) {}
+  return {
+    W: window.screen.width, H: window.screen.height, ch: document.documentElement.clientHeight, ih: window.innerHeight,
+    gl: r(document.getElementById('gl')), ov: r(document.getElementById('overlay')),
+    vs, frame: [G.viewW(), G.viewH()], mm, hero,
+    s0: r(document.querySelector('[data-tb="s0"]')), quest: r(document.querySelector('#quest.on .q-goal') || document.querySelector('#quest.on')),
+    view: G.touch.view ? G.touch.view() : null,
+  };
+}
+// 判定（node 里）：画布和叠加层盖满整块屏幕（±1）、按画面尺寸渲染，小地图整个在叠加层里
+export function rotCanvasJudge(o, where) {
+  const bad = [];
+  const cover = (b) => b && b[0] <= 1 && b[1] <= 1 && b[2] >= o.W - 1 && b[3] >= o.H - 1;
+  if (!cover(o.gl)) bad.push(where + ' 3D 画布没盖满屏幕：' + JSON.stringify(o.gl) + '（屏幕 ' + o.W + '×' + o.H + '）');
+  if (!cover(o.ov)) bad.push(where + ' 叠加层没盖满屏幕：' + JSON.stringify(o.ov));
+  // 渲染尺寸只在有 G.world.viewSize 的版本上对（老版本只看上面的盖满）
+  if (o.vs && (o.vs.w !== Math.max(1, o.frame[0]) || o.vs.h !== Math.max(1, o.frame[1]))) bad.push(where + ' 渲染尺寸 ' + o.vs.w + '×' + o.vs.h + ' 和画面 ' + o.frame.join('×') + ' 对不上');
+  if (o.mm && o.ov && (o.mm[0] < o.ov[0] - 0.5 || o.mm[1] < o.ov[1] - 0.5 || o.mm[2] > o.ov[2] + 0.5 || o.mm[3] > o.ov[3] + 0.5)) bad.push(where + ' 小地图伸出叠加层（被切）：小地图 ' + o.mm.map(Math.round).join(',') + '，叠加层 ' + o.ov.map(Math.round).join(','));
+  return bad;
+}
+
 // 截图用：在 html 上（body 外面，不跟着转）盖一层：没画到的地方涂黑、状态栏示意；guides 时再画可见区和安全区
 export function drawScreenOverlay([o, dev, guides]) {
   let ov = document.getElementById('__scr-ov');
@@ -122,7 +165,8 @@ export function drawScreenOverlay([o, dev, guides]) {
     add('left:0;right:0;bottom:0;height:' + dev.hb + 'px;background:repeating-linear-gradient(45deg,rgba(255,160,0,.35) 0 6px,transparent 6px 12px);border-top:2px solid #fa0');
     add('left:1px;right:1px;top:1px;height:' + (visB - 2) + 'px;border:2px dashed #3f6');
     for (const p of o.parts) for (const bx of p.boxes) add('left:' + bx[0] + 'px;top:' + bx[1] + 'px;width:' + (bx[2] - bx[0]) + 'px;height:' + (bx[3] - bx[1]) + 'px;border:2px solid #0cf');
-    add('left:6px;top:' + (dev.sb + 4) + 'px;color:#3f6;font-size:11px;text-shadow:0 0 3px #000', '可见到 y=' + Math.round(visB) + ' · 状态栏 ' + dev.sb + ' · 横条 ' + dev.hb + ' · 画到 y=' + Math.round(o.paint.bottom));
+    add('left:6px;top:' + (dev.sb + 4) + 'px;color:#3f6;font-size:11px;text-shadow:0 0 3px #000', '可见到 y=' + Math.round(visB) + ' · 状态栏 ' + dev.sb + ' · 横条 ' + dev.hb + ' · 画到 y=' + Math.round(o.paint.bottom) + (o.glB ? ' · 画布到 y=' + Math.round(o.glB) : ''));
+    if (o.glB && o.glB < o.H - 1) add('left:0;right:0;top:' + (o.glB - 1) + 'px;height:0;border-top:2px dashed #f0f', '<span style="position:absolute;right:6px;top:2px;color:#f0f;font-size:11px">画布底 y=' + Math.round(o.glB) + '</span>');
   }
   document.documentElement.appendChild(ov);
 }
