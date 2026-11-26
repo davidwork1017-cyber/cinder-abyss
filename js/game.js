@@ -7508,8 +7508,8 @@
     VS.cores.push({
       x, z, ctx, t: C.dur, n: 0, gap: 0.3, R: C.r * Math.sqrt(ctx.area),
       fx: W.kv('rock', { hex: 0x3a1a10, x, z, y: 0.25, s: 1.25, ry: G.vr() * TAU }), glow: W.kv('orb', { hex: 0xff5a1c, x, z, y: 0.45, s: 0.8, k: 0.4 }),
-      // skill-b3b：地上的符环 → 只画边的暗余烬色虚线（亮着的段数 = 还能引爆的次数），原来是近白的粗双环（加色）
-      ring: W.kv('glyph', { hex: 0xb04a1c, x, z, y: 0.05, s: C.r * Math.sqrt(ctx.area) * 2, k: 1, edge: 1, dash: 16, ew: 0.08 }),
+      // skill-b3b：地上的符环 → 只画边的余烬色虚线（中间调，亮着的段数 = 还能引爆的次数），原来是近白的粗双环（加色）
+      ring: W.kv('glyph', { hex: 0xd8682c, x, z, y: 0.05, s: C.r * Math.sqrt(ctx.area) * 2, k: 1, edge: 1, dash: 16, ew: 0.1 }),
     });
     state.stats.vCores = (state.stats.vCores || 0) + 1;
     vCount();
