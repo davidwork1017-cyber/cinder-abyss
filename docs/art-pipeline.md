@@ -173,7 +173,7 @@ npm run build:art && git status --short assets/ca js/assets   # 没有输出 = �
 5. 打包：`albedo` 外观的件焊接成带索引的紧凑网格（`tools/glb.mjs` 的 `packAi`：位置、UV、AO 色、索引），不存法线，游戏端用平直着色。贴图登记在 `tools/asset-sources.json` 的 `textures`（`ai` 类、只有 albedo），打进 `zone-<区>` 包，按贴图预算算显存。
 6. check-art 对 AI 件多查这几项：来源记录齐全，并和清单记的源文件 sha256 一致；没有机器路径或个人信息；目录里没有概念图；贴图登记和尺寸对；重新打包逐字节一致。
 
-游戏端：几何体带 `userData.tex`（贴图 id），材质用 `makeToonMat({ map: zoneTexture(id, 'albedo', { wrap: false }), flat: true })`，贴图按 sRGB 解码。摆放和别的布景一样，用一个实例化网格，随机数用自己的一路。路标石见 `world.js` 的 `frostStones`。
+游戏端：几何体带 `userData.tex`（贴图 id），材质用 `makeToonMat({ map: zoneTexture(id, 'albedo', { wrap: false }), flat: true })`。贴图是 sRGB 编码的，但和贴花层一样不标 `SRGBColorSpace`，材质设 `DECODE_VIDEO_TEXTURE`，按原始数据过滤、采样后在着色器里解码。调色按解码后的样子在游戏里校准。摆放和别的布景一样，用一个实例化网格，随机数用自己的一路。路标石见 `world.js` 的 `frostStones`。
 
 开发和测试导入器不用真模型：拿 `assets/` 里的 CC0 GLB 细分到二三十万面、倾斜一下就能当输入，这份测试输入不提交。
 
