@@ -1387,7 +1387,7 @@
     "walk"
    ],
    "home": "ash",
-   "sha256": "cfd6f6287232288bcf1bc767232895890dab119fdab984e00ebebb3260a68f5d"
+   "sha256": "99b162fb97b887fe388042c18624ec97952038f5032c86a79a4c9fb19ece6c6a"
   },
   {
    "id": "ca/boss_golem_lo",
@@ -1445,7 +1445,7 @@
     "walk"
    ],
    "home": "ash",
-   "sha256": "0183c6ba4565357dd75df49747d2bda94dfc378c940001c64a0b9dea2360104f"
+   "sha256": "ca42f6d8d0a7a50bcaae87190803ab3de42993935ec64a5307bf78c668225616"
   },
   {
    "id": "ca/boss_lord",
