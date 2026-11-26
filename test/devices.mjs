@@ -143,13 +143,14 @@ export async function questReady(p) {
   const r = await h.jsonValue();
   return r.on ? '' : '素材包已载完，' + r.n + ' 帧后主线追踪条还没出来（主线 ' + r.q + '，标题画面 ' + r.title + '）';
 }
-// 主线追踪条完全显出来（可见区一步，train 2）：原来 questReady 之后固定等 600 ms 再量，机器很忙时 WebKit 的淡入（0.3 秒）可能还没走完，
-// 量出来「没出来」又说不清为什么。这里按帧等（墙钟最多 15 秒）到：#quest.on、连同祖先的透明度 ≥ 0.95、不是 display:none、
-// 没有 body.panel-open、有尺寸（在不在 HUD 范围里仍由后面原样的 rotFrameJudge 判）。看到完全显出来以后再连着看 hold 帧，
-// 中途掉了（真的被藏掉）照样报。返回空串 = 好了；否则说清卡在哪一项、当时的各个隐藏条件和帧数
-export async function questVisible(p, hold = 20) {
+// 主线追踪条完全显出来（可见区一步，train 2）：原来 questReady 之后固定等 600 ms 再量，机器很忙时 WebKit 一秒只画一两帧，
+// 淡入（0.3 秒）还没画出来就量了，报「主线追踪条没出来」又说不清为什么。这里分两段等：
+//   1. 看到（墙钟最多 15 秒）：#quest.on、连同祖先的透明度 ≥ 0.95、不是 display:none、没有 body.panel-open、有尺寸（在不在 HUD 范围里仍由后面原样的 rotFrameJudge 判）；
+//   2. 稳住（墙钟最多再 15 秒）：看到以后至少再过 3 帧、且至少 500 ms，期间每帧都还是完全显着；中途掉了（真的被藏掉）照样不合格。
+// 返回空串 = 好了；否则三种说法分开：一直没显出来 / 显出来以后又没了 / 画面卡（这么久只画了几帧），都带各项状态、各个隐藏条件和帧数
+export async function questVisible(p, holdFrames = 3, holdMs = 500) {
   await p.evaluate(() => {
-    window.__qvS = null;
+    window.__qvS = { n: 0, seen: -1, seenT: 0, t0: performance.now() };
     window.__qvState = () => {
       const q = document.getElementById('quest'), it = document.getElementById('intro');
       let op = 1;
@@ -166,25 +167,34 @@ export async function questVisible(p, hold = 20) {
       return s;
     };
   });
+  const snap = () => p.evaluate(() => { const S = window.__qvS; return Object.assign(window.__qvState(), { n: S.n, seenAt: S.seen, sec: Math.round((performance.now() - S.t0) / 100) / 10 }); });
+  // 1. 看到
+  const seen = await p
+    .waitForFunction(() => {
+      const S = window.__qvS;
+      S.n++;
+      if (!window.__qvState().ok) return false;
+      S.seen = S.n;
+      S.seenT = performance.now();
+      return true;
+    }, null, { polling: 'raf', timeout: 15000 })
+    .then(() => true, () => false);
+  if (!seen) return '15 秒内主线追踪条一直没完全显出来：' + JSON.stringify(await snap());
+  // 2. 稳住
   const h = await p
-    .waitForFunction((hold) => {
-      const st = (window.__qvS = window.__qvS || { n: 0, seen: -1 });
-      st.n++;
+    .waitForFunction(([hf, hm]) => {
+      const S = window.__qvS;
+      S.n++;
       const s = window.__qvState();
-      if (st.seen < 0) {
-        if (s.ok) st.seen = st.n;
-        return false;
-      }
-      if (!s.ok) return Object.assign(s, { n: st.n, seenAt: st.seen, dropped: true });
-      return st.n - st.seen >= hold ? { ok: true, n: st.n } : false;
-    }, hold, { polling: 'raf', timeout: 15000 })
+      if (!s.ok) return Object.assign(s, { n: S.n, seenAt: S.seen, dropped: true });
+      return S.n - S.seen >= hf && performance.now() - S.seenT >= hm ? { ok: true } : false;
+    }, [holdFrames, holdMs], { polling: 'raf', timeout: 15000 })
     .catch(() => null);
   if (h) {
     const r = await h.jsonValue();
     return r.ok ? '' : '主线追踪条完全显出来以后第 ' + (r.n - r.seenAt) + ' 帧又没了：' + JSON.stringify(r);
   }
-  const s = await p.evaluate(() => Object.assign(window.__qvState(), { n: window.__qvS ? window.__qvS.n : 0, seenAt: window.__qvS ? window.__qvS.seen : -1 }));
-  return '15 秒内主线追踪条没完全显出来：' + JSON.stringify(s);
+  return '主线追踪条显出来了，但画面卡住：15 秒里只画了几帧，没等满 ' + holdFrames + ' 帧：' + JSON.stringify(await snap());
 }
 // 重新打开（载入 / 重载）：先回到刚打开的视口，go() 等页面好了，再 settle()
 export async function launch(p, dev, go) {

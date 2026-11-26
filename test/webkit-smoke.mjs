@@ -1016,7 +1016,7 @@ await step('旋转横屏 · 主屏幕 App · 可见区（rot-safe）：iPhone 17
         // rot-safe2：先等素材包、再按帧等追踪条（原来固定等 15 秒，机器忙时素材包没载完，375×812 偶尔报「主线追踪条没出来」）
         const qw = await questReady(p);
         if (qw) bad.push(where + ' ' + qw);
-        // train 2：原来固定等 600 ms 再量（机器忙时淡入没走完会误报、也说不清原因），改成按帧等追踪条完全显出来、再连看 20 帧（devices.mjs questVisible）
+        // train 2：原来固定等 600 ms 再量（机器忙时淡入没走完会误报、也说不清原因），改成按帧等追踪条完全显出来、再稳住 ≥ 3 帧且 ≥ 500 ms（devices.mjs questVisible）
         const qv = qw ? '' : await questVisible(p);
         if (qw) await p.waitForTimeout(600);
         if (qv) bad.push(where + ' ' + qv + ' ｜ console：' + (cons.slice(-8).join(' / ') || '无'));
