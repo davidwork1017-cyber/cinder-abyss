@@ -13067,7 +13067,7 @@ async function main() {
   // 高 / 低画质、以及高画质下特效全部静音（W.fxMute 钉死在开）+ 爆燃上限压到 0（全部走超出上限的路）+ 火把只留 1 盏，
   // 局面哈希和 Math.random 次数逐位相同；画面随机数取的次数各遍不一样（说明特效确实多了 / 少了）。
   // 反面对照：开打前多取一次 Math.random，哈希就变（这一步测得出差别）
-  await step('确定性（fx-rng）：画质 高 / 低、特效静音 + 爆燃上限压到 0 + 火把只留 1 盏，同一个种子打机炮 + 铁水装填 / 链雷 / 三相天灾，局面和 Math.random 次数逐位相同；画面随机数不取 Math.random', async () => {
+  await step('确定性（fx-rng）：画质 高 / 低、特效静音 + 爆燃上限压到 0 + 火把只留 1 盏，同一个种子打机炮 + 铁水装填 / 链雷 / 三相天灾 / 机炮 + 熔光炮台，局面和 Math.random 次数逐位相同；画面随机数不取 Math.random', async () => {
     const KEY = 'cinder-abyss-save-v1';
     const save0 = await ev((KEY) => localStorage.getItem(KEY), KEY);
     const god0 = await ev(() => !!G.player.god);
@@ -13110,6 +13110,7 @@ async function main() {
         let calls = 0;
         Math.random = function () { calls++; return base.call(this); };
         const out = [];
+        let turrets = 0;
         const pack = () => [[6, 0], [6.9, 1.1], [6.9, -1.1], [7.9, 0.2], [8.4, -1.6]].map(([dx, dz]) => {
           const e = G.spawnMob('husk', P.x + dx, P.z + dz, 10, { awake: true });
           e.wasAwake = true;
@@ -13120,7 +13121,7 @@ async function main() {
         });
         const st = () => JSON.stringify({ p: [P.x, P.z, P.life, P.mana], e: S.enemies.map((e) => [e.x, e.z, e.hp, e.dead]), proj: S.projectiles.map((q) => [q.x, q.z]), calls });
         try {
-          for (const id of ['molten', 'arc', 'tristorm']) {
+          for (const id of ['molten', 'arc', 'tristorm', 'meltray']) {
             G.clearEnemies();
             P.cds = {};
             save.bar = [null, null, null, null];
@@ -13140,6 +13141,13 @@ async function main() {
               save.equip.weapon = G.rollItem(20, 0, 'weapon', 1);
               save.skills.arc = 20;
               save.bar[2] = 'arc';
+            } else if (id === 'meltray') {
+              // laser-beam：机炮按住右键扫射，第 5 帧热度灌满按 R 放熔光炮台（炮台的射线、落地、收起都只取画面随机数）
+              delete save.imbue;
+              const w = G.rollItem(20, 0, 'weapon', 8);
+              w.wbase = G.weaponBaseDmg(8, 20);
+              w.imp = null;
+              save.equip.weapon = G.refreshWeapon(w);
             } else {
               const U = Object.keys(G.UNIQUES).find((u) => G.UNIQUES[u].uskill === 'tristorm');
               save.equip.weapon = G.rollUnique(U, 20, 0.5);
@@ -13151,6 +13159,10 @@ async function main() {
               T.aim(e.x, e.z);
               P.mana = P.maxMana;
               if (id === 'molten') G.input.mouse.b[2] = i < 100;
+              else if (id === 'meltray') {
+                G.input.mouse.b[2] = true;
+                if (i === 5) { G.debug.gauge(); G.input.tap[4] = 0.25; }
+              }
               else if (id === 'arc') { if (i % 20 === 0 && i < 120) G.input.tap[2] = 0.25; }
               else if (i === 0) G.input.tap[4] = 0.25;
               G.tick(1 / 60);
@@ -13158,6 +13170,7 @@ async function main() {
             G.input.mouse.b[0] = false;
             G.input.mouse.b[2] = false;
             G.input.tap.fill(0);
+            if (id === 'meltray') turrets = G.turretList().length;
             out.push({ id, dmg: Math.round(es.reduce((a, e) => a + (e.maxHp - e.hp), 0)), st: st() });
           }
         } finally {
@@ -13172,7 +13185,7 @@ async function main() {
         const all = out.map((x) => x.st).join('|');
         let h = 2166136261;
         for (let i = 0; i < all.length; i++) h = Math.imul(h ^ all.charCodeAt(i), 16777619);
-        return { hash: (h >>> 0).toString(16), calls, vis: G.fxInfo().n - v0, dmg: out.map((x) => x.id + ' ' + x.dmg).join(' / '), torches, b1: W.b1Info().peak };
+        return { hash: (h >>> 0).toString(16), calls, turrets, vis: G.fxInfo().n - v0, dmg: out.map((x) => x.id + ' ' + x.dmg).join(' / '), torches, b1: W.b1Info().peak };
       }, o);
     const R = {};
     try {
@@ -13192,7 +13205,7 @@ async function main() {
     assert(H.hash === C.hash && H.calls === C.calls, '特效静音 / 爆燃上限 / 火把少了打出来不一样：' + JSON.stringify(R));
     assert(X.hash !== H.hash, '反面对照没有测出差别（多取一次 Math.random 哈希应该变）：' + JSON.stringify(R));
     assert(H.vis !== L.vis && H.vis !== C.vis && H.vis > 0, '画面随机数取的次数各遍应该不一样（特效多了 / 少了）：' + JSON.stringify(R));
-    assert(C.torches > 1 && /molten [1-9]/.test(H.dmg) && /arc [1-9]/.test(H.dmg) && /tristorm [1-9]/.test(H.dmg), '三场都应打中、区里应有不止 1 盏火把：' + JSON.stringify(R));
+    assert(C.torches > 1 && /molten [1-9]/.test(H.dmg) && /arc [1-9]/.test(H.dmg) && /tristorm [1-9]/.test(H.dmg) && /meltray [1-9]/.test(H.dmg) && H.turrets === 2, '四场都应打中（熔光炮台放出两座）、区里应有不止 1 盏火把：' + JSON.stringify(R));
     return '哈希 ' + H.hash + '，Math.random ' + H.calls + ' 次（三遍一样），伤害 ' + H.dmg + '；画面随机数 高 ' + H.vis + ' / 低 ' + L.vis + ' / 静音 ' + C.vis + '（火把 ' + C.torches + ' → 1）';
   });
 

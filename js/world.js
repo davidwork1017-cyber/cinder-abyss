@@ -28155,16 +28155,17 @@
   }
   const _tuQ = new T.Quaternion(), _tuE = new T.Euler(), _tuP = new T.Vector3(), _tuS = new T.Vector3(), _tuC = new T.Color();
   // 熔光炮台：三条短腿 + 矮六棱炮座 + 一根横着的炮管（形状批）、炮口一小团余烬光；有目标时沿炮管喷一道细射线
+  function tuPose(x, y, z, rx, ry, rz, sx, sy, sz) {
+    _tuE.set(rx, ry, rz, 'YXZ');
+    _tuQ.setFromEuler(_tuE);
+    _pm.compose(_tuP.set(x, y, z), _tuQ, _tuS.set(sx, sy, sz));
+  }
   function drawTurret(h, dt) {
     const lo = qualId === 'low', kl = lo ? 0.8 : 1;
     const age = wtime - h.born, rise = Math.min(1, age / 0.2), sink = Math.min(1, Math.max(0, h.t / 0.3)), sc = rise * sink;
     if (sc <= 0.01) return;
     const sn = Math.sin(h.ang), cs = Math.cos(h.ang);
-    const pose = (x, y, z, rx, ry, rz, sx, sy, sz) => {
-      _tuE.set(rx, ry, rz, 'YXZ');
-      _tuQ.setFromEuler(_tuE);
-      _pm.compose(_tuP.set(x, y, z), _tuQ, _tuS.set(sx, sy, sz));
-    };
+    const pose = tuPose;
     // 脚下一圈细环（你的余烬色，很暗）：一眼认得出是自己放的
     if (PF.vShape) {
       pose(h.x, 0.05, h.z, -HALF_PI, 0, 0, 0.62 * sc, 0.62 * sc, 1);
