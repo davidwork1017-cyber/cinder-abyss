@@ -20123,20 +20123,20 @@
   const TB_SNAP = 0.035; // 撒放后弦往弓背弹的幅度
   function thrallBowGear(b, C) {
     const [gx, gy, gz] = TB_G;
-    const WOOD_D = 0x2a1d16, WOOD = 0x553a28;
+    const WOOD_D = 0x3a2618, WOOD = 0x7a5236; // 和玩家的鹰眼长弓同一档木色：游戏镜头里压在暗地面上也看得出弓臂
     // 弓臂：暗木的主段 + 骨质的反曲梢（梢头往前卷）
     for (const s of [1, -1]) {
       const k = s > 0 ? 'U' : 'L';
       b.at('wBo').surf(SURF.leather);
-      b.p(gSweep('th/bowW' + k, [[0, 0, s * 0.07], [0, -0.028, s * 0.2], [0, 0.005, s * 0.32], [0, 0.075, s * 0.41]], [0.024, 0.022, 0.018, 0.014], 6), [WOOD_D, WOOD], gx, gy, gz);
-      b.surf(SURF.bone).p(gSweep('th/bowB' + k, [[0, 0.075, s * 0.41], [0, 0.128, s * 0.455], [0, 0.15, s * 0.5], [0, 0.118, s * 0.55]], [0.015, 0.013, 0.011, 0.006], 5), [C.BONE_D, C.BONE], gx, gy, gz);
+      b.p(gSweep('th/bowW' + k, [[0, 0, s * 0.07], [0, -0.028, s * 0.2], [0, 0.005, s * 0.32], [0, 0.075, s * 0.41]], [0.031, 0.028, 0.023, 0.017], 6), [WOOD_D, WOOD], gx, gy, gz);
+      b.surf(SURF.bone).p(gSweep('th/bowB' + k, [[0, 0.075, s * 0.41], [0, 0.128, s * 0.455], [0, 0.15, s * 0.5], [0, 0.118, s * 0.55]], [0.018, 0.016, 0.013, 0.008], 5), [C.BONE_D, C.BONE], gx, gy, gz);
       // 木臂和骨梢接口的一道青铜箍
-      b.surf(SURF.gold).p(gCyl(0.018, 0.018, 0.022, 6), C.BRONZE, gx, gy + 0.07, gz + s * 0.405, HALF_PI - s * 0.75);
+      b.surf(SURF.gold).p(gCyl(0.021, 0.021, 0.024, 6), C.BRONZE, gx, gy + 0.07, gz + s * 0.405, HALF_PI - s * 0.75);
       // 弓背上一道刻槽里的光（随元素变色，和剑的血槽一样走 auxMat）
       b.x(gBox(0.009, 0.009, 0.11), 1, gx, gy - 0.034, gz + s * 0.25, s * -0.27);
     }
     // 握把：缠皮，上下各一节椎骨
-    b.surf(SURF.leather).p(gCyl(0.03, 0.03, 0.15, 7), C.LEATHER_D, gx, gy, gz, HALF_PI);
+    b.surf(SURF.leather).p(gCyl(0.035, 0.035, 0.15, 7), C.LEATHER_D, gx, gy, gz, HALF_PI);
     b.surf(SURF.bone);
     for (const s of [1, -1]) b.p(gSph(0.034, 7, 5), [C.BONE_D, C.BONE], gx, gy - 0.004, gz + s * 0.088, 0, 0, 0, 1, 0.8, 0.6);
     // 弓弦：两段，各从挂点指向弦的中点（拉弓时转向右手，见 thrallBowLate）
@@ -20240,11 +20240,11 @@
     const [gx, gy, gz] = TB_G, TY = gy + TB_TIP[0];
     if (w <= 0 && !(ent.snapT >= 0)) return;
     if (w > 0) {
-      // 左手：弓举到身前、略低于肩，弓身竖直（梢略往外斜），弓背朝前
+      // 左手：弓举到身前、略低于肩，弓背朝前；上梢往右手那边斜 ~23°（俯视的游戏镜头里竖直的弓只剩一条线，斜一点才看得出弓臂）
       const T = _tbT;
       T[0] = 0.05; T[1] = 1.4; T[2] = 0.5;
       remapHand(rig.armL, 'model', T, true);
-      T[3] = -0.1; T[4] = 1; T[5] = 0.05; T[6] = 0; T[7] = 0; T[8] = 1;
+      T[3] = -0.42; T[4] = 1; T[5] = 0.05; T[6] = 0; T[7] = 0; T[8] = 1;
       thReach(ent, rig.armL, T, w, 0.4, -1, -0.2);
       solveRig(ent);
       const rw = w * (ent.tbRW || 0);
