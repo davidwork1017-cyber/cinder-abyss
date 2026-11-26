@@ -11,7 +11,7 @@ import { GAME_URL, diagStep, outerTimeoutWarning } from './harness.mjs'; // 引�
 import { uiLayoutCheck, uiBlankPoint } from './ui-layout.mjs';
 import { cornerScenes, cornerHud, cornerCheck } from './corner-mask.mjs';
 import { STANDALONE_DEVICES, MOBILE_DEFAULT, standaloneContext, launch, questReady, lateGrow, converged } from './devices.mjs';
-import { HUD_PARTS, PAINT_SRC, rotFrameProbe, rotFrameJudge, rotCanvasProbe, rotCanvasJudge, probeBand, probeBandJudge } from './rot-standalone.mjs';
+import { HUD_PARTS, PAINT_SRC, rotFrameProbe, rotFrameJudge, rotCanvasProbe, rotCanvasJudge } from './rot-standalone.mjs';
 
 let passed = 0, failed = 0;
 const lines = [];
@@ -1053,6 +1053,7 @@ await step('旋转横屏 · 主屏幕 App · 可见区（rot-safe）：iPhone 17
 // 主攻键、主线追踪条却画过了 812（notes/user-feedback/iphone-rotated-after-rotsafe-2026-11-25.png；设备信息：窗口 402×874、可视区 874、clientHeight 812）。
 // 原因：刚打开时视口是 812，之后变成 874，world.js 的 resize 先跑、读到旧尺寸，画布停在 812；HUD 按 874 摆。
 // 模型见 test/devices.mjs（standaloneContext + launch / settle）。在 be309c4 上这一步不过（画布到 812、小地图被切、主攻键伸出 812）
+const { probeBand, probeBandJudge } = await import('./rot-standalone.mjs'); // t45：画面测试色带截图取色（放在这里，和文件头的 import 行分开）
 // t45（2026-11-26）：真机「画面测试」截图（标题画面）里七条有六条画到了屏幕底，3D 画布也是；叠加层那条是空的，因为标题画面本来就把叠加层藏了
 // （style.css 的 html.title-on #overlay；模拟里同样如此，叠加层在游戏里和 3D 画布一样大）。所以：HUD 不再停在 clientHeight，到 屏幕 − 底部横条；
 // 画面测试开着时标题画面也放出叠加层（只画色带）。这一步新查：标题画面和游戏里七条色带都在屏幕底那一截画出来（截图取色），叠加层和 3D 画布同一个盒子
