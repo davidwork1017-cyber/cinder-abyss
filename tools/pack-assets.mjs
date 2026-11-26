@@ -112,12 +112,14 @@ for (const [name, pk] of Object.entries(manifest.packs)) {
       }
   // 首领（boss-<kind> 包，art/ 下的生成脚本经 npm run build:art 生成）：打包时就换成游戏直接用的数组（tools/glb.mjs 的 packBoss：颜色烘焙好、
   // 动作换成关节通道），游戏端不解析 GLB、不解码调色板。sha 是所用 GLB 的 sha256（check-art 拿它和清单对、并重新打包核对）
+  // lo（ai3d-golem 起）：低画质用的减面版（id = ca/boss_<lo>），打进同一个包，key 是 lo 的名字（游戏端按画质挑，BOSS_SPEC.lo）
   if (pk.boss)
-    for (const a of caManifest().assets)
-      if (a.category === 'boss' && a.ship && a.id === 'ca/boss_' + pk.boss) {
-        const g = readGlb(fs.readFileSync(path.join(root, a.file)));
-        (data.boss || (data.boss = {}))[pk.boss] = bossEntry(a.sha256, packBoss(g, bossRows(g)));
-      }
+    for (const kind of [pk.boss].concat(pk.lo ? [pk.lo] : []))
+      for (const a of caManifest().assets)
+        if (a.category === 'boss' && a.ship && a.id === 'ca/boss_' + kind) {
+          const g = readGlb(fs.readFileSync(path.join(root, a.file)));
+          (data.boss || (data.boss = {}))[kind] = bossEntry(a.sha256, packBoss(g, bossRows(g)));
+        }
   // 角色模型（GLB，由 tools/convert-chars.mjs 生成）：游戏端同步解析，不经过 assets.js 的布景烘焙
   for (const [k, rel] of Object.entries(pk.chars || {})) data.models[k] = fs.readFileSync(path.join(root, 'assets', rel)).toString('base64');
   // 特效贴图（PNG，由 tools/gen-vfx-textures.mjs 生成）：游戏端 js/vfx.js 当 data URI 用

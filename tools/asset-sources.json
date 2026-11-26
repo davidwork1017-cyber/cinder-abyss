@@ -36,7 +36,7 @@
     "rock-grey": { "textures": ["Rock035"] },
     "ground": { "textures": ["g_decals"] },
     "kit-ash": { "kit": "ash" },
-    "boss-golem": { "boss": "golem" },
+    "boss-golem": { "boss": "golem", "lo": "golem_lo" },
     "boss-lord": { "boss": "lord" },
     "boss-behemoth": { "boss": "behemoth" },
     "boss-weaver": { "boss": "weaver" },

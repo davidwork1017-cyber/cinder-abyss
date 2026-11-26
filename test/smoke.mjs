@@ -12886,7 +12886,7 @@ async function main() {
       let meshes = 0, shadow = 0;
       b.ent.group.traverse((o) => { if (o.isMesh) { meshes++; if (o.castShadow) shadow++; } });
       return {
-        model: rig.bossModel || null, skin4: !!rig.skin4, bones: rig.joints.map((j) => j.name), tris: rig.tris, meshes, shadow,
+        model: rig.bossModel || null, lod: rig.bossLod || kind, skin4: !!rig.skin4, bones: rig.joints.map((j) => j.name), tris: rig.tris, meshes, shadow,
         body: !!rig.geoBody, glow: !!rig.geoGlow, aux: !!rig.geoAux, h: rig.height, hOld: old.height, r: footR([rig.geoBody, rig.geoGlow]), rOld: footR([old.geoBody, old.geoGlow]), defR: b.def.r,
         // 发光面积：近白的芯（aSurf.y < -1.5）占多少
         coreGlow: (() => {
@@ -12902,7 +12902,8 @@ async function main() {
         })(),
       };
     }, kind);
-    const want = BOSS_BONES.kinds[kind], man = BOSS_MAN.find((a) => a.id === 'ca/boss_' + kind);
+    // ai3d-golem：低画质用减面版（BOSS_SPEC.lo，同一个包）：三角形对这一档实际用的那一份清单（ca/boss_<lod>）
+    const want = BOSS_BONES.kinds[kind], man = BOSS_MAN.find((a) => a.id === 'ca/boss_' + r.lod);
     assert(r.model === kind && r.skin4, CN + '没用上新模型：' + JSON.stringify({ model: r.model, skin4: r.skin4 }));
     assert(r.bones.slice().sort().join() === want.slice().sort().join() && r.bones.length <= BOSS_BONES.maxBones && r.bones.length <= BOSS_BUDGET.bones, '骨骼和 art/rig.json 的不一致或超过 ' + BOSS_BUDGET.bones + ' 根：' + r.bones.join(','));
     assert(r.tris <= BOSS_BUDGET.tris && man && r.tris === man.tris, '三角形 ' + r.tris + '（预算 ' + BOSS_BUDGET.tris + '，清单 ' + (man && man.tris) + '）');
@@ -12910,7 +12911,7 @@ async function main() {
     assert(Math.abs(r.r - r.defR) / r.defR <= 0.15 && (vsDef || Math.abs(r.r - r.rOld) / r.rOld <= 0.15), '占地半径 ' + r.r.toFixed(2) + ' 应在碰撞半径 ' + r.defR + (vsDef ? '' : ' 和原来 ' + r.rOld.toFixed(2)) + ' 的 ±15% 里');
     assert(Math.abs(r.h - r.hOld) / r.hOld <= 0.1, '身高 ' + r.h + ' 应在原来 ' + r.hOld + ' 的 ±10% 里');
     assert(r.coreGlow[0] > 0 && r.coreGlow[0] / r.coreGlow[1] < 0.25, '发光面里近白的芯应只占一小部分（面积）：' + r.coreGlow.join(' / ') + ' m²');
-    return r.bones.length + ' 根骨骼，' + r.tris + ' 个三角形，占地半径 ' + r.r.toFixed(2) + '（原来 ' + r.rOld.toFixed(2) + '，碰撞 ' + r.defR + '），身高 ' + r.h + '（原来 ' + r.hOld + '），近白的芯占发光面积 ' + r.coreGlow.join(' / ') + ' m²';
+    return r.bones.length + ' 根骨骼，' + r.tris + ' 个三角形' + (r.lod !== kind ? '（' + r.lod + '）' : '') + '，占地半径 ' + r.r.toFixed(2) + '（原来 ' + r.rOld.toFixed(2) + '，碰撞 ' + r.defR + '），身高 ' + r.h + '（原来 ' + r.hOld + '），近白的芯占发光面积 ' + r.coreGlow.join(' / ') + ' m²';
   });
   await bossModelStep('golem', '熔渣巨像');
   await bossModelStep('lord', '烬渊之主');
