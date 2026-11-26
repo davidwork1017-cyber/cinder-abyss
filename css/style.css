@@ -97,6 +97,12 @@ kbd {
   text-shadow: 0 1px 3px #000, 0 0 6px #000;
 }
 #zone-sub b { color: var(--gold); font-weight: 600; }
+/* 进区（toast-zero：替代区名 toast）：区名亮一下 */
+#zone-name.fresh { animation: zn-fresh 1.4s ease-out; }
+@keyframes zn-fresh {
+  0% { color: #fff3d6; text-shadow: 0 0 16px rgba(255, 190, 90, 0.95), 0 2px 6px #000; }
+  100% { text-shadow: 0 2px 6px #000, 0 0 22px rgba(255, 120, 40, 0.4); }
+}
 #zone-sub i {
   display: inline-block;
   width: 4px;
@@ -267,6 +273,21 @@ kbd {
   transition: opacity 0.2s;
 }
 .flask.ready { opacity: 1; }
+/* 按了空的药剂（toast-zero：替代「药剂已空」的 toast）：小图标左右轻抖一下、边框发红；减少动态效果时只发红 */
+.flask.deny .flask-body { animation: fl-deny 0.36s ease-out; }
+@keyframes fl-deny {
+  0%, 100% { transform: translateX(0); border-color: #6b4e30; }
+  20% { transform: translateX(-3px); border-color: #d0533e; }
+  45% { transform: translateX(3px); border-color: #d0533e; }
+  70% { transform: translateX(-2px); border-color: #b0503a; }
+}
+@keyframes fl-deny-still {
+  0%, 60% { border-color: #d0533e; }
+  100% { border-color: #6b4e30; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .flask.deny .flask-body { animation: fl-deny-still 0.5s ease-out; }
+}
 .flask-body {
   position: relative;
   display: flex;
@@ -2698,6 +2719,10 @@ body.alt-on #quest .q-h { display: none; }
   0% { color: #fff6e0; text-shadow: 0 0 14px rgba(255, 190, 90, 0.95), 0 1px 3px #000; }
   100% { text-shadow: 0 1px 3px #000, 0 0 6px #000, 0 0 2px #000; }
 }
+/* 完成一步（toast-zero：替代「主线 n/N 完成」的 toast）：追踪条自己亮几秒「主线 n/N 完成 · 获得 …」，再换下一步 */
+#quest.done .q-k { color: #ffe3a6; animation: q-pulse 1.2s ease-out; }
+#quest.done .q-goal { font-size: 13.5px; line-height: 19px; color: #ffd98a; }
+#quest.done .q-goal:empty, #quest.done .q-how, #quest.done .q-h, body.alt-on #quest.done .q-alt { display: none; }
 
 /* ---- 技能格上方的连段指示：三格，第三格（终结技）更宽 ---- */
 .s-combo { position: absolute; left: 50%; top: -17px; display: none; gap: 3px; transform: translateX(-50%); }
@@ -3547,6 +3572,15 @@ body.alt-on #quest .q-h { display: none; }
 #enc-bar .eb-track { height: 9px; margin: 4px 0 3px; background: rgba(10, 6, 4, 0.82); border: 1px solid rgba(0, 0, 0, 0.9); box-shadow: 0 0 0 1px color-mix(in srgb, var(--c) 35%, transparent); }
 #enc-bar .eb-fill { display: block; height: 100%; width: 0; background: linear-gradient(180deg, color-mix(in srgb, var(--c) 70%, #fff), var(--c) 55%, color-mix(in srgb, var(--c) 60%, #000)); transition: width 0.15s linear; }
 #enc-bar .eb-txt { font-size: 12.5px; letter-spacing: 1px; color: #e8dcc6; text-shadow: 0 1px 3px #000, 0 0 6px #000; }
+/* toast-zero：异兆的开始目标句、结果、祈坛增益、用法都写在这一条里。用法 / 守隙张开没有进度，不画进度槽；失败的进度灰掉 */
+#enc-bar[data-mode='hint'] .eb-track, #enc-bar[data-mode='open'] .eb-track { display: none; }
+#enc-bar[data-mode='fail'] .eb-fill { background: #6d655c; }
+#enc-bar[data-mode='fail'] .eb-name { color: #b9ae9e; }
+#enc-bar.pulse .eb-name, #enc-bar.pulse .eb-txt { animation: eb-pulse 0.9s ease-out; }
+@keyframes eb-pulse {
+  0% { color: #fff6e0; text-shadow: 0 0 12px color-mix(in srgb, var(--c) 90%, transparent), 0 1px 3px #000; }
+  100% { text-shadow: 0 1px 3px #000, 0 0 6px #000; }
+}
 #enc-buff {
   display: none;
   margin-top: 6px;

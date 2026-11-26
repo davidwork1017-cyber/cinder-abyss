@@ -233,6 +233,7 @@ async function install() {
       // 手里换回同一把标准的刃（普通、物品等级 = 角色等级、平均成色、没有隐含属性）：攻击技能的伤害和出手速度跟着武器走，
       // 前面的背包步骤会随机换装甚至卸下武器，战斗步骤的数值得有个固定的起点
       arena() {
+        if (G.ui.toastReset) G.ui.toastReset(); // toast 的 60 秒同句节流不带进这一步（toast-zero）
         G.clearMinions(); // 上一步召出来的召唤物不带进这一步
         for (const k in G.save.autoSummon || {}) G.save.autoSummon[k] = false; // 自动召唤也关掉，不然下一步一开始就补出来
         G.clearEnemies();
@@ -310,8 +311,10 @@ async function install() {
         }
         return { mean: sum / (d.length / 4), colors: seen.size };
       },
+      // 亮着的 toast 加上排着的（toast-zero：同一时刻只亮一条，后来的排队）
       toasts() {
-        return document.getElementById('toasts').textContent;
+        const st = G.ui.toastStats ? G.ui.toastStats() : null;
+        return document.getElementById('toasts').textContent + (st ? st.queued.join('') : '');
       },
       bodyText() {
         return document.getElementById('panel-body').innerText;
@@ -7723,10 +7726,10 @@ async function main() {
     });
     r = await ev((u) => {
       const l = G.state.loot.find((x) => x.kind === 'item' && x.data.uid === u);
-      return { cap: null, inBag: G.save.bag.some((i) => i.uid === u), d: l ? Math.hypot(l.x - G.player.x, l.z - G.player.z) : -1, tab: T.tab(), toast: T.toasts(), icon: !!document.querySelector('#toasts .toast .ico') };
+      return { cap: null, inBag: G.save.bag.some((i) => i.uid === u), d: l ? Math.hypot(l.x - G.player.x, l.z - G.player.z) : -1, tab: T.tab(), toast: T.toasts(), note: T.bodyText() };
     }, ids.belt);
     assert(mid === '丢到地上' && !r.inBag && r.d >= 0 && r.d < 3 && r.tab === 'inv', '拖出窗口应把物品丢在脚边：' + JSON.stringify(r));
-    assert(r.toast.includes('丢下了') && r.icon, '丢弃提示应带图标');
+    assert(!r.toast.includes('丢下了') && r.note.includes('丢下了「'), '丢弃提示应写在背包的绿字里（不弹 toast）：' + JSON.stringify({ toast: r.toast, note: r.note.slice(0, 200) }));
     await dragTo(cell(ids.body), { x: vp.width - 8, y: vp.height / 2 });
     r = await ev((u) => ({ on: document.getElementById('confirm').classList.contains('on'), inBag: G.save.bag.some((i) => i.uid === u), box: T.rect('#confirm'), w: innerWidth, h: innerHeight }), ids.body);
     assert(r.on && r.inBag && r.box.l >= 0 && r.box.r <= r.w && r.box.t >= 0 && r.box.b <= r.h, '稀有物品应先弹出确认框：' + JSON.stringify(r));
@@ -9174,7 +9177,7 @@ async function main() {
     r = await ev(() => ({ gems: G.save.blankGems.join(), lvl: G.save.skills.meteor, floor: G.gemFloor(), sock: JSON.stringify(G.save.sockets.meteor), bar: G.save.bar.join(), msg: (document.querySelector('.bk-msg') || {}).innerText || '', toast: T.toasts(), card: !!(T.skCard('meteor') && document.querySelector('.skill-card [data-act="bind"][data-skill="meteor"]')), stored: JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).blankGems.join() }));
     assert(r.lvl === r.floor && r.gems === '7,5' && r.stored === '7,5', '学会陨火应记成长下限、用掉最低的那颗：' + JSON.stringify(r));
     assert(r.sock === '[null,null,null]' && r.bar === 'ember,,nova,meteor' && r.card, '学会后应开好辅助槽并自动放进技能栏的空格（右键不算空格）：' + JSON.stringify(r));
-    assert(r.msg.includes('陨火') && !/Lv/.test(r.msg) && r.toast.includes('习得技能：陨火') && !/陨火 Lv/.test(r.toast), '学会后应给出提示（不写等级）：' + JSON.stringify(r));
+    assert(r.msg.includes('陨火') && !/Lv/.test(r.msg) && !r.toast.includes('陨火'), '学会后应在技能页给出提示（不写等级、不弹 toast）：' + JSON.stringify(r));
     await until(() => document.querySelectorAll('#slots .slot')[3].dataset.skill === 'meteor').catch(() => {
       throw new Error('HUD 技能栏没有同步');
     });
@@ -9371,10 +9374,11 @@ async function main() {
     }, keep);
   });
 
-  await step('面板内的提示：toast 不压页签栏和面板内容', async () => {
+  await step('面板内的提示：toast 不压页签栏和面板内容；同一时刻只亮一条（toast-zero）', async () => {
     await page.keyboard.press('KeyI');
     await until(() => G.ui.isOpen());
     const r = await ev(() => {
+      G.ui.toastReset();
       G.ui.toast('较早的一条提示');
       G.ui.toast('分解获得：微光尘 ×1');
       const rect = (n) => { const b = n.getBoundingClientRect(); return { l: b.left, t: b.top, r: b.right, b: b.bottom }; };
@@ -9384,17 +9388,21 @@ async function main() {
         tabs: rect(document.getElementById('tabs')), body: rect(document.getElementById('panel-body')), h: innerHeight,
       };
     });
-    assert(r.n === 1 && r.txt.includes('分解获得'), '面板打开时应只显示最新的一条提示：' + JSON.stringify(r));
+    assert(r.n === 1 && r.txt.includes('较早的一条'), '同一时刻只亮一条提示（后来的排队，toast-zero）：' + JSON.stringify(r));
     assert(r.toast.t >= r.tabs.b, '提示压在页签栏上：' + JSON.stringify(r));
     assert(r.toast.t >= r.body.b - 2 && r.toast.b <= r.h, '提示压在面板内容上或超出屏幕：' + JSON.stringify(r));
     await closePanel();
     const out = await ev(() => {
+      G.ui.toastReset();
       G.ui.toast('甲');
       G.ui.toast('乙');
+      G.ui.toast('甲'); // 60 秒内同一句不再排
       const vis = Array.from(document.querySelectorAll('#toasts .toast')).filter((n) => n.getBoundingClientRect().height > 0);
-      return { t: vis[vis.length - 1].getBoundingClientRect().top, n: vis.length };
+      const st = G.ui.toastStats();
+      G.ui.toastReset();
+      return { t: vis[vis.length - 1].getBoundingClientRect().top, n: vis.length, txt: vis[0].textContent, q: st.queued };
     });
-    assert(out.t < 300 && out.n >= 2, '面板关闭后提示应回到屏幕上方并恢复多条：' + JSON.stringify(out));
+    assert(out.t < 300 && out.n === 1 && out.txt === '甲' && JSON.stringify(out.q) === '["乙"]', '面板关闭后提示应回到屏幕上方；同一时刻只亮一条、后来的排队、同一句 60 秒内不重复：' + JSON.stringify(out));
   });
 
   await step('按住 Alt 查看详情：只有带详情的技能卡 / 浮窗才有提示行；面板开着时按住 Alt 展开、松开收起', async () => {
@@ -11284,7 +11292,7 @@ async function main() {
       P.life = 1;
       let dt = 0;
       while (!P.dead && dt < 40) { G.tick(1 / 60); dt += 1 / 60; }
-      const out = { before, dead: P.dead, dieT: dt, hidden: !P.ent.group.visible, toast: T.toasts(), deadT: P.deadT };
+      const out = { before, dead: P.dead, dieT: dt, hidden: !P.ent.group.visible, toast: T.toasts(), deadT: P.deadT, cover: document.querySelector('#death .death-title').textContent };
       P.deadT = 4; // 拉长一点，方便检查遮罩
       const x = P.x, z = P.z;
       G.input.keys.KeyD = true;
@@ -11296,7 +11304,7 @@ async function main() {
       return out;
     });
     assert(a.dead && a.dieT < 40, '关掉无敌、只剩 1 点生命，40 秒内居然没死');
-    assert(a.hidden && a.toast.includes('倒下'), '死亡表现不对');
+    assert(a.hidden && !a.toast.includes('倒下') && a.cover === '你倒下了', '死亡表现不对（「你倒下了」只写在死亡遮罩上，不弹 toast）：' + JSON.stringify({ hidden: a.hidden, toast: a.toast, cover: a.cover }));
     assert(a.frozen && !a.flask && !a.dodge, '死亡后不应还能移动 / 喝药 / 翻滚');
     await until(() => document.getElementById('death').classList.contains('on') && +getComputedStyle(document.getElementById('death')).opacity > 0.5).catch(() => {
       throw new Error('死亡遮罩没有显示');
@@ -14346,7 +14354,7 @@ async function main() {
     return r.lines;
   });
 
-  await uiStep('烬铸：所有通货（含琢刻石、重铸石）都拒绝，提示「烬铸武器无法改造」，拖上去时变暗；分解要点两次「分解」，固定给一把高阶通货；提示里有完美度和区间', async () => {
+  await uiStep('烬铸：所有通货（含琢刻石、重铸石）都拒绝，提示「烬铸武器无法改造」（不弹 toast），拖上去时变暗；分解要点两次「分解」，固定给一把高阶通货；提示里有完美度和区间', async () => {
     const pre = await ev(() => {
       while (G.save.bag.length > 30) G.save.bag.pop();
       const it = G.debug.giveItem(3, 'jinduan', 0.6, 44);
@@ -14361,7 +14369,7 @@ async function main() {
       return out;
     });
     assert(!pre.can.length && !pre.applied.length && pre.same && pre.cur && !pre.chisel, '烬铸武器被通货改动了：' + JSON.stringify(pre));
-    assert(pre.msgs.every((m) => m === '烬铸武器无法改造') && /烬铸武器无法改造/.test(pre.toast), '拒绝的提示不对：' + JSON.stringify(pre.msgs) + ' ' + pre.toast);
+    assert(pre.msgs.every((m) => m === '烬铸武器无法改造') && !/无法改造/.test(pre.toast), '拒绝的提示不对（写在背包红字里，不弹 toast）：' + JSON.stringify(pre.msgs) + ' ' + pre.toast);
     // 界面：选中后详情里有完美度、区间、机制；拖琢刻石过去时这一格变暗并写明原因
     await ev(() => G.ui.open('inv'));
     await clickCard('.cell[data-item="' + pre.uid + '"]');
@@ -21104,6 +21112,83 @@ async function main() {
     return '波次 ' + r.waves.join(' → ') + '，评级 ' + r.how;
   });
 
+  await step('toast-zero：异兆的开始 / 结果 / 用法写在顶上的事件条里；空药剂抖图标 + 拾取记录一行（60 秒一次）；连升两级只一条 toast；卖东西的所得写在拾烬客面板；余烛殿倒下写在死亡遮罩上；这些都不弹 toast', async () => {
+    await encKit();
+    const r = await ev(async () => {
+      const S = G.state, P = G.player, sv = G.save, out = {};
+      const raf = () => new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)));
+      const bar = () => {
+        const b = document.getElementById('enc-bar');
+        return { on: b.classList.contains('on'), name: b.querySelector('.eb-name').textContent, txt: b.querySelector('.eb-txt').textContent, mode: b.dataset.mode || '' };
+      };
+      G.ui.toastReset();
+      const t0 = G.ui.toastStats().shown;
+      // 试锋：开始时事件条先写目标句；弃权写结果（灰）
+      const D = G.ENCOUNTERS.trial.p;
+      let enc = EK.put('trial', 2, 1);
+      T.tp(enc.site.x, enc.site.z);
+      EK.step(0.5);
+      await raf();
+      out.go = Object.assign(bar(), { st: enc.st, want: D.time + ' 秒内打完三波' });
+      T.tp(enc.site.door.x + (enc.site.door.x - enc.site.x) * 2, enc.site.door.z + (enc.site.door.z - enc.site.z) * 2);
+      EK.step(5);
+      await raf();
+      out.quit = Object.assign(bar(), { how: enc.how });
+      // 祈坛：醒来时写一次用法（这次游戏同一种只写一次）
+      enc = EK.put('shrine', 1, 0);
+      T.tp(enc.site.x + 2, enc.site.z);
+      EK.step(0.2);
+      await raf();
+      out.hint = bar();
+      G.ui.encNote({ kind: 'shrine', txt: '走近按 F 激活', st: 'hint', once: true });
+      out.notes = G.ui.encNotes().filter((n) => n.startsWith('shrine:hint')).length;
+      EK.done();
+      // 空药剂：图标抖一下（每次按），拾取记录写一行（60 秒内只一次）
+      G.ui.feedClear();
+      const fl0 = P.flask.life;
+      P.flask.life = 0;
+      P.life = P.maxLife * 0.3;
+      out.flask = [G.useFlask('life'), G.useFlask('life')];
+      await raf();
+      out.deny = document.getElementById('flask-life').classList.contains('deny');
+      out.feed = Array.from(document.querySelectorAll('#feed .fd')).map((n) => n.innerText.replace(/\s+/g, ' ').trim());
+      P.flask.life = fl0;
+      P.life = P.maxLife;
+      G.ui.feedClear();
+      // 连升两级：同一条 toast 改写（天赋点加在一起）
+      const lv0 = sv.level, xp0 = sv.xp;
+      G.gainXp(G.xpNeed(sv.level) - sv.xp + 1);
+      G.gainXp(G.xpNeed(sv.level) - sv.xp + 1);
+      const ts = G.ui.toastStats();
+      out.lvl = { cur: ts.cur, queued: ts.queued.length, want: '等级提升：Lv ' + sv.level + '（获得 2 点天赋点）', n: ts.shown - t0 };
+      sv.level = lv0;
+      sv.xp = xp0;
+      G.computeStats();
+      // 余烛殿倒下：死亡遮罩上写还剩几盏魂灯
+      const pin0 = S.pin;
+      S.pin = { lives: 3, done: false, phase: 0, lit: [1, 1, 1, 1], br: [] };
+      P.dead = true;
+      await raf();
+      out.pinSub = document.querySelector('#death .death-sub').textContent;
+      P.dead = false;
+      S.pin = pin0;
+      await raf();
+      // 卖东西：所得交给面板（res.txt），不弹 toast
+      out.toasts = T.toasts();
+      out.n = G.ui.toastStats().shown - t0;
+      G.ui.toastReset();
+      return out;
+    });
+    assert(r.go.st === 'run' && r.go.on && r.go.name === '试锋' && r.go.txt === r.go.want, '试锋开始时事件条应先写目标句：' + JSON.stringify(r.go));
+    assert(r.quit.how === 'quit' && r.quit.on && r.quit.mode === 'fail' && r.quit.txt === '弃权', '弃权应写在事件条上（灰）：' + JSON.stringify(r.quit));
+    assert(r.hint.on && r.hint.name === '祈坛' && r.hint.txt.includes('激活') && r.hint.mode === 'hint' && r.notes === 1, '祈坛的用法应只写一次：' + JSON.stringify(r));
+    assert(r.flask.join() === 'false,false' && r.deny && r.feed.length === 1 && r.feed[0].includes('生命药剂空了'), '空药剂：图标抖一下、拾取记录只写一行：' + JSON.stringify(r));
+    assert(r.lvl.cur === r.lvl.want && r.lvl.queued === 0 && r.lvl.n === 1, '连升两级应只有一条 toast、天赋点加在一起：' + JSON.stringify(r.lvl));
+    assert(/还剩 2 盏/.test(r.pinSub), '余烛殿倒下应在死亡遮罩上写还剩几盏魂灯：' + r.pinSub);
+    assert(r.n === 1 && !/试锋|祈坛|药剂|魂灯/.test(r.toasts), '这一步只应有升级那一条 toast：' + JSON.stringify(r));
+    return '事件条 ' + r.go.txt + ' / ' + r.quit.txt + ' · 药剂 ' + r.feed[0] + ' · ' + r.lvl.cur;
+  });
+
   await step('异兆「拾烬客」：按 F 打开货架（至少 1 件稀有），买得起才能买、扣对价钱；卖东西按分解价 +1 微光尘；烛芯任意 2 换 1（层级 2 起）', async () => {
     await encKit();
     const r = await ev(() => {
@@ -21134,6 +21219,8 @@ async function main() {
         const d0 = sv.cur.dust || 0;
         const got = G.traderSell(it);
         out.sell = (got.dust || 0) === (exp.dust || 0) + 1 && sv.bag.length === 0 && (sv.cur.dust || 0) === d0 + (exp.dust || 0) + 1;
+        out.sellTxt = got.txt; // toast-zero：所得写在拾烬客面板（res.txt），不弹 toast
+        out.sellToast = T.toasts();
         // 烛芯 2 换 1
         sv.frags = { seal: 3, rift: 0, vow: 1, box: 0 };
         out.swap = JSON.stringify(G.traderSwap('rift'));
@@ -21159,6 +21246,7 @@ async function main() {
     assert(r.F && r.open && r.html && r.rare >= 1 && r.gem && r.sup >= 1, '拾烬客的货架不对：' + JSON.stringify(r));
     assert(r.poor === 'cost' && r.buy === true && r.left.join() === '1,1' && r.inBag && r.twice === 'none', '买东西不对：' + JSON.stringify(r));
     assert(r.sell, '卖东西应按分解价 +1 微光尘：' + JSON.stringify(r));
+    assert(/微光尘 ×\d/.test(r.sellTxt) && !r.sellToast.includes('卖给'), '卖东西的所得应交给面板写、不弹 toast：' + JSON.stringify([r.sellTxt, r.sellToast]));
     assert(r.swap === '{"seal":2}' && r.frags === '{"seal":1,"rift":1,"vow":1,"box":0}' && r.short === false && r.t1 === false, '烛芯 2 换 1 不对：' + JSON.stringify(r));
     return '货架 ' + r.rare + ' 件稀有，2 换 1：' + r.frags;
   });
@@ -22815,7 +22903,7 @@ async function main() {
     await page.mouse.click(a.far.x, a.far.y);
     const c = await ev(() => {
       const ch = G.state.zone.chests, far = ch[ch.length - 1];
-      const r = { farOpen: far.open, toast: T.toasts().includes('走近一点') };
+      const r = { farOpen: far.open, toast: T.toasts().includes('走近一点'), feed: document.getElementById('feed').innerText.includes('走近一点') };
       // F 键：清掉地上的掉落，站到远处那个宝箱 3 m 以内
       T.clearLoot();
       T.tp(far.x - 2.4, far.z + 0.6);
@@ -22831,7 +22919,7 @@ async function main() {
     assert(a.far.ok, '远处那个宝箱应在画面里：' + JSON.stringify(a));
     assert(b.open && b.loot > 0, '点宝箱应当打开并掉东西：' + JSON.stringify(b));
     assert(!b.cast && !(b.tap > 0) && !b.held, '点宝箱时不应同时施法：' + JSON.stringify(b));
-    assert(!c.farOpen && c.toast, '7 m 以外点宝箱不应打开，应提示走近：' + JSON.stringify(c));
+    assert(!c.farOpen && !c.toast && c.feed, '7 m 以外点宝箱不应打开，应在拾取记录里提示走近（不弹 toast）：' + JSON.stringify(c));
     assert(d.fOpen && d.loot > 0, '附近没有掉落时 F 键应打开 3.5 m 内的宝箱：' + JSON.stringify(d));
     return '点击打开 ✓、远处提示走近 ✓、F 键打开 ✓';
   });
@@ -26624,7 +26712,7 @@ async function titleSteps() {
       for (const id of G.ui.hints().all) G.save.tut[id] = 1; // 提示卡不挡追踪条的位置检查
       G.enterZone(0, 0);
       G.debug.god(true);
-      // 完成提示：记下 #toasts 里加进来的每一条（2.9 秒后就会消失）
+      // 完成提示（toast-zero：不弹 toast，追踪条自己亮「主线 n/N 完成」几秒）：G.ui.quest().log 记着每一条；另记下 #toasts 里加进来的，应当没有
       window.__qToasts = [];
       if (!window.__qObs) {
         window.__qObs = new MutationObserver((ms) => {
@@ -26671,10 +26759,13 @@ async function titleSteps() {
     assert(g.before === 0 && g.near && g.after === 1, '走到门口前应还在第 1 步、走到后 0.5 秒内完成：' + JSON.stringify(g));
     assert(g.stored === 1, '完成一步应马上存档（门口这一步没有别的痕迹，关页面后不能再给一次）：' + JSON.stringify(g));
     assert(qDiff(cur0, cur1) === '{"dust":2,"augment":1}', '第 1 步奖励应正好 微光尘 +2、增幅尘 +1：' + qDiff(cur0, cur1));
-    await until(() => window.__qToasts.some((t) => t.includes('主线 1/11 完成')), null, 20000);
+    await until(() => G.ui.quest().done === '主线 1/11 完成', null, 20000);
+    const vd = await ev(() => ({ q: G.ui.quest(), cls: document.getElementById('quest').classList.contains('done'), feed: document.getElementById('feed').innerText.replace(/\s+/g, ' ') }));
+    await until(() => G.ui.quest().k === '主线 2/11', null, 20000);
     await frames(2);
     const v2 = await ev(() => Object.assign(G.ui.quest(), { toasts: window.__qToasts.slice() }));
-    assert(v2.toasts.includes('主线 1/11 完成 · 微光尘 ×2、增幅尘 ×1'), '完成提示不对：' + JSON.stringify(v2.toasts));
+    assert(vd.cls && vd.q.on && vd.q.goal === '获得 微光尘 ×2、增幅尘 ×1' && vd.feed.includes('主线奖励 · 微光尘 ×2、增幅尘 ×1'), '完成时追踪条应亮「主线 1/11 完成 · 获得 …」，拾取记录记一行奖励：' + JSON.stringify(vd));
+    assert(v2.log.includes('主线 1/11 完成 · 微光尘 ×2、增幅尘 ×1') && !v2.toasts.some((t) => t.startsWith('主线')), '完成提示不对（不应弹 toast）：' + JSON.stringify(v2));
     assert(v2.k === '主线 2/11' && v2.goal === '击败熔渣巨像' && v2.how === '首领 4 级', '应显示第 2 步：' + JSON.stringify(v2));
     // 再走一遍门口不再给
     const again = await ev(() => {
@@ -26713,13 +26804,11 @@ async function titleSteps() {
     assert(r2.n === 3 && r2.ev === 1, '进霜骨沼泽应完成第 3 步（进区步不触发首领挂钩）：' + JSON.stringify(r2));
     assert(qDiff(cur1, cur2) === '{"dust":1,"regal":1}', '第 3 步奖励应正好 微光尘 +1、冠冕石 +1：' + qDiff(cur1, cur2));
     await until(() => !G.world.assetsPending(), null, 60000); // D2 起素材载入时追踪条先不显示（第一次进霜骨沼泽）
-    await until(() => G.ui.quest().k === '主线 4/11' && window.__qToasts.some((t) => t.includes('主线 3/11 完成')), null, 20000);
-    const t = await ev(() => window.__qToasts.filter((s) => s.startsWith('主线')));
-    assert(t.includes('主线 2/11 完成') && t.includes('主线 3/11 完成 · 微光尘 ×1、冠冕石 ×1'), '完成提示不对：' + JSON.stringify(t));
-    // 完成提示排在同一时刻的其它飘字后面（区域名那一条先出）
-    const order = await ev(() => window.__qToasts.slice());
-    const iz = order.findIndex((s) => s.startsWith('霜骨沼泽')), iq = order.indexOf('主线 3/11 完成 · 微光尘 ×1、冠冕石 ×1');
-    assert(iz >= 0 && iq > iz, '完成提示应排在区域名后面：' + JSON.stringify(order));
+    await until(() => G.ui.quest().k === '主线 4/11', null, 20000);
+    const t = await ev(() => ({ log: G.ui.quest().log, toasts: window.__qToasts.slice() }));
+    assert(t.log.includes('主线 2/11 完成') && t.log.includes('主线 3/11 完成 · 微光尘 ×1、冠冕石 ×1'), '完成提示不对：' + JSON.stringify(t));
+    // 区名、主线完成都不弹 toast（toast-zero）：区名写在左上的区域信息里
+    assert(!t.toasts.some((s) => s.startsWith('霜骨沼泽') || s.startsWith('主线')), '进区 / 完成主线不应弹 toast：' + JSON.stringify(t.toasts));
     const a = await ev(async () => {
       G.input.alt = true;
       await new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)));

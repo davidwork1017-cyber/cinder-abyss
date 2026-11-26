@@ -364,6 +364,14 @@
 
   // 技能格下面的连段格：近战连招按段数；施法普攻三下以上一轮的（灵弹）也亮，疾咒只是左右换手、不显示
   const comboSteps = (sk) => sk.combo || (sk.cyc && sk.cyc.length > 2 ? sk.cyc : null);
+  // 按了空的药剂（game.js，toast-zero）：药剂图标轻轻抖一下（只动这个小图标）
+  function flaskDeny(kind) {
+    const f = kind === 'life' ? hud.flaskLife : hud.flaskMana;
+    if (!f || !f.root) return;
+    f.root.classList.remove('deny');
+    void f.root.offsetWidth;
+    f.root.classList.add('deny');
+  }
   function setFlask(f, charges) {
     for (let i = 0; i < 3; i++) {
       const q = Math.round(G.clamp(charges - i, 0, 1) * 20) / 20;
@@ -613,6 +621,10 @@
       z.ref = st.zone;
       z.tier = st.tier;
       z.name.textContent = st.zone.def.name;
+      // 进区（toast-zero：不再弹区名 toast）：区名亮一下，告诉玩家换了地方
+      z.name.classList.remove('fresh');
+      void z.name.offsetWidth;
+      z.name.classList.add('fresh');
       z.sub.innerHTML =
         '怪物等级 <b>' + st.zone.level + '</b><i></i>轮回层级 <b>' + st.tier + '</b>';
       if (z.seal) z.seal.innerHTML = sealChips(st.run && st.run.seal, 'hud');
@@ -790,7 +802,9 @@
     if (dead !== hud.death.on) {
       hud.death.on = dead;
       hud.death.el.classList.toggle('on', dead);
-      if (dead) hud.death.sub.textContent = P.respawnAt ? '余烬未冷 · 即将在首领的竞技场门外重燃' : '余烬未冷 · 即将在区域入口重燃';
+      const pin = st.pin && !st.pin.done ? st.pin : null; // 余烛殿：倒下熄一盏魂灯（toast-zero：写在这里，不弹 toast）
+      if (dead && pin) hud.death.sub.textContent = pin.lives > 1 ? '熄了一盏魂灯 · 还剩 ' + (pin.lives - 1) + ' 盏 · 即将在门外重燃' : '最后一盏魂灯熄了 · 退还部分烛芯';
+      else if (dead) hud.death.sub.textContent = P.respawnAt ? '余烬未冷 · 即将在首领的竞技场门外重燃' : '余烬未冷 · 即将在区域入口重燃';
     }
 
     updateMinionBar();
@@ -1079,30 +1093,89 @@
   // ============================================================
   // 飘字提示（toast）
   // ============================================================
-  let lastToast = { msg: '', t: 0 };
+  // toast-zero：toast 只留给少数重要的时刻（首次击败首领、轮回层级解锁、升级、渊式切换、选职业、余烛殿），
+  // 别的提示都写在玩家正看着的地方（拾取记录、面板里的小字、事件条、追踪条、死亡遮罩）。
+  // 同一时刻只亮一条：后来的排队（最多 TOAST_QMAX 条，同一个 key 的并成一条）；同一个 key 60 秒内最多一次。
+  // opt.key：节流 / 合并用（缺省为文字本身）；opt.replace：同一个 key 正亮着或排着时改写那一条，不受 60 秒限制
+  const TOAST_SHOW = 2400, TOAST_FADE = 500, TOAST_GAP = 60000, TOAST_QMAX = 3;
+  let lastToast = { msg: '', t: 0 }; // 最近一条真正亮出来的（旁白卡等它出完再放）
+  let toastCur = null; // 正亮着的：{ key, msg, el, out（在淡出） }
+  const toastQueue = [];
+  const toastKeyAt = {};
+  const toastStats = { shown: 0, keys: {} }; // 测试 / 计数读：这次页面里一共亮过几条
   // icon：可选的图标 HTML（G.icons.* 的返回值），显示在文字前面
-  function toast(msg, color, icon) {
+  function toast(msg, color, icon, opt) {
     msg = touchText(msg);
-    const box = el.toasts || (el.toasts = $('toasts'));
+    const key = (opt && opt.key) || msg;
     const now = performance.now();
-    if (msg === lastToast.msg && now - lastToast.t < 500) return; // 同一句话短时间内不重复刷
-    lastToast = { msg, t: now };
-    const d = document.createElement('div');
-    d.className = 'toast';
+    if (opt && opt.replace) {
+      if (toastCur && toastCur.key === key && !toastCur.out) {
+        toastPaint(toastCur.el, msg, color, icon);
+        toastCur.msg = msg;
+        toastTimer(TOAST_SHOW);
+        return;
+      }
+      const q = toastQueue.find((o) => o.key === key);
+      if (q) return void Object.assign(q, { msg, color, icon });
+    } else {
+      if (now - (toastKeyAt[key] === undefined ? -1e9 : toastKeyAt[key]) < TOAST_GAP) return;
+      if ((toastCur && toastCur.key === key) || toastQueue.some((o) => o.key === key)) return;
+    }
+    toastKeyAt[key] = now;
+    toastQueue.push({ key, msg, color, icon });
+    while (toastQueue.length > TOAST_QMAX) toastQueue.shift();
+    if (!toastCur) toastPump();
+  }
+  function toastPaint(d, msg, color, icon) {
+    d.classList.toggle('has-icon', !!icon);
     if (icon) {
-      d.classList.add('has-icon');
       d.innerHTML = icon;
       d.appendChild(document.createTextNode(msg));
-    } else {
-      d.textContent = msg;
-    }
+    } else d.textContent = msg;
     if (color) d.style.setProperty('--c', color);
+  }
+  // 按真实时间放（setTimeout）：面板开着、游戏暂停时照样走完。当前这条到时淡出，淡出完了放队里的下一条
+  let toastT = 0;
+  function toastTimer(ms) {
+    clearTimeout(toastT);
+    toastT = setTimeout(toastPump, ms);
+  }
+  function toastPump() {
+    if (toastCur) {
+      if (!toastCur.out) {
+        toastCur.out = true;
+        toastCur.el.classList.add('out');
+        return toastTimer(TOAST_FADE);
+      }
+      if (toastCur.el.parentNode) toastCur.el.parentNode.removeChild(toastCur.el);
+      toastCur = null;
+    }
+    const o = toastQueue.shift();
+    if (!o) return;
+    const box = el.toasts || (el.toasts = $('toasts'));
+    const d = document.createElement('div');
+    d.className = 'toast';
+    toastPaint(d, o.msg, o.color, o.icon);
     box.appendChild(d);
-    while (box.children.length > 5) box.removeChild(box.firstChild);
-    setTimeout(() => d.classList.add('out'), 2400);
-    setTimeout(() => {
-      if (d.parentNode) d.parentNode.removeChild(d);
-    }, 2900);
+    toastCur = { key: o.key, msg: o.msg, el: d, out: false };
+    lastToast = { msg: o.msg, t: performance.now() };
+    toastStats.shown++;
+    toastStats.keys[o.key] = (toastStats.keys[o.key] || 0) + 1;
+    toastTimer(TOAST_SHOW);
+  }
+  function toastReset() {
+    clearTimeout(toastT);
+    toastQueue.length = 0;
+    if (toastCur && toastCur.el.parentNode) toastCur.el.parentNode.removeChild(toastCur.el);
+    toastCur = null;
+    for (const k in toastKeyAt) delete toastKeyAt[k];
+  }
+  // 升级（game.js）：这条还亮着或排着时又升了：改写成最新的等级、天赋点加在一起，不另弹一条
+  const lvlToast = { pts: 0 };
+  function levelToast(level, gained) {
+    const live = (toastCur && toastCur.key === 'lvl' && !toastCur.out) || toastQueue.some((o) => o.key === 'lvl');
+    lvlToast.pts = live ? lvlToast.pts + gained : gained;
+    toast('等级提升：Lv ' + level + '（获得 ' + lvlToast.pts + ' 点天赋点）', '#ffd75e', null, { key: 'lvl', replace: true });
   }
 
   // ============================================================
@@ -4683,7 +4756,7 @@
       ui.trdArm = null;
       const res = G.traderSell(f.item);
       ui.fresh.delete(d.item);
-      ui.trdMsg = res ? '卖掉了「' + f.item.name + '」' : '';
+      ui.trdMsg = res ? '卖掉了「' + f.item.name + '」' + (res.txt ? '，得到 ' + res.txt : '') : '';
       render();
     },
     // 窄屏：子页签 货架 / 卖出 / 烛芯
@@ -5049,7 +5122,7 @@
         ui.flash = true;
         G.sfx('craft');
       } else {
-        ui.invMsg = f.item.rarity >= 3 ? lockText(f.item) : '这件物品现在不能使用' + G.CURRENCY[d.cur].name;
+        ui.invMsg = f.item.rarity >= 3 ? lockText(f.item) : G.craftMsg || '这件物品现在不能使用' + G.CURRENCY[d.cur].name;
         if (f.item.rarity >= 3) G.sfx('deny');
       }
       render();
@@ -5391,7 +5464,7 @@
     if (ui.sel === item.uid) ui.sel = null;
     ui.fresh.delete(item.uid);
     ui.invMsg = '';
-    toast('丢下了 ' + name, color, icon);
+    ui.invOk = '丢下了「' + name + '」'; // 背包开着时写在背包的绿字里（toast-zero）
     G.sfx('drop');
     return true;
   }
@@ -5421,7 +5494,7 @@
       ui.invOk = G.CURRENCY.chisel.name + '：' + (before ? before.text : '') + ' → ' + (after ? after.text : '');
       G.sfx('craft');
     } else {
-      ui.invMsg = '这条词缀现在不能用' + G.CURRENCY.chisel.name + '重洗';
+      ui.invMsg = G.craftMsg || '这条词缀现在不能用' + G.CURRENCY.chisel.name + '重洗';
     }
   }
   function chiselBox(box, item) {
@@ -5482,7 +5555,9 @@
   // 主线追踪条（quest D1）：右上小地图正下方，三行字（主线 k/11 · 做什么 · 怎么做），按住 Alt 多出等级、奖励和一句背景。
   // 只有 DOM（WebGL draw 0 增加）。每帧只比几个整数 / 布尔（步数、存档代数、要不要显示），内容最多每秒重算两次
   // ============================================================
-  const qh = { root: null, k: null, goal: null, how: null, alt: null, n: -1, epoch: -1, vis: null, key: '', at: 0, pulse: false, toastQ: [], toastAt: 0 };
+  const qh = { root: null, k: null, goal: null, how: null, alt: null, n: -1, epoch: -1, vis: null, key: '', at: 0, pulse: false, doneQ: [], done: null, log: [] };
+  // 完成一步（toast-zero：不弹 toast）：追踪条自己亮 QDONE_MS 毫秒「主线 n/N 完成」+ 得到的通货，再换成下一步；通货也记一行拾取记录
+  const QDONE_MS = 3000, QDONE_MS_BARE = 1500;
   function initQuestHud() {
     const r = (qh.root = document.createElement('div'));
     r.id = 'quest';
@@ -5517,16 +5592,30 @@
     const Q = G.save.quest, st = G.state;
     const n = Q ? Q.n : G.QUEST_N;
     // 第一次进区时右上「正在载入场景…」那一条正好压在追踪条上：素材就绪前先不显示，就绪后淡入（quest D2）
-    const vis = !!(Q && n < G.QUEST_N && !Q.off && !ui.intro && !story.on && !menu.title && !menu.pause && !(G.world.assetsLoading && G.world.assetsLoading()));
+    const can = !!(Q && !Q.off && !ui.intro && !story.on && !menu.title && !menu.pause && !(G.world.assetsLoading && G.world.assetsLoading()));
+    // 完成提示：一条一条放（同一时刻完成两步时排着）；看不见追踪条时（面板、载入中）先等着
+    if (qh.done && now - qh.done.at >= (qh.done.got ? QDONE_MS : QDONE_MS_BARE)) {
+      qh.done = null;
+      qh.root.classList.remove('done');
+      qh.key = '';
+      qh.pulse = true;
+    }
+    if (!qh.done && qh.doneQ.length && can) {
+      qh.done = qh.doneQ.shift();
+      qh.done.at = now;
+      qh.key = '';
+      qh.pulse = false;
+    }
+    if (!Q || Q.off) {
+      qh.doneQ.length = 0; // 关了「显示主线」：完成提示不排着（拾取记录里照样有通货那一行）
+      if (qh.done) qh.root.classList.remove('done');
+      qh.done = null;
+    }
+    const vis = can && (n < G.QUEST_N || !!qh.done);
     if (vis !== qh.vis) {
       qh.vis = vis;
       qh.root.classList.toggle('on', vis);
       document.body.classList.toggle('quest-on', vis);
-    }
-    // 完成提示：排在同一时刻的其它飘字（首领倒下、层级解锁、区域名）后面，前一条出来 0.45 秒后再出（最多等 2.5 秒）
-    if (qh.toastQ.length && (now - lastToast.t > 450 || now - qh.toastAt > 2500)) {
-      toast(qh.toastQ.shift(), '#ffd98a');
-      qh.toastAt = now;
     }
     if (G.saveEpoch !== qh.epoch) {
       // 换了存档（读档 / 新游戏）：不亮
@@ -5534,16 +5623,31 @@
       qh.n = n;
       qh.pulse = false;
       qh.key = '';
+      qh.doneQ.length = 0;
+      qh.done = null;
+      qh.root.classList.remove('done');
     } else if (n !== qh.n) {
-      if (n > qh.n) qh.pulse = true;
+      if (n > qh.n && !qh.done && !qh.doneQ.length) qh.pulse = true;
       qh.n = n;
       qh.key = '';
     }
     if (!vis) return;
+    if (qh.done) {
+      if (!qh.key) {
+        qh.key = 'done';
+        const d = qh.done;
+        qh.k.textContent = '主线 ' + d.n + '/' + G.QUEST_N + ' 完成';
+        qh.goal.textContent = d.got ? '获得 ' + curList(d.got) : '';
+        qh.how.textContent = '';
+        qh.root.classList.remove('pulse');
+        qh.root.classList.add('done');
+      }
+      return;
+    }
     if (qh.key && now - qh.at < 500 && !qh.pulse) return;
     qh.at = now;
     const key = n + '|' + (st.portal && !st.pin ? 1 : 0) + '|' + G.save.level;
-    if (key !== qh.key) {
+    if (key !== qh.key && n < G.QUEST_N) {
       qh.key = key;
       const v = questView(n);
       qh.k.textContent = v.k;
@@ -5561,7 +5665,14 @@
   }
   // game.js 推进主线时调：n 完成到第几步，got 这次加进背包的通货（首领步为 null）
   function questDone(n, got) {
-    qh.toastQ.push('主线 ' + n + '/' + G.QUEST_N + ' 完成' + (got ? ' · ' + curList(got) : ''));
+    const has = got && Object.keys(got).length;
+    qh.doneQ.push({ n, got: has ? got : null, at: 0 });
+    qh.log.push('主线 ' + n + '/' + G.QUEST_N + ' 完成' + (has ? ' · ' + curList(got) : ''));
+    if (qh.log.length > 20) qh.log.shift();
+    if (has) {
+      const ids = Object.keys(got);
+      feedPush({ key: 'quest' + n, icon: curIcon(ids[0]), name: '主线奖励 · ' + curList(got), color: '#ffd98a', pr: 4 });
+    }
   }
 
   // ============================================================
@@ -5660,7 +5771,7 @@
       return;
     }
     // 首领倒下那一刻之后至少 1.5 秒；完成提示排完、最后一条飘字出来 1.2 秒后；两张卡之间隔 0.8 秒
-    if (now - it.at < 1500 || now - nc.gapAt < 800 || qh.toastQ.length || now - lastToast.t < 1200) return;
+    if (now - it.at < 1500 || now - nc.gapAt < 800 || qh.done || qh.doneQ.length || now - lastToast.t < 1200) return;
     if (!narrCalm()) {
       it.calm = 0;
       return;
@@ -5737,46 +5848,86 @@
   // ============================================================
   // 异兆（D4）：计时条（守隙 / 缚匣 / 试锋 / 落烬）、祈坛增益小签、拾烬客面板、背包里的烛芯
   // ============================================================
-  const encHud = { bar: null, fill: null, name: null, txt: null, buff: null, key: '', bkey: '' };
-  function initEncHud() {
-    const b = document.createElement('div');
-    b.id = 'enc-bar';
-    b.innerHTML = '<div class="eb-name"></div><div class="eb-track"><i class="eb-fill"></i></div><div class="eb-txt"></div>';
-    $('hud').appendChild(b);
-    encHud.bar = b;
-    encHud.name = b.querySelector('.eb-name');
-    encHud.fill = b.querySelector('.eb-fill');
-    encHud.txt = b.querySelector('.eb-txt');
-    const t = document.createElement('div');
-    t.id = 'enc-buff';
-    $('zone-box').appendChild(t);
-    encHud.buff = t;
+  const encHud = { bar: null, fill: null, name: null, txt: null, buff: null, key: '', bkey: '', note: null, told: {}, on: false, notes: [] };
+  // 事件条上的一句话（toast-zero：异兆不弹 toast，开始的目标、结果、祈坛增益、用法都写在这一条里）。
+  // o：{ kind, txt, st: 'go' 开始（计时条前 ENC_GO_MS 毫秒先写目标句）| 'ok' / 'fail' 结果 | 'hint' 用法（once：同一种这次游戏只提示一次）, color }
+  const ENC_GO_MS = 2500, ENC_NOTE_MS = 2600, ENC_HINT_MS = 3200;
+  function encNote(o) {
+    if (o.once) {
+      if (encHud.told[o.kind]) return;
+      encHud.told[o.kind] = 1;
+    }
+    const now = performance.now();
+    encHud.note = Object.assign({}, o, { zone: G.state.zone, at: now, until: now + (o.st === 'go' ? ENC_GO_MS : o.st === 'hint' ? ENC_HINT_MS : ENC_NOTE_MS) });
+    encHud.notes.push(o.kind + ':' + o.st + ':' + o.txt);
+    if (encHud.notes.length > 20) encHud.notes.shift();
+  }
+  function encPulse() {
+    encHud.bar.classList.remove('pulse');
+    void encHud.bar.offsetWidth; // 重新开始动画
+    encHud.bar.classList.add('pulse');
   }
   const ENC_TIMED = { guard: 1, box: 1, trial: 1, ember: 1 };
   function updateEncHud() {
-    const st = G.state, P = G.player;
-    let run = null;
-    for (const e of st.enc || []) if (e.st === 'run' && ENC_TIMED[e.kind]) (run = run || e);
-    let key = '';
+    const st = G.state, P = G.player, now = performance.now();
+    let run = null, echo = null, open = null;
+    for (const e of st.enc || []) {
+      if (e.st === 'run' && ENC_TIMED[e.kind]) run = run || e;
+      else if (e.st === 'run' && e.kind === 'echo' && e.mob && !e.mob.dead) echo = echo || e;
+      else if (e.st === 'open' && e.kind === 'guard' && Math.hypot(e.site.x - P.x, e.site.z - P.z) < 40) open = open || e;
+    }
+    let N = encHud.note;
+    if (N && now >= N.until) N = encHud.note = null;
+    if (N && N.zone !== st.zone) N = encHud.note = null; // 换了区：上一区的那句不再显示
+    // 显示什么：正在跑的计时异兆（开头先写目标句）> 结果 / 增益 / 用法 > 残影 > 守隙张开
+    let kind = '', name = '', txt = '', k = 0, mode = '';
     if (run) {
       const D = G.ENCOUNTERS[run.kind], p = D.p;
-      let txt = '';
-      if (run.kind === 'guard') txt = '坚守 ' + Math.floor(run.t) + ' / ' + p.hold + ' 秒' + (run.away > 0.3 ? (run.away > p.grace ? ' · 正在倒退，回到圈里！' : ' · 回到圈里') : '');
+      kind = run.kind;
+      name = D.name;
+      k = run.k;
+      if (N && N.st === 'go' && N.kind === run.kind) txt = N.txt;
+      else if (run.kind === 'guard') txt = '坚守 ' + Math.floor(run.t) + ' / ' + p.hold + ' 秒' + (run.away > 0.3 ? (run.away > p.grace ? ' · 正在倒退，回到圈里！' : ' · 回到圈里') : '');
       else if (run.kind === 'box') txt = run.t > 0 ? '剩 ' + Math.ceil(run.t) + ' 秒 · 匣卫 ' + run.mobs.filter((e) => !e.dead).length + ' 只' : '超时：只能残缚';
       else if (run.kind === 'trial') txt = '剩 ' + Math.max(0, Math.ceil(run.t)) + ' 秒 · 第 ' + run.wave + ' / ' + p.n.length + ' 波' + (run.leaveT > 0.2 ? ' · 回到小室里！' : '');
       else if (run.kind === 'ember') txt = '剩 ' + Math.max(0, Math.ceil(run.t)) + ' 秒 · 烬晶 ' + (run.shards ? run.shards.filter((e) => !e.dead).length : p.n) + ' / ' + p.n;
-      key = run.kind + '|' + txt + '|' + Math.round(run.k * 200);
-      if (key !== encHud.key) {
-        encHud.name.textContent = D.name;
-        encHud.txt.textContent = txt;
-        encHud.fill.style.width = (G.clamp(run.k, 0, 1) * 100).toFixed(1) + '%';
-        encHud.bar.dataset.kind = run.kind;
-      }
+    } else if (N && N.st !== 'go') {
+      kind = N.kind;
+      name = G.ENCOUNTERS[N.kind] ? G.ENCOUNTERS[N.kind].name : '';
+      txt = N.txt;
+      mode = N.st;
+      k = N.st === 'ok' ? 1 : 0;
+    } else if (echo) {
+      kind = 'echo';
+      name = G.ENCOUNTERS.echo.name;
+      txt = '击败「' + G.BOSSES[st.zone.def.boss].name + '」的残影';
+      k = echo.mob.hp / echo.mob.maxHp;
+    } else if (open) {
+      kind = 'guard';
+      name = G.ENCOUNTERS.guard.name;
+      txt = '走进圈里，坚守 ' + G.ENCOUNTERS.guard.p.hold + ' 秒';
+      mode = 'open';
     }
+    const on = !!kind;
+    const key = on ? kind + '|' + mode + '|' + txt + '|' + Math.round(k * 200) + '|' + ((N && N.color) || '') : '';
     if (key !== encHud.key) {
       encHud.key = key;
-      encHud.bar.classList.toggle('on', !!run);
+      if (on) {
+        encHud.name.textContent = name;
+        encHud.txt.textContent = touchText(txt);
+        encHud.fill.style.width = (G.clamp(k, 0, 1) * 100).toFixed(1) + '%';
+        encHud.bar.dataset.kind = kind;
+        encHud.bar.dataset.mode = mode;
+        if (N && N.color) encHud.bar.style.setProperty('--c', N.color);
+        else encHud.bar.style.removeProperty('--c');
+      }
+      encHud.bar.classList.toggle('on', on);
     }
+    // 出现时、来了新的一句时亮一下
+    const nat = N ? N.at : encHud.nat;
+    if (on && (!encHud.on || nat !== encHud.nat)) encPulse();
+    encHud.on = on;
+    encHud.nat = nat;
     const B = P.encBuff, BD = B && G.SHRINE_BUFFS[B.id];
     const bkey = BD ? B.id + Math.ceil(B.t) : '';
     if (bkey !== encHud.bkey) {
@@ -8889,6 +9040,12 @@
     storyOn: () => story.on,
     refresh,
     toast,
+    toastReset,
+    toastStats: () => ({ shown: toastStats.shown, keys: Object.assign({}, toastStats.keys), cur: toastCur ? toastCur.msg : '', queued: toastQueue.map((o) => o.msg) }),
+    levelToast,
+    flaskDeny,
+    encNote,
+    encNotes: () => encHud.notes.slice(),
     saveBar: (kind) => saveBar(kind),
     saveBarKind: () => saveBarKind,
     hurt,
@@ -8921,7 +9078,7 @@
     // 测试读：追踪条现在显示的字、显不显示、排队中的完成提示
     narr: () => ({ on: !!nc.cur, id: nc.cur ? nc.cur.id : '', out: !!(nc.cur && nc.cur.out), t: nc.cur ? nc.cur.t : 0, dur: nc.cur ? nc.cur.dur : 0, lines: nc.cur ? [nc.l1.textContent, nc.l2.textContent] : [], queued: nc.q.map((x) => x.id), held: nc.root.classList.contains('held') }),
     narrSkip,
-    quest: () => ({ on: !!qh.vis, k: qh.k.textContent, goal: qh.goal.textContent, how: qh.how.textContent, alt: qh.alt.textContent, queued: qh.toastQ.slice() }),
+    quest: () => ({ on: !!qh.vis, k: qh.k.textContent, goal: qh.goal.textContent, how: qh.how.textContent, alt: qh.alt.textContent, done: qh.done ? qh.k.textContent : '', log: qh.log.slice() }),
     // 测试用：天赋盘回到「这次还没看过」（下次在触屏上打开按前沿放大一档）；treeFront() 读默认视口的结果
     treeViewReset: () => {
       ui.tv = undefined;
