@@ -12489,7 +12489,7 @@
     const bm = new T.MeshStandardMaterial({ color: lin(tintHex), vertexColors: true, roughness: 1, metalness: 0, envMap: rigEnvMap(), envMapIntensity: 0.9 });
     bm.defines.NB = rig.NB;
     if (rig.skin4) bm.defines.SKIN4 = 1;
-    if (rig.map) bm.map = rig.map; // ai3d-golem：带贴图的首领包
+    if (rig.map) bossMapOn(bm, rig.map); // ai3d-golem：带贴图的首领包
     bm.flatShading = RIG_FLAT;
     bm.onBeforeCompile = function (sh) { injectLit(sh, ent); };
     bm.userData.e0 = rig.emis ? lin(rig.emis[0]) : new T.Color(0);
@@ -19774,14 +19774,21 @@
   function bossMap(d) {
     if (d._map) return d._map;
     // 包加载时已经解码好的图（js/assets.js 的 decodePack）直接用；万一还没好，等它加载完再上传
+    // 反照率是 sRGB，但和地面 / 贴花一样不标 SRGBColorSpace（标了 r186 用硬件 sRGB 格式、在线性空间里过滤和生成 mipmap，细碎的暗裂缝会变浅）：
+    // 按原始数据过滤，采样后在着色器里解码（躯体材质设 DECODE_VIDEO_TEXTURE，见 bossMapOn）
     const im = d._img || new Image(), tx = new T.Texture(im);
     tx.flipY = false;
-    tx.colorSpace = T.SRGBColorSpace;
     if (im.complete && im.naturalWidth) tx.needsUpdate = true;
     else im.addEventListener('load', () => { tx.needsUpdate = true; });
     if (!d._img) im.src = d.tex;
     d._map = tx;
     return tx;
+  }
+  // 躯体材质挂上首领的反照率贴图（建实体时 / 原地换模型时），采样后的 sRGB 解码用 DECODE_VIDEO_TEXTURE
+  function bossMapOn(m, map) {
+    m.map = map;
+    m.defines.DECODE_VIDEO_TEXTURE = '';
+    m.needsUpdate = true;
   }
   function rigFromGlb(kind) {
     const d = bossData(kind), sp = BOSS_SPEC[kind];
@@ -20068,7 +20075,7 @@
     ent.coreK = 1;
     ent.meshBody.geometry = r.geoBody;
     if (ent.meshGlow) ent.meshGlow.geometry = r.geoGlow;
-    if (r.map) ent.bodyMat.map = r.map; // ai3d-golem：带贴图的首领包
+    if (r.map) bossMapOn(ent.bodyMat, r.map); // ai3d-golem：带贴图的首领包
     for (const m of [ent.bodyMat, ent.glowMat, ent.depthMat]) {
       m.defines.SKIN4 = 1;
       m.needsUpdate = true;
