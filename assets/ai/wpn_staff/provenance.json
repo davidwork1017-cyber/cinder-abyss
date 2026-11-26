@@ -100,7 +100,8 @@
   "verdict": "所有组件都没有限制输出、没有禁止商用、也不要求在输出上署名",
   "evidence": "编排者笔记 notes/ai3d/licence-audit.md 和 notes/ai3d/licences/（每份许可证原文，第一行是来源和版本），不在仓库里",
   "nvdiffrast": "不在这条流程里（生成的机器上没装，ComfyUI 0.43.0 也不引用）。以后如果改用上游 TRELLIS.2 / Pixal3D 的导出（会用到 nvdiffrast + nvdiffrec，许可证只许研究或评估用途），上线前要重新审；商业发行前也要重新审",
-  "rereview": "换生成流程（别的节点、上游仓库、新权重）或商业发行之前重新审一遍"
+  "rereview": "换生成流程（别的节点、上游仓库、新权重）或商业发行之前重新审一遍",
+  "dinov3_1bv": "DINOv3 §1.b.v reviewed: user ruling 2026-11-26, game art not a prohibited end use; re-review before any commercial release"
  },
  "credit": "用 Z-Image Turbo（Apache-2.0）、TRELLIS.2（MIT）、BiRefNet（MIT）、DINOv3（DINOv3 License）、MoGe-2（MIT）在 ComfyUI 里生成，经 art/ai/importer.py 处理（自愿署名，许可证不要求）",
  "processing": {

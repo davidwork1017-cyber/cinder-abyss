@@ -262,6 +262,8 @@
 <script src="js/assets/index.js"></script>
 <!-- 角色模型（Quaternius CC0，GLB 打成 base64）：开场就要用，同步引入；缺了就用程序化角色 -->
 <script src="js/assets/chars.js"></script>
+<!-- 试验开关 &aiwpn=1（ai3d-weapons）：AI 生成的武器模型包，建主角骨架之前就要到，同步引入；默认不加载 -->
+<script>if (window.CA_AIWPN || /[?&]aiwpn=1\b/.test(location.search)) { window.CA_AIWPN = 1; document.write('<script src="js/assets/kit-aiwpn.js"><\/script>'); }</script>
 <!-- 特效贴图库（tools/gen-vfx-textures.mjs 程序化生成，打成 base64）：同步引入，js/vfx.js 解码成纹理、提供共用的特效着色器 -->
 <script src="js/assets/vfx.js"></script>
 <script src="js/assets.js"></script>

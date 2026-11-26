@@ -1,4 +1,4 @@
-# 外部素材（CC0，另有一件 AI 生成的布景件试点）
+# 外部素材（CC0，另有 AI 生成的布景件和武器试点）
 
 | 目录 | 来源 | 许可证 |
 | --- | --- | --- |
@@ -6,7 +6,7 @@
 | `ambientcg/` | ambientCG 贴图，https://ambientcg.com | CC0（`ambientcg/LICENSE.txt`） |
 | `generated/` | `tools/gen-ground-textures.mjs` 按固定种子程序化生成的地面覆盖层（`g_cover_*`）和贴花图集（`g_decals`）；`tools/gen-paint-textures.mjs` 按固定种子画的平铺贴图（`p_mud` 龟裂焦土、`p_burn` 焦痕碎石、`p_rock` 棱面石头，第 0 区的路面 / 粗糙地面 / 虚空地面和岩石三向投影；`p_ice` 冰面、`p_snow` 带雪的冻泥、`p_frock` 层状岩，第 1 区的同样几处；种子写在 `tools/paint-tex.mjs` 每张图的 `seed` 里：p_mud 211、p_burn 307、p_rock 101、p_ice 401、p_snow 503、p_frock 607），清单 `generated/manifest.json` 记着生成器、种子、原始像素和 JPEG 的 sha256 | 原创（我们自己画的，不是第三方素材） |
 | `ca/` | 自产布景件：`art/` 下的 Blender 生成脚本按固定种子生成（`npm run build:art`，见 `docs/art-pipeline.md`），清单 `ca/manifest.json` 记着每件的生成器、参数、种子和 sha256；`ship` 为 true 的件打进 `js/assets/kit-<区>.js` | 原创（我们自己的脚本生成，不是第三方素材） |
-| `ai/` | AI 生成的布景件（试点，2026-11-26 起；见下面「AI 生成」）：用户用文生图 → 图生 3D 生成源模型，`art/ai/importer.py` 处理成游戏用的件，每件一个目录（来源记录 `provenance.json` + 反照率贴图） | 组件许可证见下面「AI 生成」；输出不受限制 |
+| `ai/` | AI 生成的布景件和武器（试点，2026-11-26 起；见下面「AI 生成」）：用户用文生图 → 图生 3D 生成源模型，`art/ai/importer.py`（武器走 `art/ai/weapon.py`）处理成游戏用的件，每件一个目录（来源记录 `provenance.json`，布景件另有反照率贴图） | 组件许可证见下面「AI 生成」；输出不受限制 |
 | `story/` | 开场故事的画格（`js/story.js` 放的时候才加载）：`tools/story/bake.mjs` 用游戏自己的引擎摆拍（角色、区域、首领都是游戏里现成的，用到的第三方模型和贴图就是上面这些 CC0 包），再加墨线 / 平涂分阶 / 网点烘成分层 webp，见 `tools/story/README.md` | 原创（游戏画面的渲染图，不是第三方素材） |
 | `kaykit-dungeon-remastered/` | KayKit Dungeon Remastered 1.0，Kay Lousberg，https://kaylousberg.itch.io/kaykit-dungeon-remastered | CC0（`LICENSE.txt`）；2026-11-22（models-drop）起不再打进游戏，源文件和许可证留作记录 |
 | `kaykit-halloween-bits/` | KayKit Halloween Bits 1.0，Kay Lousberg，https://kaylousberg.itch.io/halloween-bits | CC0（`LICENSE.txt`）；2026-11-22（models-drop）起不再打进游戏，源文件和许可证留作记录 |
@@ -34,11 +34,15 @@
 
 ## AI 生成
 
-2026-11-26 起试点：先只放一件静态布景，通过审核再扩展。只用于静态布景和摆件，首领、角色和带动作的东西照旧用 `art/` 下的生成脚本。
+2026-11-26 起试点：先放一件静态布景，通过审核再扩展。同一天用户要求武器也试一试：剑、长杖、战锤、机炮四种（手里拿的和掉在地上的），目前只在试验开关 `&aiwpn=1` 下出现。首领、角色和带动作的东西照旧用 `art/` 下的生成脚本。
 
 | 件 | 用在哪 | 来源记录 |
 | --- | --- | --- |
 | `ca/frost_waystone`（路标石：风化的石柱立在碎石和积雪的基座上） | 霜骨沼泽岸边，每区 3–6 块，低画质不显示 | `ai/frost_waystone/provenance.json` |
+| `ca/aiwpn_blade`、`_lo`（单手直剑：叶形钢刃、中间一道光槽） | 试验开关 `&aiwpn=1`：手里（lo）和掉落（高 / 中 hi、低 lo） | `ai/wpn_blade/provenance.json` |
+| `ca/aiwpn_staff`、`_lo`（长杖：木杆、金环里嵌一块晶体） | 同上 | `ai/wpn_staff/provenance.json` |
+| `ca/aiwpn_hammer`、`_lo`（战锤：铁砧锤头、一条发光符带） | 同上 | `ai/wpn_hammer/provenance.json` |
+| `ca/aiwpn_gatling`、`_lo`、`ca/aiwpn_gatling_barrel`、`_lo`（机炮：黄铜机匣、六根枪管、侧面一道散热槽） | 同上 | `ai/wpn_gatling/provenance.json` |
 
 - **生成流程**：ComfyUI 0.43.0，只用内置节点。Z-Image Turbo 文生图，TRELLIS.2 图生 3D，另外用到 BiRefNet、DINOv3、MoGe-2。提示词、种子、每个组件的版本都在 `provenance.json` 里。
 - **许可证**：生成时用到的每个组件都读过许可证原文：
@@ -50,5 +54,6 @@
   这些组件都不限制输出、不禁止商用，也不要求在输出上署名。nvdiffrast（只许研究或评估用途）不在这条流程里。换生成流程或者商业发行之前，要重新审一遍。
 - **凭据**：许可证审查表和每份许可证原文（第一行是来源和版本）在编排者的笔记 `notes/ai3d/` 里，不进仓库；每件的 `provenance.json` 记着结论。
 - **不进仓库的东西**：源 GLB（只记 sha256）和概念图。仓库里只有处理后的游戏用件（`ca/<区>/<件>.glb`）、反照率贴图（`ai/<件>/albedo.jpg`）和来源记录。
-- **审核**：和脚本件一样看灰度、风格和预算（`art/budgets.json` 的 `aiprop`），另外做一次相似度检查：不能像任何已有游戏的素材或 IP，提示词里也不提别的游戏或 IP。
+- **审核**：和脚本件一样看灰度、风格和预算（`art/budgets.json` 的 `aiprop`，武器是 `aiweapon`），另外做一次相似度检查：不能像任何已有游戏的素材或 IP，提示词里也不提别的游戏或 IP。
+- **武器和 DINOv3 §1.b.v**：这一条不许把 DINOv3 用于「与枪支或非法武器的开发或使用有关」的用途。用户 2026-11-26 定了：拿来做游戏美术不算禁止的用途，枪也可以做。商业发行前要重新审。武器的来源记录里有这一条（`licence_audit.dinov3_1bv`）。
 
