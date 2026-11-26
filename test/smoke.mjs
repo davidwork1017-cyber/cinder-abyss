@@ -2,7 +2,7 @@
 // 每一步打印一行 ok / FAIL；任何一步失败或页面出现报错，进程以非 0 退出。
 // 分两份（见 test/README.md）：main() 是 test:func（不看墙钟，可以和别的 Chrome 一起跑），timedMain() 是 test:timed（要独占机器）。
 // node test/smoke.mjs = 两份都跑（先 func 后 timed）；--func / --timed 只跑一份。
-import { launch as launchFull, GAME_URL, diagStep, deathNote, browserDeaths, LOG_DIR, outerTimeoutWarning } from './harness.mjs';
+import { launch as launchFull, GAME_URL, diagStep, deathNote, browserDeaths, LOG_DIR, outerTimeoutWarning, runNote } from './harness.mjs';
 import { cornerScenes, cornerHud, cornerCheck } from './corner-mask.mjs';
 import { execSync } from 'node:child_process';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -44,9 +44,26 @@ const timed = async (kind, guard, p) => {
   auditWait(kind, Date.now() - t0, guard);
   return r;
 };
+// 开浏览器失败（导航超时 / 连不上，harness 已经把那个浏览器关了）：记下是哪一步、怎么重开。这一步照常 FAIL、不重跑；
+// step() 收尾时要是全局的 page 已经用不了（null / 关掉了），按同样的方式重开一次，后面的步骤在活着的页面上跑，
+// 不再因为 page 是 null 一路连着挂（tex-t1 那次 9 次导航超时后面跟了 29 个「null.evaluate」）。重开记进 run.log
+let launchFail = null; // { step, again }
 const launch = async (o) => {
   diagStep(curStep);
-  const r = await launchFull(Object.assign({ dpr: cheap ? CHEAP_DPR : null, seed: SEEDED ? seedKey(curStep) : null }, o));
+  let r;
+  try {
+    r = await launchFull(Object.assign({ dpr: cheap ? CHEAP_DPR : null, seed: SEEDED ? seedKey(curStep) : null }, o));
+  } catch (e) {
+    if (!launchFail)
+      launchFail = {
+        step: curStep,
+        again: async () => {
+          ({ browser, page, errors } = await launch(o));
+          await install();
+        },
+      };
+    throw e;
+  }
   // 主线旁白卡（quest D3）：放的时机按真实时间（打完仗、飘字出完），会在别的步骤中途弹出来接走 Esc / 回车，所以测试默认关掉；
   // 测旁白的那几步在 sessionStorage 里设 cinder-test-narr 再打开（install 和每次导航前都按它设 window.__noNarr）
   await r.page.addInitScript(() => {
@@ -118,6 +135,7 @@ async function step(name, fn) {
   if (full) await setDpr(1);
   curStep = name;
   diagStep(name);
+  launchFail = null;
   await reseed(name);
   const t0 = Date.now();
   try {
@@ -132,8 +150,27 @@ async function step(name, fn) {
     failed++;
     const extra = errors && errors.length ? ' ｜页面报错：' + errors.splice(0).join(' | ').slice(0, 600) : '';
     console.log('FAIL ' + name + ' — ' + String(e && e.message ? e.message : e).split('\n').slice(0, 6).join(' / ') + extra + deathNote(e && e.message ? e.message : e));
+    await relaunchAfterFail(name);
   }
+  launchFail = null;
   if (full) await setDpr(CHEAP_DPR);
+}
+
+// 这一步开浏览器失败、而且全局的 page 已经用不了：按这一步原来的方式重开一次（这一步的结果不变，照样是 FAIL）。见 launch 上面的说明
+async function relaunchAfterFail(name) {
+  const lf = launchFail;
+  launchFail = null;
+  if (!lf || lf.step !== name) return;
+  const dead = !page || page.isClosed() || !browser || !browser.isConnected();
+  if (!dead) return runNote('开浏览器失败「' + name.slice(0, 60) + '」，全局的 page 还能用，不重开');
+  try {
+    await lf.again();
+    runNote('重开浏览器「' + name.slice(0, 60) + '」：这一步照样算 FAIL，后面的步骤用新开的页面');
+    console.log('note 「' + name.slice(0, 40) + '」开浏览器失败，已经按同样的方式重开（这一步仍算失败，见 run.log）');
+  } catch (e) {
+    runNote('重开浏览器也失败「' + name.slice(0, 60) + '」：' + String(e && e.message ? e.message : e).split('\n')[0].slice(0, 160));
+  }
+  launchFail = null;
 }
 
 async function auditFlush(name) {
@@ -10926,6 +10963,241 @@ async function main() {
     return '几何体 ' + r.g + '（+' + r.geo + '），贴图 ' + r.t + '（+' + r.tex + '）';
   });
 
+  // mem-hunt：换区时整区的材质 dispose，原来再进同一个区（或别的区、下一只同类怪、下一个预警圈）要把同样的着色器程序重新编译（WebKit 低档每次进区 70–190 ms，
+  // Chrome 高档 1–2 s，落在进区后的头几帧）。world.js retireMat 每个程序键留一个去掉引用的占位材质，程序留着复用（最多 KEEP_MAX 个）
+  await step('内存：高档连走五个区两圈（每区打首领、清怪、掉落），第二圈几何体 / 贴图 / 程序 / 布景对象回到第一圈的水平、再进区几乎不编新程序；同一个程序键只对应一份着色器源码；留着的程序和重新编译的画面逐像素相同；烬渊深渊底贴图传像素 / 传画布逐像素相同', async () => {
+    const r = await ev(async () => {
+      const W = G.world, R = W.renderer, gl = R.getContext(), S = G.state, q0 = W.quality();
+      const wait = async (f, ms) => {
+        const t = performance.now();
+        while (!f() && performance.now() - t < ms) await new Promise((res) => setTimeout(res, 50));
+        return f();
+      };
+      const fnv = (s) => {
+        let x = 2166136261;
+        for (let i = 0; i < s.length; i++) x = Math.imul(x ^ s.charCodeAt(i), 16777619) >>> 0;
+        return x;
+      };
+      const src = new Map(), clash = [];
+      const noteSrc = () => {
+        for (const p of R.info.programs) {
+          const h = fnv(gl.getShaderSource(p.vertexShader) + '\n' + gl.getShaderSource(p.fragmentShader));
+          const o = src.get(p.cacheKey);
+          if (o === undefined) src.set(p.cacheKey, h);
+          else if (o !== h && clash.indexOf(p.name) < 0) clash.push(p.name);
+        }
+      };
+      // 布景对象：整个场景减去怪（刷怪数量随随机数变），进区后、开打前数
+      const objs = () => {
+        const skip = new Set(S.enemies.map((e) => e.ent && e.ent.group).filter(Boolean));
+        let n = 0;
+        const walk = (o) => {
+          if (skip.has(o)) return;
+          n++;
+          for (const c of o.children) walk(c);
+        };
+        walk(W.scene);
+        return n;
+      };
+      const fight = () => {
+        G.debug.tpBoss();
+        const b = S.enemies.find((e) => e.isBoss && !e.dead);
+        G.input.aim = b ? { x: b.x, z: b.z } : null;
+        G.input.mouse.b[0] = true;
+        G.debug.step(2);
+        G.debug.killAll();
+        G.debug.step(1);
+        const b2 = S.enemies.find((e) => e.isBoss && !e.dead);
+        if (b2) G.killEnemy(b2);
+        G.input.mouse.b[0] = false;
+        G.input.aim = null;
+        G.debug.step(3);
+      };
+      const enter = async (zi) => {
+        G.enterZone(zi, 0);
+        const hd = await wait(() => !W.assetsPending() && W.gfxInfo().hd, 40000); // 防卡死的上限，不是计时断言
+        G.debug.step(0.1);
+        W.render();
+        return hd;
+      };
+      const maxId = () => R.info.programs.reduce((m, p) => Math.max(m, p.id), -1);
+      // 首领包按区加载、到了以后才建新模型（几何体进缓存）：先把六个首领的包和骨架都备好，不然第二圈才第一次见到新模型的首领会多出几何体
+      for (const k of G.ZONES.map((z) => z.boss).concat([G.PINNACLE.boss])) {
+        if (!G.assets.known('boss-' + k)) continue;
+        await G.assets.need(['boss-' + k]);
+        W.bossRig(k);
+      }
+      G.debug.hold(true);
+      W.setQuality('high');
+      const laps = [], fresh = [];
+      let deep = null;
+      let hdAll = true;
+      try {
+        for (let lap = 0; lap < 2; lap++) {
+          for (let zi = 0; zi < 5; zi++) {
+            const id0 = maxId();
+            hdAll = (await enter(zi)) && hdAll;
+            if (zi === 3 && !deep) deep = W.abyssDeepProbe(); // 烬渊：深渊底贴图传像素 / 传画布，显存里逐像素相同
+            fight();
+            W.render();
+            noteSrc();
+            if (lap === 1) for (const p of R.info.programs) if (p.id > id0) fresh.push(G.ZONES[zi].id + ':' + p.name);
+          }
+          hdAll = (await enter(0)) && hdAll;
+          noteSrc();
+          const m = R.info.memory;
+          laps.push({ geo: m.geometries, tex: m.textures, prog: R.info.programs.length, objs: objs() });
+        }
+        // 逐像素：同一帧（模拟暂停）先用留着的程序画，再把占位材质和场景里的材质全部 dispose、重新编译后画，两次应完全相同
+        const frame = () => {
+          W.render();
+          const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(w * h * 4);
+          gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px); // 渲染完同一个任务里读
+          let x = 2166136261;
+          for (let i = 0; i < px.length; i++) x = Math.imul(x ^ px[i], 16777619) >>> 0;
+          return x;
+        };
+        const keep = W.progKeep();
+        const a = frame(), a2 = frame();
+        W.progKeepFlush();
+        const mats = new Set();
+        W.scene.traverse((o) => {
+          for (const m of o.material ? (Array.isArray(o.material) ? o.material : [o.material]) : []) mats.add(m);
+          if (o.customDepthMaterial) mats.add(o.customDepthMaterial);
+        });
+        for (const m of mats) m.dispose();
+        const b = frame();
+        return { laps, fresh, clash, keys: src.size, keep, hdAll, a, a2, b, deep };
+      } finally {
+        W.setQuality(q0);
+        G.enterZone(0, 1);
+        G.debug.god(true);
+        G.debug.hold(false);
+      }
+    });
+    const [l1, l2] = r.laps;
+    assert(r.hdAll, '有区域没换上 PBR 外观');
+    // 贴图留 6 张余量：有些全局贴图第一次用到才建、建了就一直留着（异兆道具的环 / 符文这类随机出现的东西可能第二圈才第一次碰到）；漏掉整区的贴图一圈是几十张。
+    // 布景对象留 8 个：特效池按同时用到的最多件数长、长了不缩，异兆道具走近才建；整区没收掉一圈是几百个
+    assert(l2.geo - l1.geo <= 3 && l2.tex - l1.tex <= 6 && l2.prog - l1.prog <= 3 && Math.abs(l2.objs - l1.objs) <= 8, '第二圈没回到第一圈的水平：' + JSON.stringify(r.laps));
+    // 没有留用时第二圈每区要重编 6–16 个程序（共 60–80 个）；留着以后只剩个别（低档第 0 区的贴花 / 雾罩各 1 个）
+    assert(r.fresh.length <= 3, '第二圈再进区编了 ' + r.fresh.length + ' 个新程序：' + r.fresh.slice(0, 8).join(' '));
+    assert(!r.clash.length, '同一个程序键对应了不同的着色器源码（留用的程序会画错）：' + r.clash.join(' '));
+    assert(r.keep.mats <= r.keep.max, '占位材质超过上限：' + JSON.stringify(r.keep));
+    assert(r.a === r.a2, '模拟暂停时同一帧画两次不一样（这一帧不确定，比不了）');
+    assert(r.a === r.b, '留着的程序和重新编译的程序画出来不一样');
+    assert(r.deep && r.deep.data === r.deep.canvas && r.deep.via === 'canvas', '烬渊深渊底的贴图：传像素和传画布应逐像素相同，Chrome 照旧传画布：' + JSON.stringify(r.deep));
+    return '几何体 ' + l1.geo + ' → ' + l2.geo + '，贴图 ' + l1.tex + ' → ' + l2.tex + '，程序 ' + l1.prog + ' → ' + l2.prog + '，布景对象 ' + l1.objs + ' → ' + l2.objs + ' ｜ 第二圈新编 ' + r.fresh.length + ' 个 ｜ 程序键 ' + r.keys + '、占位材质 ' + r.keep.mats + ' / ' + r.keep.max;
+  });
+
+  // mem-hunt：tex-t2 的释放要是在解码还在路上的时候发生，原来下载 / 解析完照样解码、存进已经释放的包里（释放就不算数了），解码完被丢下的图也要等垃圾回收
+  await step('贴图：解码还在路上时释放这个包——要的时候还没开始解码的不再解码，正在解码的解完直接放掉；之后包里没有解码图像，留着的只有当前区和下一区的', async () => {
+    const r = await ev(async () => {
+      const W = G.world, A = G.assets, cur = G.state.zone.def, i = G.ZONES.indexOf(cur), nx = G.ZONES[i + 1];
+      const texPacks = (id) => W.zonePacks(id).filter((p) => Object.values(CA_ASSET_INDEX.textures).indexOf(p) >= 0);
+      const keep = W.zonePacks(cur.id).concat(nx ? W.zonePacks(nx.id) : []);
+      const keepIds = Object.keys(CA_ASSET_INDEX.textures).filter((id) => keep.indexOf(CA_ASSET_INDEX.textures[id]) >= 0);
+      const others = G.ZONES.filter((z, k) => k !== i && k !== i + 1).map((z) => z.id);
+      // 只拿当前区和下一区都不用的包（地面 / 岩石这类共用包可能正好被当前区留着）
+      const [pA, pB] = [texPacks(others[others.length - 1]), texPacks(others[others.length - 2])].map((l) => l.filter((p) => keep.indexOf(p) < 0));
+      const idsOf = (packs) => Object.keys(CA_ASSET_INDEX.textures).filter((id) => packs.indexOf(CA_ASSET_INDEX.textures[id]) >= 0);
+      const held = (packs) => A.texStats().list.filter((e) => idsOf(packs).indexOf(e.split(':')[0]) >= 0).length;
+      A.release(keep);
+      const out = { pA, pB, late0: A.texStats().late };
+      // ① 要了以后同一个任务里就释放（下载 / 解析的回调还没跑，解码还没开始）：结果是没成，也不解码
+      const qA = A.need(pA);
+      A.release(keep);
+      out.okA = await qA;
+      out.heldA = held(pA);
+      // ② 等解码开始了再释放：解完的图直接放掉，不存
+      const qB = A.need(pB);
+      const t0 = performance.now();
+      while (!pB.some((p) => A.texPending(p)) && performance.now() - t0 < 10000) await new Promise((res) => setTimeout(res, 0));
+      out.caught = pB.some((p) => A.texPending(p));
+      A.release(keep);
+      out.okB = await qB;
+      await new Promise((res) => setTimeout(res, 50));
+      out.heldB = held(pB);
+      out.late = A.texStats().late - out.late0;
+      out.stray = A.texStats().list.filter((e) => keepIds.indexOf(e.split(':')[0]) < 0);
+      // 当前区照常：再要一次当前区的包，贴图都在
+      out.curOk = await A.need(W.zonePacks(cur.id));
+      return out;
+    });
+    assert(r.pA.length && r.pB.length, '没找到可以拿来试的贴图包：' + JSON.stringify(r));
+    assert(r.okA === false && r.heldA === 0, '要了以后马上释放：不该解码、包里不该有图：' + JSON.stringify(r));
+    assert(r.caught, '没等到解码开始（测试本身的问题）：' + JSON.stringify(r));
+    assert(r.okB === false && r.heldB === 0 && r.late > 0, '解码途中释放：解完的图应直接放掉、包里不该有图：' + JSON.stringify(r));
+    assert(!r.stray.length && r.curOk, '留着的图应只有当前区和下一区的：' + r.stray.slice(0, 6).join(' '));
+    return '先释放：' + r.pA.join('+') + ' 没解码 ｜ 解码途中释放：' + r.pB.join('+') + ' 解完放掉 ' + r.late + ' 张、包里 0 张 ｜ 留着的都是当前区 + 下一区的';
+  });
+
+  // mem-hunt：首领包按区加载。原来启动时的预热把六个首领都建一遍，图标画完以后六个包全加载；现在只要当前区的首领（进区刷首领时）、
+  // 下一区的首领（跟下一区的素材一起预取）、余烛殿能进时的熄烛者。重载一次看启动后的样子，再进一个首领包还没载的区，走到首领房之前包就到、首领已经是新模型
+  await step('首领包：重载后只载当前区和下一区的首领包（余烛殿能进时加熄烛者），进一个首领包还没载的区，走到首领房之前就载好、首领已经换成新模型', async () => {
+    await ev(() => G.persist());
+    await page.reload({ timeout: 90000 });
+    await install();
+    // 模拟暂停：预取（空闲计时器）、首领包、睡着的首领换模型都不靠模拟推进
+    await ev(() => {
+      G.debug.hold(true);
+      G.debug.god(true);
+    });
+    try {
+      const info = () =>
+        ev(() => {
+          const z = G.state.zoneIdx, nd = G.ZONES[z + 1], pin = !!(G.pinOpen() && G.pinReady());
+          const want = [G.ZONES[z].boss].concat(nd ? [nd.boss] : []).map((k) => 'boss-' + k);
+          const allow = want.concat(pin ? ['boss-' + G.PINNACLE.boss] : []);
+          return { z, want, allow, have: G.world.bossPacks(), pin };
+        });
+      await until(() => G.icons && G.icons.ready && G.icons.ready(), null, 120000);
+      // 当前区的首领包、空闲时预取的下一区首领包都到了（预取要等安静 3 秒，最多 60 秒）
+      await until(() => {
+        const z = G.state.zoneIdx, nd = G.ZONES[z + 1];
+        return [G.ZONES[z].boss].concat(nd ? [nd.boss] : []).every((k) => G.assets.settled(['boss-' + k]));
+      }, null, 90000);
+      await sleep(3000); // 原来图标画完以后六个包一起要：多等一会儿，有不该要的也该出现了
+      const boot = await info();
+      // 进一个首领包还没载的区：玩家留在起点，等首领包到、首领换成新模型
+      const k = await ev(() => {
+        const have = G.world.bossPacks();
+        const i = G.ZONES.findIndex((z) => have.indexOf('boss-' + z.boss) < 0);
+        if (i < 0) return -1;
+        G.enterZone(i, 0);
+        return i;
+      });
+      let entry = null;
+      if (k >= 0) {
+        await until(() => !G.world.assetsPending() && G.world.gfxInfo().hd, null, 60000);
+        const t0 = Date.now();
+        await until(() => {
+          const b = G.state.enemies.find((e) => e.isBoss);
+          return b && b.ent.rig.bossModel === b.type;
+        }, null, 60000);
+        entry = await ev((k) => {
+          const P = G.player, z = G.state.zone, b = G.state.enemies.find((e) => e.isBoss);
+          const d = Math.hypot(P.x - z.bossPos.x, P.z - z.bossPos.z);
+          G.debug.tpBoss();
+          return { zone: G.ZONES[k].id, boss: b.type, model: b.ent.rig.bossModel, dist: Math.round(d), awake: !!b.awake };
+        }, k);
+        entry.s = +((Date.now() - t0) / 1000).toFixed(1);
+      }
+      const extra = boot.have.filter((p) => boot.allow.indexOf(p) < 0);
+      assert(boot.want.every((p) => boot.have.indexOf(p) >= 0), '当前区 / 下一区的首领包没载：' + JSON.stringify(boot));
+      assert(!extra.length, '启动后载了别的区的首领包 ' + extra.join(' ') + '：' + JSON.stringify(boot));
+      assert(k >= 0 && entry && entry.model === entry.boss && entry.dist > 30, '进首领包还没载的区，走到首领房之前首领应已换成新模型：' + JSON.stringify({ k, entry }));
+      return '启动在第 ' + boot.z + ' 区：载了 ' + boot.have.join(' ') + (boot.pin ? '（余烛殿能进）' : '') + ' ｜ 进 ' + entry.zone + '：' + entry.s + ' 秒后首领已是新模型（睡着时包一到就换），玩家离首领房 ' + entry.dist + ' m';
+    } finally {
+      await ev(() => {
+        G.enterZone(0, 1);
+        G.debug.god(true);
+        G.debug.hold(false);
+      });
+      await until(() => !G.world.assetsPending(), null, 60000).catch(() => {});
+    }
+  });
+
     // 步骤名里的 vendor/three.min.js 是 r128 时的文件名，保留原名：步骤名是这一步随机数的种子（test/README.md「随机数」）；现在补丁在 vendor/three.bundle.js 里（tools/build-three.mjs）
   await step('确定性：three 的 uuid 不取 Math.random（vendor/three.min.js 的本地改动还在）；同一个区原地重建三次（高 → 低 → 高）布景逐位相同', async () => {
     const r = await ev(() => {
@@ -12616,7 +12888,7 @@ async function main() {
           out[p] = Object.assign({ has: !!(cp && b.ent.rig.clips[p + '_w']), wind: WIND[p], k0: cp ? cp.k0 : null, model: b.ent.rig.bossModel, pose }, ev0);
           G.clearEnemies();
         }
-        // 蓄力时挨打：骨盆（根关节）和挨打的另一只一模一样，只有 hitJ 抖一点（steady）。两只同时起同一个蓄力，只打其中一只
+        // 蓄力时挨打：和没挨打的另一只一模一样（boss-flinch 起蓄力 / 出手里一点不动，只闪白；原来 hitJ 会抖一下 ≤ 0.12 弧度）。两只同时起同一个蓄力，只打其中一只
         T.lane();
         const b = G.spawnBoss(kind, P.x + 4, P.z, 1), c = G.spawnBoss(kind, P.x + 4, P.z + 6, 1);
         c.ent.phase = b.ent.phase; c.ent.clock = b.ent.clock; c.ent.walk = b.ent.walk; // 移动姿态（呼吸）的相位一样，两只只差挨不挨打
@@ -12644,7 +12916,7 @@ async function main() {
       assert(x.same && Math.abs(x.cT - x.contact) <= 1 / 60 + 1e-6 && Math.abs(x.contact - x.lead) < 1e-6, p + '：' + x.kind + '的那一帧应正好是出手动作的接触帧：' + JSON.stringify(x));
       assert(x.pose && x.pose.near, p + '：接触帧应是接触的姿势（' + C.m[p] + ' 到了极值），差了 ' + (x.pose && x.pose.bestAt) + ' 帧：' + JSON.stringify(x.pose));
     }
-    assert(r.steady.root < 1e-6 && r.steady.hitJ > 0.005 && r.steady.hitJ <= 0.121, '蓄力时挨打，骨盆不该仰 / 压扁，只在 hitJ 上抖一下（≤ 0.12 弧度）：' + JSON.stringify(r.steady));
+    assert(r.steady.root < 1e-6 && r.steady.hitJ < 1e-6, '蓄力时挨打，姿势应一点不动（boss-flinch：只闪白）：' + JSON.stringify(r.steady));
     return r.pats.map((p) => p + ' 提前 ' + r[p].lead.toFixed(2) + ' s，' + r[p].kind + '时 cT − 接触 = ' + ((r[p].cT - r[p].contact) * 1000).toFixed(1) + ' ms').join('；');
   });
   await bossClipStep('golem');
@@ -12697,6 +12969,92 @@ async function main() {
   await bossDeathStep('weaver', '霜织者');
   await bossDeathStep('snuffer', '熄烛者');
   await bossDeathStep('warden', '雷霆监察者');
+
+  // boss-flinch：首领 / 精英挨打只有一下小的叠加抖动（只在 hitJ 上，几度、0.14 s），小的一下不动（只闪白），每 0.5 s 最多一次、窗口里不续，
+  // 出招（模拟忙）/ 在播动作时不动；普通小怪照旧整个人一仰。两只同相位的一起推进动画，只打其中一只，比两只的姿态差
+  await step('首领受击：六只首领挨小的一下不动（只闪白）；大的一下（≥ 最大生命的 2% 或重技能暴击）只在躯干 / 头上抖几度、根关节不动，0.5 秒里最多一次；出招中 / 蓄力动作里不动；精英同样规矩、幅度稍大；普通小怪照旧', async () => {
+    // 有首领包的用脚本生成的新模型（包里有哪几只就测哪几只的新模型，其余是程序化外观；规矩两种一样）
+    await ev(async () => { for (const k of ['golem', 'weaver', 'warden', 'lord', 'behemoth', 'snuffer']) if (G.assets.known('boss-' + k)) { await G.assets.need(['boss-' + k]); G.world.bossRig(k); } });
+    const r = await ev(() => {
+      const W = G.world, P = G.player, F = W.FLINCH, out = {};
+      const twin = (mk) => {
+        T.lane();
+        const a = mk(P.x + 6, P.z), b = mk(P.x + 6, P.z + 7);
+        for (const x of [a, b]) { x.cd = x.busy = 1e9; x.awake = false; x.speed = 0; x.atkCd = 1e9; W.stop(x.ent, 0); x.ent.hitT = 0; }
+        b.ent.phase = a.ent.phase; b.ent.clock = a.ent.clock; b.ent.walk = a.ent.walk;
+        const st = (n) => { let root = 0, hj = 0, any = 0; for (let f = 0; f < n; f++) { for (const x of [a, b]) W.animEnt(x.ent, 1 / 60, false);
+          const o1 = a.ent.out, o2 = b.ent.out, J = a.ent.rig.hitJ || [];
+          for (const i of [0, 1, 2, 6, 7, 8]) root = Math.max(root, Math.abs(o1[i] - o2[i])); // 根关节的转角和压扁（贴地会按脚抬落骨盆，不算）
+          for (const j of J) hj = Math.max(hj, Math.abs(o1[j] - o2[j]), Math.abs(o1[j + 2] - o2[j + 2]));
+          for (let i = 0; i < o1.length; i++) any = Math.max(any, Math.abs(o1[i] - o2[i])); }
+          return { root: +root.toFixed(4), hj: +hj.toFixed(4), any: +any.toFixed(4) }; };
+        st(20);
+        return { a, b, st };
+      };
+      for (const kind of ['golem', 'weaver', 'warden', 'lord', 'behemoth', 'snuffer']) {
+        const { a, st } = twin((x, z) => G.spawnBoss(kind, x, z, 1)), e = a.ent, o = {};
+        for (let i = 0; i < 20; i++) W.hitReact(e, 0, 1.3, { frac: 0.003 });
+        o.tiny = st(20);
+        W.hitReact(e, 0, 1.3, { frac: 0.05 });
+        const n1 = e.flinchN;
+        o.big = st(12);
+        W.hitReact(e, 0, 1.3, { frac: 0.05 }); // 0.2 s 后：窗口里，不续
+        o.inWin = e.flinchN - n1;
+        o.after = st(24);
+        W.hitReact(e, 0, 1.3, { frac: 0.001, heavyCrit: true }); // 0.6 s 后：重技能暴击照样抖
+        o.crit = e.flinchN - n1;
+        st(40);
+        W.hitReact(e, 0, 1.3, { frac: 0.05, busy: true }); // 模拟在出招 / 收招 / 破防
+        o.busy = e.flinchN - n1 - 1;
+        const w0 = Object.keys(e.rig.clips).find((k) => /_w$/.test(k) && e.rig.clips[k].steady) || Object.keys(e.rig.clips).find((k) => /_w$/.test(k));
+        W.play(e, w0, { dur: 0.8 });
+        W.hitReact(e, 0, 1.3, { frac: 0.05 }); // 在播蓄力动作
+        o.clip = e.flinchN - n1 - 1;
+        o.tier = e.hitTier; o.model = e.rig.bossModel || 'proc';
+        // 走真的命中路径（G.hitEnemy → 外观）：零碎的一下不抖，大的一下抖
+        W.stop(e, 0); st(40);
+        const ctx = (v) => ({ sk: { w: 0, kb: 0, poise: 0 }, base: { phys: [v, v] }, inc: {}, moreType: {}, more: 1, extra: {}, crit: 0, critMulti: 100, ailment: 0, stun: 0, leech: 0 });
+        a.hp = a.maxHp = 1e5; a.busy = 0;
+        const n2 = e.flinchN;
+        G.hitEnemy(a, ctx(20), 1, {});
+        o.realTiny = e.flinchN - n2;
+        G.hitEnemy(a, ctx(9000), 1, {});
+        o.realBig = e.flinchN - n2;
+        out[kind] = o;
+        G.clearEnemies();
+      }
+      { // 精英：同样的规矩，幅度上限稍大
+        const { a, st } = twin((x, z) => T.mob('husk', x - P.x, z - P.z, { elite: true })), e = a.ent, o = {};
+        for (let i = 0; i < 20; i++) W.hitReact(e, 0, 1.3, { frac: 0.003 });
+        o.tiny = st(20);
+        W.hitReact(e, 0, 1.3, { frac: 0.05 });
+        o.big = st(12); o.tier = e.hitTier;
+        out.elite = o;
+        G.clearEnemies();
+      }
+      { // 普通小怪：照旧整个人一仰
+        const { a, st } = twin((x, z) => T.mob('husk', x - P.x, z - P.z)), e = a.ent;
+        W.hitReact(e, 0, 1.3, { frac: 0.003 });
+        out.mob = Object.assign(st(10), { tier: e.hitTier || null });
+        G.clearEnemies();
+      }
+      out.F = F;
+      return out;
+    });
+    const A = r.F.amp;
+    for (const k of ['golem', 'weaver', 'warden', 'lord', 'behemoth', 'snuffer']) {
+      const o = r[k];
+      assert(o.tier === 'boss' && o.tiny.any < 1e-6, k + '：小的一下应一点不动（只闪白）：' + JSON.stringify(o));
+      assert(o.big.root < 1e-6 && o.big.hj > A.boss * 0.5 && o.big.hj <= A.boss * 1.31, k + '：大的一下只在躯干 / 头上抖几度、根关节不动：' + JSON.stringify(o));
+      assert(o.inWin === 0 && o.after.any < 1e-6 && o.crit === 1, k + '：0.5 秒里最多抖一次、窗口里不续；重技能暴击照样抖：' + JSON.stringify(o));
+      assert(o.busy === 0 && o.clip === 0, k + '：出招中 / 在播动作时不该抖：' + JSON.stringify(o));
+      assert(o.realTiny === 0 && o.realBig === 1, k + '：真的命中路径：零碎的一下不抖、大的一下抖：' + JSON.stringify(o));
+    }
+    const E = r.elite, M = r.mob;
+    assert(E.tier === 'elite' && E.tiny.any < 1e-6 && Math.max(E.big.hj, E.big.root) > A.boss * 1.31 && Math.max(E.big.hj, E.big.root) <= A.elite * 1.31, '精英：同样的规矩、幅度上限稍大：' + JSON.stringify(E));
+    assert(M.tier === null && M.root > 0.05, '普通小怪照旧整个人一仰：' + JSON.stringify(M));
+    return ['golem', 'weaver', 'warden', 'lord', 'behemoth', 'snuffer'].map((k) => k + '（' + r[k].model + '）' + r[k].big.hj.toFixed(3)).join('、') + ' 弧度；精英 ' + E.big.any.toFixed(3) + '；小怪根关节 ' + M.root.toFixed(2);
+  });
 
   await step('刷新后仍可正常游玩：移动、施法、面板', async () => {
     await ev(() => {
@@ -15746,7 +16104,7 @@ async function main() {
     return '40 个刻式选一遍再改回，G.SKILLS 深比较不变';
   });
 
-  await step('刻式：单体对等——游戏内 avgHit / useMult / time 算出 58 个比值都在 [0.9, 1.1]（霜环、黑焰按总秒伤 [0.95, 1.05]）', async () => {
+  await step('刻式：单体对等——游戏内 avgHit / useMult / time 算出 58 个比值都在 [0.9, 1.1]（霜环、黑焰按总秒伤 [0.95, 1.05]；磐垒不造成伤害，比值 0）', async () => {
     const r = await ev(() => {
       T.arena();
       const s = G.save;
@@ -15766,7 +16124,9 @@ async function main() {
       }
       return rows;
     });
-    const bad = r.filter((x) => (x.total ? x.r < 0.95 || x.r > 1.05 : x.r < 0.9 || x.r > 1.1));
+    // 磐垒（2026-11-25 改版，用户定）：守像只扛不打，没有伤害可比，比值应正好是 0（规则 a 不适用）；其余照旧
+    const tank = (x) => x.id === 'colossus' && x.v === 'a';
+    const bad = r.filter((x) => (tank(x) ? x.r !== 0 : x.total ? x.r < 0.95 || x.r > 1.05 : x.r < 0.9 || x.r > 1.1));
     assert(r.length === 58 && !bad.length, '比值超出范围：' + JSON.stringify(bad)); // class-d2b1：+ 四种特殊弹 × A / B；class-d2b2：+ 5 个 × A / B
     return r.map((x) => x.name + ' ' + x.r).join(' / ');
   });
@@ -16210,23 +16570,80 @@ async function main() {
     assert(r.back === 1 && r.alive2 === 1, '骸爆 3 秒后应拼回来：' + JSON.stringify(r));
     return '炸开打中 ' + r.hit + '，3 秒后拼回';
   });
-  await step('刻式 v2·石誓守像「磐垒」：扎根不动；护域里你少受 20% 伤害、敌人变慢', async () => {
+  // 磐垒改版（2026-11-25，用户：「不能跟着我动吗？……嘲讽加回来吧，就加减伤光环但是不输出」）：原来扎根不动、不嘲讽、只砸走进来的敌人
+  await step('刻式 v2·石誓守像「磐垒」：跟着你走、嘲讽周围的敌人（含首领）；6 米护域跟着守像，里面你少受 20% 伤害、敌人变慢，外面不算；守像不造成伤害；护域的淡青铺底不盖掉预警圈的红', async () => {
     await ev(TVDEF);
     const r = await ev(() => {
       TV.setup('colossus', 'a');
-      const P = G.player;
-      const c = G.summonMinion('colossus', P.x + 2, P.z, G.skillCtx('colossus'));
-      const m = TV.mob(10, 0);
-      TV.run(2.5);
-      const c0 = { x: c.x, z: c.z };
-      TV.run(2.0);
-      const inside = T.mob('husk', c.x - P.x + 2, c.z - P.z);
-      const out = { still: Math.hypot(c.x - c0.x, c.z - c0.z) < 0.05, k: +G.bastionK(c.x + 1, c.z).toFixed(3), kOut: G.bastionK(c.x + 9, c.z), slow: G.bastionSlow(inside), slowOut: G.bastionSlow(m), fx: G.world.kvCount('glyph') }; // skill-b1：护域只画边（符环的 edge 画法），不再有罩子
+      const P = G.player, W = G.world, D = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
+      const ctx = G.skillCtx('colossus');
+      const c = G.summonMinion('colossus', P.x + 2, P.z, ctx);
+      TV.run(1.5);
+      const out = { mech: c.ctx.minion.mech, move: c.ctx.minion.move, taunt: !!c.ctx.minion.taunt, dps: G.skillDps(ctx) };
+      // 跟着走：玩家往前挪 12 米，5 秒后守像跟到身边
+      const c0 = { x: c.x, z: c.z }, dest = TV.at(12);
+      P.x = dest.x;
+      P.z = dest.z;
+      TV.run(5);
+      out.follow = { moved: +D(c, c0).toFixed(1), dP: +D(c, P).toFixed(1) };
+      // 嘲讽：前面 3 米一只小怪、5 米一个首领（不动不还手），守像走过去嘲讽两个；一下都不打
+      const mob = TV.mob(3, 0.5);
+      mob.atkCd = 1e9;
+      const boss = TV.boss(5);
+      TV.pin(boss); // 首领离开竞技场会被拉回去：钉在原地
+      // 嘲讽 3 秒、冷却 7 秒：边推进边记「被它嘲讽过」（只看最后一刻会落在两次嘲讽之间）；9 秒里有两次嘲讽，第一次时首领可能还在 6 米外
+      let tm = false, tb = false;
+      for (let k = 0; k < 90; k++) {
+        TV.run(0.1);
+        tm = tm || mob.taunter === c;
+        tb = tb || boss.taunter === c;
+      }
+      out.taunt2 = { mob: tm, boss: tb, hitMob: TV.n(mob), hitBoss: TV.n(boss), mobHp: mob.hp === mob.maxHp, bossHp: boss.hp === boss.maxHp };
+      // 护域：以守像为圆心 6 米，里面你受到的伤害 ×0.8、敌人减速 25%，外面不算
+      const inside = TV.mob(0, 0);
+      inside.x = c.x + 2;
+      inside.z = c.z;
+      const outer = TV.mob(0, 0);
+      outer.x = c.x + 9;
+      outer.z = c.z;
+      out.aura = { k: +G.bastionK(c.x + 1, c.z).toFixed(3), kOut: G.bastionK(c.x + 7, c.z), slow: G.bastionSlow(inside), slowOut: G.bastionSlow(outer), fill: !!(c.vfx && c.vfx.some((h) => h.k < 0)) };
+      // 预警圈的红：在护域里放一个敌方预警圈，量它的边（亮的那一圈；中心本来就很淡、还在动），铺底开 / 关各一次；再量没有预警圈时铺底让地面变了多少（渲染完同一个任务里读）
+      G.clearEnemies();
+      const gl = W.renderer.getContext(), fill = c.vfx.find((h) => h.k < 0), cx = c.x + 1.5, cz = c.z + 1.5;
+      const px = (x, z) => {
+        G.debug.step(1 / 60);
+        W.render();
+        const sp = W.project(x, 0.05, z), k = gl.drawingBufferWidth / innerWidth;
+        const bx = Math.round(sp.x * k), by = Math.round(gl.drawingBufferHeight - sp.y * k), b = new Uint8Array(8 * 8 * 4);
+        gl.readPixels(bx - 4, by - 4, 8, 8, gl.RGBA, gl.UNSIGNED_BYTE, b);
+        const m = [0, 0, 0];
+        for (let i = 0; i < b.length; i += 4) for (let j = 0; j < 3; j++) m[j] += b[i + j] / 64;
+        return m.map(Math.round);
+      };
+      fill.a = 0.7;
+      const g1 = px(cx + 1.3, cz);
+      fill.a = 0;
+      const g0 = px(cx + 1.3, cz);
+      const tg = G.telegraph({ x: cx, z: cz, r: 1.4, dur: 30, dmg: 0, owner: null });
+      tg.handle.setProgress(0.5);
+      fill.a = 0.7;
+      const r1 = px(cx + 1.3, cz);
+      fill.a = 0;
+      const r0 = px(cx + 1.3, cz);
+      fill.a = 0.7;
+      G.state.telegraphs.splice(G.state.telegraphs.indexOf(tg), 1);
+      W.removeTelegraph(tg.handle);
+      // 地面颜色随场地变（测试场地偏青），所以比「预警圈的边比地面红多少」：铺底开着和关着都要明显（≥ 30），铺底也不该让它变暗
+      out.px = { g1, g0, r1, r0, ground: Math.max(...g1.map((v, j) => Math.abs(v - g0[j]))), red: r1[0] - g1[0] >= 30 && r0[0] - g0[0] >= 30, keep: r1[0] >= r0[0] - 10 };
       TV.done();
       return out;
     });
-    assert(r.still && r.k === 0.8 && r.kOut === 1 && r.slow === 0.25 && r.slowOut === 0 && r.fx >= 1, '磐垒的护域不对：' + JSON.stringify(r));
-    return '扎根不动，护域里受伤 ×' + r.k + '、敌人减速 ' + r.slow;
+    assert(r.mech === 'bastion' && r.move > 0 && r.taunt && r.dps === 0, '磐垒的数据不对（应能走、会嘲讽、估算秒伤 0）：' + JSON.stringify(r));
+    assert(r.follow.moved > 8 && r.follow.dP < 6, '磐垒应跟着你走：' + JSON.stringify(r.follow));
+    assert(r.taunt2.mob && r.taunt2.boss && r.taunt2.hitMob === 0 && r.taunt2.hitBoss === 0 && r.taunt2.mobHp && r.taunt2.bossHp, '磐垒应嘲讽小怪和首领、一下都不打：' + JSON.stringify(r.taunt2));
+    assert(r.aura.k === 0.8 && r.aura.kOut === 1 && r.aura.slow === 0.25 && r.aura.slowOut === 0 && r.aura.fill, '磐垒的护域不对：' + JSON.stringify(r.aura));
+    assert(r.px.ground <= 6 && r.px.red && r.px.keep, '护域的铺底应很淡、不盖掉预警圈的红：' + JSON.stringify(r.px));
+    return '跟上 ' + r.follow.moved + ' 米，嘲讽小怪 + 首领、命中 0；护域里受伤 ×' + r.aura.k + '、减速 ' + r.aura.slow + '；铺底让地面变 ' + r.px.ground + '，预警圈边 ' + r.px.r1.join('/') + '（铺底关 ' + r.px.r0.join('/') + '）';
   });
   await step('刻式 v2·石誓守像「掷岩」：朝远处的怪抛巨石，落地砸开', async () => {
     await ev(TVDEF);
@@ -16242,6 +16659,38 @@ async function main() {
     });
     assert(r.rocks >= 1 && r.hits >= 1 && r.n >= 1, '掷岩应抛石砸中远处的怪：' + JSON.stringify(r));
     return '抛石 ' + r.rocks + '，砸中 ' + r.hits;
+  });
+  // 2026-11-25（dev-48）：掷岩砸中嘲讽——小怪和首领都是 1.5 秒，同一个敌人每 7 秒最多一次
+  await step('刻式 v2·石誓守像「掷岩」：巨石砸中就嘲讽（小怪、首领都是 1.5 秒），同一个敌人 7 秒内只嘲讽一次', async () => {
+    await ev(TVDEF);
+    const r = await ev(() => {
+      TV.setup('colossus', 'b');
+      const P = G.player, S = G.state;
+      const c = G.summonMinion('colossus', P.x - 1, P.z, G.skillCtx('colossus'));
+      const m = TV.mob(9, 0);
+      const boss = TV.boss(9.5);
+      TV.pin(boss);
+      // 推进到第一块巨石落地：记下小怪 / 首领被嘲讽的时刻和时长
+      const seen = { m: [], b: [] };
+      let last = { m: null, b: null };
+      for (let k = 0; k < 160; k++) {
+        TV.run(0.05);
+        for (const [key, e] of [['m', m], ['b', boss]]) {
+          if (e.taunter === c && e.rockTauntAt !== last[key]) {
+            last[key] = e.rockTauntAt;
+            seen[key].push({ at: +e.rockTauntAt.toFixed(2), t: +e.tauntT.toFixed(2) });
+          }
+        }
+      }
+      const out = { rocks: TV.st('vRocks'), hits: TV.st('vRockHits'), taunts: TV.st('vRockTaunts'), m: seen.m, b: seen.b, card: c.ctx.minion.vx.taunt };
+      TV.done();
+      return out;
+    });
+    const gap = (L) => L.every((x, i) => i === 0 || x.at - L[i - 1].at >= 6.95);
+    assert(r.m.length >= 1 && r.m[0].t > 1.3 && r.m[0].t <= 1.5 && gap(r.m), '巨石砸中小怪应嘲讽 1.5 秒、7 秒最多一次：' + JSON.stringify(r));
+    assert(r.b.length >= 1 && r.b[0].t > 1.3 && r.b[0].t <= 1.5 && gap(r.b), '巨石砸中首领应嘲讽 1.5 秒、7 秒最多一次：' + JSON.stringify(r));
+    assert(r.taunts <= r.hits && r.card === 1.5, '嘲讽次数不该多于砸中次数：' + JSON.stringify(r));
+    return '8 秒里抛石 ' + r.rocks + '、砸中 ' + r.hits + '、嘲讽 ' + r.taunts + '（小怪 ' + r.m.map((x) => x.at).join(' / ') + ' 秒，首领 ' + r.b.map((x) => x.at).join(' / ') + ' 秒）';
   });
   await step('刻式 v2·焚骨祭司「焰田」：火弹落地留火地，焰蓄满时燎原——所有火地一齐爆燃', async () => {
     await ev(TVDEF);
@@ -21213,7 +21662,10 @@ async function main() {
     if (out.qOff !== 0) out.bad.push('摘下时还挂着 ' + out.qOff);
     if (out.offGain !== 0) out.bad.push('摘着时还在余响 ' + out.offGain);
     const src = id === 'blackflame' ? 'blackflame' : id;
-    if (!(by[src] > 0)) out.bad.push('没有余响记到 ' + src);
+    // 磐垒（2026-11-25 改版）：守像只扛不打，没有命中就没有余响，应正好是 0
+    if (id === 'colossus' && v === 'a') {
+      if (by[src] > 0) out.bad.push('磐垒不造成伤害，不该有余响 ' + Math.round(by[src]));
+    } else if (!(by[src] > 0)) out.bad.push('没有余响记到 ' + src);
     for (const k in by) if (k !== id && k !== 'blackflame') out.bad.push('记到了别的技能 ' + k + '（' + (out.foreign || '?') + '）');
     if (id !== 'blackflame' && !(out.mine <= elig * 0.6 * 1.001 + 1)) out.bad.push('余响超过够格命中的 60%：' + out.mine + ' / ' + Math.round(elig));
     if (mx.enemies > 11 || mx.minions > 8 || mx.proj > 300 || mx.kv > 400 || mx.q > mx.enemies) out.bad.push('数量越界 ' + JSON.stringify(mx));
@@ -23669,6 +24121,54 @@ async function classSteps() {
     return 'put / take / 去重 1 件 / 停写时不写';
   });
 
+  // T47：桌面仓库页拖动存取（和「放进仓库」「取出」走同一条路）。拖进去 / 拖回来以后读一次档，三处（仓库、背包、身上）合起来正好一份，去重不用动手
+  await step('共享仓库·拖动（T47）：桌面仓库页把背包物品拖进仓库格、把仓库物品拖回背包格；拖着时落点亮起、标签写清楚；读档后每件只有一份（去重 0 件）', async () => {
+    const uid = await ev(() => {
+      localStorage.clear();
+      localStorage.setItem('cinder-abyss-save-v1', JSON.stringify(G.newClassSave('guard')));
+      G.loadSave();
+      G.holdSave(false);
+      G.save.seenHelp = G.save.seenStory = true;
+      for (const id of G.ui.hints().all) G.save.tut[id] = 1;
+      const it = G.rollItem(12, 2, 'ring');
+      G.save.bag.push(it);
+      G.persist();
+      G.ui.close();
+      G.ui.open('stash');
+      return it.uid;
+    });
+    const copies = (uid) => ev((uid) => {
+      G.ui.close();
+      G.loadSave();
+      const st = G.stash.list().filter((x) => x.uid === uid).length;
+      const bag = G.save.bag.filter((x) => x.uid === uid).length;
+      const eq = Object.values(G.save.equip).filter((x) => x && x.uid === uid).length;
+      const o = { st, bag, eq, dedupe: G.stashDeduped || 0 };
+      G.ui.open('stash');
+      return o;
+    }, uid);
+    let mid = null;
+    await dragTo('.stp [data-grid="bag"] .cell[data-item="' + uid + '"]', '.stp [data-grid="stash"]', async () => {
+      mid = await ev(() => ({ cap: document.querySelector('#drag-ghost em').textContent, zone: document.querySelector('[data-grid="stash"]').classList.contains('drop-zone') }));
+    });
+    const a = await ev((uid) => ({ st: G.stash.list().some((x) => x.uid === uid), bag: G.save.bag.some((x) => x.uid === uid) }), uid);
+    assert(mid && mid.cap === '放进仓库' && mid.zone && a.st && !a.bag, '背包物品拖进仓库格应放进仓库：' + JSON.stringify({ mid, a }));
+    const c1 = await copies(uid);
+    assert(c1.st === 1 && c1.bag === 0 && c1.eq === 0 && c1.dedupe === 0, '拖进仓库、读档后应只有仓库里一份：' + JSON.stringify(c1));
+    await dragTo('.stp [data-grid="stash"] .cell[data-uid="' + uid + '"]', '.stp [data-grid="bag"]', async () => {
+      mid = await ev(() => ({ cap: document.querySelector('#drag-ghost em').textContent, zone: document.querySelector('.stp [data-grid="bag"]').classList.contains('drop-zone'), no: document.querySelector('[data-grid="stash"]').classList.contains('drop-no') }));
+    });
+    const b = await ev((uid) => ({ st: G.stash.list().some((x) => x.uid === uid), bag: G.save.bag.some((x) => x.uid === uid) }), uid);
+    assert(mid && mid.cap === '取进背包' && mid.zone && mid.no && !b.st && b.bag, '仓库物品拖回背包格应取进背包：' + JSON.stringify({ mid, b }));
+    const c2 = await copies(uid);
+    assert(c2.st === 0 && c2.bag === 1 && c2.eq === 0 && c2.dedupe === 0, '拖回背包、读档后应只有背包里一份：' + JSON.stringify(c2));
+    await ev(() => G.ui.close());
+    await page.reload({ timeout: 90000 });
+    await install();
+    await ev(() => { localStorage.clear(); G.holdSave(true); });
+    return '拖进仓库 → 1 份 · 拖回背包 → 1 份';
+  });
+
   // 界面：标题画面「新游戏」先选职业；老角色（没有职业）进游戏前选一次（带推荐）；角色页卡片显示职业、重看开场、改选一次；载入角色的遮罩；起步天赋的名字；变灰宝石的提示
   await step('职业·界面：新游戏先选职业（5 张卡：一句话、武器、起手；主角换上起手武器；Alt 列出能用的宝石，不写个数）→ 开场故事 → 引星人起手', async () => {
     await fresh({ title: true });
@@ -25549,20 +26049,27 @@ async function titleSteps() {
   await step('主线：第一次进区素材还在载入时（右上「正在载入场景…」那一条）不显示追踪条，就绪后 0.3 秒淡入', async () => {
     await qSet({ n: 2, cleared: { ash: 0 } });
     await frames(2);
-    // 让霜骨沼泽的素材包挂起（need 返回一个由测试放行的 promise），模拟第一次进区
+    // 模拟第一次进霜骨沼泽：进区这一下里素材层一律当成「还没载」（settled / ready 为假、geo 拿不到），need 返回由测试放行的 promise。
+    // 只挂起 need 不够：第 0 区空闲时会预取下一区的包（world.js 的 prefetchNext，等安静 3 秒、图标画完），前面的步骤要是正好让它载完了，
+    // 建区时看到布景件已经在手（withProps）就不再请求素材，「载入中」根本不出现（guard-root 的树上出过一次）。
+    // 放行时每个挂起的 need 都去调真正的 need（同样的参数），结果原样交回去
     const a = await ev(() => {
-      const A = G.assets, keep = { need: A.need, settled: A.settled };
-      let rel = null;
-      window.__qRel = () => rel && rel();
+      const A = G.assets, keep = { need: A.need, settled: A.settled, ready: A.ready, geo: A.geo };
+      const held = [];
+      window.__qRel = () => held.splice(0).forEach((go) => go());
       A.settled = () => false;
-      A.need = () => new Promise((res) => (rel = res));
+      A.ready = () => false;
+      A.geo = () => null;
+      A.need = (names) => new Promise((res, rej) => held.push(() => keep.need(names).then(res, rej)));
       try {
         G.enterZone(1, 0);
       } finally {
         A.need = keep.need;
         A.settled = keep.settled;
+        A.ready = keep.ready;
+        A.geo = keep.geo;
       }
-      return { pending: G.world.assetsPending(), n: G.questStep() };
+      return { pending: G.world.assetsPending(), n: G.questStep(), held: held.length };
     });
     await frames(3);
     const b = await ev(() => {
@@ -26045,6 +26552,14 @@ async function touchKit() {
       await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [pt({ x, y })], timestamp: t });
       await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [], timestamp: t + 0.05 });
     },
+    // 按住 ms 毫秒再松手（不到 450 ms 的短按）：和 tap 一样给两个事件带上时间戳，正好相隔 ms。页面按事件时间戳判长按（js/touch.js 的 lpEnd），
+    // 机器忙时 touchEnd 真到得晚（中间隔了半秒以上）也照样按 ms 算；真等的这段时间里页面的 450 ms 计时器先跑了，lpEnd 看时间戳不够长会收回浮窗
+    async press(x, y, ms) {
+      const t = Date.now() / 1000;
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [pt({ x, y })], timestamp: t });
+      await sleep(ms);
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [], timestamp: t + ms / 1000 });
+    },
     // 从 (x0, y0) 分几步拖到 (x1, y1)，不松手
     async drag(x0, y0, x1, y1, n) {
       await send('touchStart', [{ x: x0, y: y0 }]);
@@ -26058,7 +26573,12 @@ async function touchKit() {
 // 新开一个手机模拟的浏览器：新存档，关掉开场卡片、新手提示和首次提示卡，无敌，按模拟时间推进
 async function touchPage(o) {
   if (browser) await browser.close().catch(() => {});
-  ({ browser, page, errors } = await launch(Object.assign({ width: 844, height: 390, mobile: { scale: 3 } }, o || {})));
+  try {
+    ({ browser, page, errors } = await launch(Object.assign({ width: 844, height: 390, mobile: { scale: 3 } }, o || {})));
+  } catch (e) {
+    if (launchFail && launchFail.step === curStep) launchFail.again = () => touchPage(o); // 重开时连同下面的准备（存档、无敌、touchKit）一起做
+    throw e;
+  }
   await install();
   await ev((k) => {
     localStorage.setItem(k, '1');
@@ -26855,9 +27375,7 @@ async function touchSteps() {
     // 轻点（不到 450 ms）不出浮窗：按下 120 ms 就松手，松手之后再看（中途去页面里读状态会把按住的时间拖长）
     {
       const r0 = await ev(() => T.rect('.zone[data-tip="zone:0:0"]'));
-      await touch.down(r0.x, r0.y);
-      await sleep(120);
-      await touch.up();
+      await touch.press(r0.x, r0.y, 120); // 两个事件的时间戳正好隔 120 ms：机器忙时松手的事件到得再晚也是 120 ms 的轻点
       await frames(2);
       await sleep(600); // 计时器要是还在跑，这时候早该弹出来了
       out.tap = { r: r0, a: { vis: false }, b: await tipNow() };
@@ -28036,23 +28554,36 @@ async function touchSteps() {
     return out.map((r) => r.size).join(' / ');
   });
 
-  await uiLayoutSteps('bag');
+  await uiSteps();
+}
+// 界面布局那一组（各面板的触屏 / 桌面布局、桌面样式、天赋页）：触屏组末尾跑；node test/smoke.mjs --ui 单独跑这一组
+async function uiSteps() {
+  // 先把所有面板的触屏布局跑完、关掉触屏浏览器，再跑桌面（桌面那几步和桌面样式的先后不变）。以前触屏 / 桌面一对一对交替，两个浏览器从头开到尾，
+  // 闲着的那个 GPU 进程照样空转（SwiftShader 下一个浏览器的 GPU 进程不管页面在不在动都吃 3 个核左右，冻结页面也不降），机器满载时拖慢别人。
+  // 种子：每一步开始时 step() 给「当前的 page」播种，以前那个 page 是上一步的（另一个浏览器）；这里在换到这一步的浏览器之后，
+  // 按以前实际落到它身上的那个名字再播一次（触屏步骤用上一个面板桌面那一步的名字，桌面步骤用同一面板触屏那一步的名字），每个浏览器拿到的随机序列和以前一样
+  const PANELS = ['bag', 'stash', 'map', 'help', 'settings', 'char', 'skills', 'trader', 'title', 'tree'];
+  for (let i = 0; i < PANELS.length; i++) await uiLayoutSteps(PANELS[i], 'touch', i ? uiStepName(PANELS[i - 1], 'desk') : null);
+  await uiLayoutClose('touch');
+  const desk = (p) => uiLayoutSteps(p, 'desk', p === 'bag' ? null : uiStepName(p, 'touch'));
+  await desk('bag');
   await uiDeskStyleStep();
-  await uiLayoutSteps('stash');
-  await uiLayoutSteps('map'); // B4a
-  await uiLayoutSteps('help'); // B4a
-  await uiLayoutSteps('settings'); // B4a
+  await desk('stash');
+  await desk('map'); // B4a
+  await desk('help'); // B4a
+  await desk('settings'); // B4a
   await uiDeskStyleB4aStep(); // B4a
-  await uiLayoutSteps('char');
+  await desk('char');
   await uiDeskStyleSkillsStep();
-  await uiLayoutSteps('skills');
-  await uiLayoutSteps('trader');
-  await uiLayoutSteps('title');
-  await uiLayoutSteps('tree');
+  await desk('skills');
+  await desk('trader');
+  await desk('title');
+  await desk('tree');
   await uiDeskStyleB4b();
   await uiLayoutDone();
   await uiTreeStyleStep();
   await uiTreeTouchZoomStep();
+  await uiTipClampStep();
 }
 
 // ------------------------------------------------------------------ 面板布局（UI-R，docs/ui.md「测试」）
@@ -28323,7 +28854,7 @@ async function uiFixture() {
 async function uiDeskStyleStep() {
   await step('界面布局·桌面样式：1366×768 下页头 50 px、品牌字、页签 17 px、小标题 15.5 px、装备格 / 背包格 / 通货的尺寸和颜色、属性行和 main 逐项相等（有意改动的只有 .c-ilvl 10.5 → 11 px）', async () => {
     assert(uiPages && uiPages.desk, '要先跑「界面布局·背包（桌面）」');
-    ({ browser, page, errors } = uiPages.desk);
+    await uiUse('desk');
     await page.setViewportSize({ width: 1366, height: 768 });
     await ev(() => {
       G.ui.close();
@@ -28349,7 +28880,7 @@ async function uiDeskStyleStep() {
 async function uiDeskStyleSkillsStep() {
   await step('界面布局·桌面样式（技能页）：1366×768 下技能栏格、技能卡（卡框、卡名、标签、按键标签、说明、数值、辅助槽）、辅助宝石卡、小标题和 main 逐项相等（有意改动的只有 .sk-num span 10.5 → 11 px）', async () => {
     assert(uiPages && uiPages.desk, '要先跑「界面布局·背包（桌面）」');
-    ({ browser, page, errors } = uiPages.desk);
+    await uiUse('desk');
     await page.setViewportSize({ width: 1366, height: 768 });
     await skOpen({ open: (tab, sub) => ev(([tab, sub]) => { G.ui.close(); localStorage.removeItem('cinder-abyss-ui-seen'); G.ui.open(tab, sub); }, [tab, sub]) }, 'skills');
     await ev(() => G.ui.open('skills', G.save.bar[0])); // 和在 main 上量的一样：中间是技能栏第一格的卡（main 上是列表里第一张技能卡）
@@ -28360,6 +28891,121 @@ async function uiDeskStyleSkillsStep() {
     for (const k in DESK_STYLE_SK_MAIN) if (got[k] !== DESK_STYLE_SK_MAIN[k]) bad.push(k + '：main ' + DESK_STYLE_SK_MAIN[k] + '，现在 ' + got[k]);
     assert(!bad.length, bad.length + ' 项和 main 不一样：' + bad.slice(0, 8).join(' ｜ '));
     return Object.keys(DESK_STYLE_SK_MAIN).length + ' 项相等';
+  });
+}
+// 桌面浮窗夹在面板正文里（tip-clamp）：1280×720 / 1366×768 / 1920×1080 下，技能页三张卡的辅助槽、天赋盘、背包、仓库、地图上一组固定的目标（贴边的、四角的、头中尾）的浮窗都整个在 #panel-body 里。
+// 比正文还大的浮窗照旧只夹在视口里（#tip 上 data-fb），这种放行，并在结果里报出来
+async function uiTipClampStep() {
+  await step('桌面浮窗：1280×720 / 1366×768 / 1920×1080 下技能页的辅助槽、天赋盘、背包、仓库、地图里贴边、四角和头中尾的浮窗都整个在面板正文里（不出面板、不盖页头）；放不进正文的照旧夹在视口里并记下', async () => {
+    if (browser) await browser.close().catch(() => {});
+    ({ browser, page, errors } = await launch({ width: 1280, height: 720, dpr: null }));
+    await install();
+    await ev(() => {
+      G.save.seenHelp = G.save.seenStory = true;
+      for (const id of G.ui.hints().all) G.save.tut[id] = 1;
+      localStorage.setItem('cinder-abyss-ui-seen', JSON.stringify({ inv: 1, stash: 1, char: 1, skills: 1, tree: 1, map: 1, help: 1 }));
+      G.ui.close();
+      G.debug.hold(true);
+      const s = G.save;
+      if (!s.cls && G.CLASSES) s.cls = 'star';
+      G.debug.setLevel(30);
+      G.debug.learnAll();
+      for (const id of Object.keys(G.SUPPORTS)) if (!s.supports.includes(id)) s.supports.push(id);
+      // 每个学会的技能（和武器普攻卡）镶上能镶的辅助：每颗只镶一处
+      const used = new Set();
+      for (const sid of Object.keys(s.skills).concat([G.BASIC_CARD])) {
+        if (sid !== G.BASIC_CARD && !(s.skills[sid] && G.SKILLS[sid])) continue;
+        for (let i = 0; i < 3; i++) {
+          const sup = s.supports.find((x) => !used.has(x) && G.supportFits(sid, x));
+          if (sup && G.socketSupport(sid, i, sup)) used.add(sup);
+        }
+      }
+      const slots = ['boots', 'belt', 'gloves', 'body', 'amulet', 'helm', 'ring'];
+      s.bag.length = 0;
+      for (let i = 0; i < 30; i++) G.debug.giveItem(i % 3, slots[i % slots.length], undefined, 28);
+      if (G.stash && G.stash.ok()) for (let i = G.stash.list().length; i < 30; i++) G.stash.put(G.rollItem(20, i % 3, slots[i % slots.length]), true);
+      G.resetPassives();
+      for (let i = 0; i < 20; i++) {
+        const can = Object.keys(G.TREE).filter((id) => !s.passives.includes(id) && G.TREE[id].links.some((l) => s.passives.includes(l))).sort();
+        if (!can.length || !G.allocPassive(can[0])) break;
+      }
+      G.computeStats();
+    });
+    const bad = [], fb = [], counts = {};
+    for (const [w, h] of [[1280, 720], [1366, 768], [1920, 1080]]) {
+      await page.setViewportSize({ width: w, height: h });
+      await frames(2);
+      // 每一页一次 evaluate：在页面里挑一组固定的目标（贴着 / 靠近正文四边的：每条边最近的一个、四个角最近的一个；再加中间的第一个、正中、最后一个），
+      // 对每个目标派一次 mouseover（浮窗就是靠它出来的），量 #tip 在不在正文里，再派到空白处收起
+      const r = await ev(([w, h]) => {
+        const out = { bad: [], fb: [], n: {} };
+        const body = document.getElementById('panel-body'), head = document.getElementById('panel-head'), tip = document.getElementById('tip');
+        const pick = (sel) => {
+          const all = Array.from(body.querySelectorAll(sel)).filter((n) => {
+            const r = n.getBoundingClientRect();
+            if (r.width < 2 || r.height < 2) return false;
+            const c = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+            return c && (c === n || n.contains(c));
+          });
+          if (all.length <= 3) return all;
+          const b = body.getBoundingClientRect();
+          const R = all.map((n) => [n, n.getBoundingClientRect()]);
+          const best = (f) => R.reduce((m, x) => (f(x[1]) < f(m[1]) ? x : m))[0];
+          const set = new Set([
+            best((r) => b.right - r.right), best((r) => b.bottom - r.bottom), best((r) => r.left - b.left), best((r) => r.top - b.top),
+            best((r) => b.right - r.right + b.bottom - r.bottom), best((r) => b.right - r.right + r.top - b.top),
+            best((r) => r.left - b.left + b.bottom - r.bottom), best((r) => r.left - b.left + r.top - b.top),
+            all[0], all[all.length >> 1], all[all.length - 1],
+          ]);
+          return Array.from(set);
+        };
+        const hover = (tab, n) => {
+          n.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+          const where = w + '×' + h + ' ' + tab + ' ' + n.dataset.tip;
+          if (!tip.classList.contains('on')) return;
+          const r = tip.getBoundingClientRect(), b = body.getBoundingClientRect(), hd = head.getBoundingClientRect();
+          const R = (a) => [a.left, a.top, a.right, a.bottom].map(Math.round).join(',');
+          if (tip.dataset.fb) out.fb.push(where);
+          if (r.left < 0 || r.top < 0 || r.right > innerWidth || r.bottom > innerHeight) out.bad.push(where + ' 出了屏幕 ' + R(r));
+          else if (!tip.dataset.fb && (r.left < b.left - 1 || r.top < b.top - 1 || r.right > b.right + 1 || r.bottom > b.bottom + 1 || r.top < hd.bottom - 1)) out.bad.push(where + ' 出了正文 ' + R(r) + ' / ' + R(b));
+          document.body.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+        };
+        const run = (tab, sel, subs) => {
+          let k = 0;
+          for (const sub of subs) {
+            G.ui.close();
+            G.ui.open(tab, sub || undefined);
+            for (const n of pick(sel)) {
+              hover(tab, n);
+              k++;
+            }
+          }
+          out.n[tab] = k;
+        };
+        // 技能页：技能栏第一格的卡、武器普攻卡、最高的那张卡（辅助槽最靠下）
+        const S = G.save, ids = Object.keys(S.skills).filter((id) => S.skills[id] && G.SKILLS[id] && !G.SKILLS[id].weaponOnly && G.SKILLS[id].tags.indexOf('weapon') < 0);
+        let tall = ids[0], th = 0;
+        for (const id of ids) {
+          G.ui.open('skills', id);
+          const c = document.querySelector('.sk-detail > .skill-card');
+          const hh = c ? c.getBoundingClientRect().height : 0;
+          if (hh > th) (th = hh), (tall = id);
+        }
+        run('skills', '.sock[data-tip]', [...new Set([S.bar[0], G.BASIC_CARD, tall])]);
+        run('tree', '[data-tip]', [null]);
+        run('inv', '[data-tip]', [null]);
+        run('stash', '[data-tip]', [null]);
+        run('map', '[data-tip]', [null]);
+        G.ui.close();
+        return out;
+      }, [w, h]);
+      bad.push(...r.bad);
+      fb.push(...r.fb);
+      for (const k in r.n) counts[k] = (counts[k] || 0) + r.n[k];
+    }
+    await ev(() => G.ui.close());
+    assert(!bad.length, bad.length + ' 个浮窗出了面板正文：' + bad.slice(0, 6).join(' ｜ '));
+    return Object.entries(counts).map(([k, v]) => k + ' ' + v).join('、') + ' 次悬停（三个尺寸合计）；放不进正文、照旧夹在视口里 ' + fb.length + ' 个' + (fb.length ? '：' + fb.slice(0, 4).join('；') : '');
   });
 }
 // 天赋盘的触屏默认视口（dev-48，随 UI-R B2）：这次打开游戏后第一次看天赋盘，放大一档、对准前沿（已点亮 + 能点亮）。
@@ -28460,7 +29106,7 @@ async function uiTreeTouchZoomStep() {
 async function uiDeskStyleB4aStep() {
   await step('界面布局·桌面样式（地图 / 帮助 / 设置）：1366×768 下层级按钮、区域卡片的字和颜色、帮助的段落 / 按键表、设置行的字 / 分段按钮 / 开关 / 滑条和 main 逐项相等', async () => {
     assert(uiPages && uiPages.desk, '要先跑「界面布局」的桌面那几步');
-    ({ browser, page, errors } = uiPages.desk);
+    await uiUse('desk');
     await page.setViewportSize({ width: 1366, height: 768 });
     const settle = () => ev(async () => { for (const n of document.querySelectorAll('#panel-win, #panel-win *, #pause, #pause *')) for (const a of n.getAnimations()) await a.finished.catch(() => {}); });
     const pick = (pre) => Object.fromEntries(Object.entries(DESK_STYLE_B4A_SPEC).filter(([k]) => k.startsWith(pre + ' ')));
@@ -28501,7 +29147,7 @@ async function uiDeskStyleB4aStep() {
 async function uiDeskStyleB4b() {
   await step('界面布局·桌面样式（标题画面 / 角色页 / 职业选择 / 拾烬客）：1366×768 下标志、菜单按钮、页脚、角色卡、职业卡、货架行和 main 逐项相等（有意改动：职业卡回到 B1 之前的样子、标题画面的按键角标 10.5 → 11 px）', async () => {
     assert(uiPages && uiPages.desk, '要先跑「界面布局·标题画面（桌面）」');
-    ({ browser, page, errors } = uiPages.desk);
+    await uiUse('desk');
     await page.setViewportSize({ width: 1366, height: 768 });
     const settle = () => ev(async () => {
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
@@ -28588,13 +29234,34 @@ async function uiTreeStyleStep() {
   });
 }
 let uiPages = null; // { touch: { browser, page, errors, fx }, desk: {…} }：几个面板共用，uiLayoutDone 关掉
-async function uiLayoutSteps(panel) {
+// 换到界面布局的某个浏览器（'touch' / 'desk'）
+async function uiUse(mode) {
+  ({ browser, page, errors } = uiPages[mode]);
+}
+// 界面布局的某个浏览器用完了：关掉（触屏那几步跑完以后关触屏浏览器）
+async function uiLayoutClose(mode) {
+  if (!uiPages || !uiPages[mode]) return;
+  const u = uiPages[mode];
+  delete uiPages[mode];
+  if (browser === u.browser) browser = page = null;
+  await u.browser.close().catch(() => {});
+  runNote('界面布局：关掉 ' + mode + ' 浏览器');
+}
+// 界面布局那一步的名字（种子、日志都用它）
+function uiStepName(panel, mode) {
+  const sizes = UI_SIZES.filter((z) => z[2] === (mode === 'touch'));
+  const names = sizes.map((z) => z[0] + '×' + z[1] + (z[3] ? '+' + z[3] : '') + (z[4] ? '（转）' : '')).filter((v, i, a) => a.indexOf(v) === i);
+  return '界面布局·' + UI_PANELS[panel].label + '（' + (mode === 'touch' ? '触屏' : '桌面') + '）：' + names.join(' / ') + UI_STEP_TAIL;
+}
+const UI_STEP_TAIL = ' 下每个状态都在屏内、只有 data-list 滚动、不横向溢出、页头 ≤ 36 / 字号 ≥ 11 / 点按区 ≥ 44（触屏）、按钮点得到、点卡片外面能收起、横屏不碰 iPhone 圆角';
+// panel 的某一种（mode：'touch' / 'desk'）布局那一步。key：换到这一步的浏览器之后按哪个名字再播一次种子（见 uiSteps；null = 不播，比如这一步刚开的浏览器）
+async function uiLayoutSteps(panel, mode, key) {
   const P = UI_PANELS[panel];
-  for (const mode of ['touch', 'desk']) {
+  {
     const sizes = UI_SIZES.filter((z) => z[2] === (mode === 'touch'));
-    const names = sizes.map((z) => z[0] + '×' + z[1] + (z[3] ? '+' + z[3] : '') + (z[4] ? '（转）' : '')).filter((v, i, a) => a.indexOf(v) === i);
-    await step('界面布局·' + P.label + '（' + (mode === 'touch' ? '触屏' : '桌面') + '）：' + names.join(' / ') + ' 下每个状态都在屏内、只有 data-list 滚动、不横向溢出、页头 ≤ 36 / 字号 ≥ 11 / 点按区 ≥ 44（触屏）、按钮点得到、点卡片外面能收起、横屏不碰 iPhone 圆角', async () => {
+    await step(uiStepName(panel, mode), async () => {
       uiPages = uiPages || {};
+      const fresh = !uiPages[mode];
       if (!uiPages[mode]) {
         if (browser && !Object.values(uiPages).some((u) => u.browser === browser)) await browser.close().catch(() => {}); // 前面步骤留下的浏览器（布局步骤自己的两个留着，三个面板共用）
         ({ browser, page, errors } = await launch(mode === 'touch' ? { width: 844, height: 340, mobile: { scale: 2 }, dpr: null } : { width: 1366, height: 768, dpr: null }));
@@ -28602,7 +29269,8 @@ async function uiLayoutSteps(panel) {
         if (mode === 'touch') touch = await touchKit();
         uiPages[mode] = { browser, page, errors, fx };
       }
-      ({ browser, page, errors } = uiPages[mode]);
+      await uiUse(mode);
+      if (key && !fresh) await reseed(key);
       const fx = uiPages[mode].fx;
       const bad = [];
       let nStates = 0;
@@ -28717,7 +29385,7 @@ async function uiLayoutSteps(panel) {
 
 // 跑哪几份：默认两份都跑（先 func 后 timed，各用一个新浏览器）；--func / --timed 只跑一份。
 // 只跑 func，或在 cc-slot 的池里跑（CC_SLOT_HELD=pool:…，或手动设 CC_POOL=1）时，每行的耗时和 ms 数字标成不可比
-const PARTS = process.argv.includes('--func') ? ['func'] : process.argv.includes('--timed') ? ['timed'] : process.argv.includes('--touch') ? ['touch'] : ['func', 'timed'];
+const PARTS = process.argv.includes('--func') ? ['func'] : process.argv.includes('--timed') ? ['timed'] : process.argv.includes('--touch') ? ['touch'] : process.argv.includes('--ui') ? ['ui'] : ['func', 'timed'];
 const POOL = !!process.env.CC_POOL || /^pool:/.test(process.env.CC_SLOT_HELD || '');
 const sum = (p, f) => (f ? '失败 ' + f + ' 项，' : '') + '通过 ' + p + ' 项';
 (async () => {
@@ -28728,14 +29396,14 @@ const sum = (p, f) => (f ? '失败 ' + f + ' 项，' : '') + '通过 ' + p + ' �
   const per = [];
   for (const part of PARTS) {
     NC_TAG = POOL || (part === 'func' && PARTS.length === 1) ? ' [pool, not comparable]' : '';
-    cheap = (part === 'func' || part === 'touch') && !process.env.CINDER_FULL;
+    cheap = (part === 'func' || part === 'touch' || part === 'ui') && !process.env.CINDER_FULL;
     console.log('== test:' + part + ' · HEAD ' + head + ' · ' + new Date().toISOString() + ' · 槽位 ' + (process.env.CC_SLOT_HELD || '无') + (cheap ? ' · 省渲染 dpr ' + CHEAP_DPR + '（' + FULL_RES.length + ' 类步骤按 1）' : '') + (NC_TAG ? ' · 耗时数字不可比' + NC_TAG : '') + ' · Chrome 日志 ' + LOG_DIR.replace(/^.*\/(test-logs\/)/, '$1') + (part === 'timed' && POOL ? ' · 警告：计时步骤在池里跑，结果不作数' : ''));
     // 外层 timeout 剩的时间不到正常耗时的两倍左右（池里 test:func 45–56 分钟）就先警告一行
-    const tw = outerTimeoutWarning(part === 'func' ? 100 : part === 'touch' ? 30 : 15);
+    const tw = outerTimeoutWarning(part === 'func' ? 100 : part === 'touch' || part === 'ui' ? 30 : 15);
     if (tw) console.log(tw);
     const p0 = passed, f0 = failed;
     try {
-      await (part === 'func' ? main() : part === 'touch' ? touchSteps() : timedMain());
+      await (part === 'func' ? main() : part === 'touch' ? touchSteps() : part === 'ui' ? uiSteps() : timedMain());
     } catch (e) {
       failed++;
       console.log('FAIL 测试脚本自身出错 — ' + (e && e.stack ? e.stack : e));

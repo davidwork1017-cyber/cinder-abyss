@@ -2691,12 +2691,24 @@
     });
   }
   // 空闲时预取下一个区域的素材包，走到那里时不用再等
+  // mem-hunt：首领包按区加载。当前区的首领进区刷首领时就要（W.makeBoss → bossPackLater），下一区的首领跟下一区的素材一起在这里预取，
+  // 余烛殿能进了（G.pinReady：钥匙碎片都有了）就把熄烛者也带上。原来启动时的预热（warmEntities）把六个首领都建一遍，图标画完以后六个包全加载
+  const bossPackOf = (d) => {
+    const sp = d && BOSS_SPEC[d.boss];
+    return sp && G.assets.known(sp.pack) ? sp.pack : null;
+  };
   function prefetchNext(def) {
     if (!G.assets) return;
     const i = G.ZONES.indexOf(def);
     if (i < 0) return; // 余烛殿：不在区域序列里，没有「下一个区域」
-    const nx = G.ZONES[i + 1] && ZONE_GFX[G.ZONES[i + 1].id];
-    if (!nx) return;
+    const nd = G.ZONES[i + 1], gx = nd && ZONE_GFX[nd.id];
+    const packs = gx ? gx.packs.slice() : [];
+    for (const d of [nd, G.pinOpen && G.pinOpen() && G.pinReady && G.pinReady() ? G.PINNACLE : null]) {
+      const bp = bossPackOf(d);
+      if (bp && packs.indexOf(bp) < 0) packs.push(bp);
+    }
+    if (!packs.length) return;
+    const nx = { packs };
     // 等一个安静的时刻再预取（25 m 内没有醒着的怪、玩家 3 秒没出手），最多等 60 秒。原来固定在进区 1.5 秒后，
     // 正好是第一场仗：解码下一区的贴图在软件渲染下会让那一帧卡 1 秒多（main 上就有，zones-integrate 改）
     const zone0 = W.zone;
@@ -5127,7 +5139,7 @@
     encProps.length = 0;
     for (const e of encNpcs) W.removeEnt(e);
     encNpcs.length = 0;
-    for (const m of encDisp) m.dispose();
+    for (const m of encDisp) retire(m);
     encDisp.length = 0;
   };
   // 贴地的圆环（守隙的圈）：一道硬边亮环 + 很淡的内圈
@@ -8915,7 +8927,9 @@
   };
   const ABYSS_DEEP = 7.2; // 深渊底的深度（只是视觉）
   // 深渊底：整个网格范围一张平面，贴图按材质网格烘：虚空处暗紫，沿深渊中线一道发亮的熔岩缝（远处被雾压暗），零星的火星点
-  function abyssDeepTex(zone) {
+  const DEEP_VIA_DATA = /Apple/.test(navigator.vendor || ''); // WebKit 内核（navigator.vendor 是 Apple）：深渊底贴图传像素，见下
+  // asCanvas：测试用，true = 传画布、false = 传像素（用来逐像素比）；不传就按内核选
+  function abyssDeepTex(zone, asCanvas) {
     // 1 m 一个像素（深渊底在雾里，0.5 m 的精度看不出来，烘贴图的时间少四分之三）；S = 每个 0.5 m 小格占几个像素
     const m = zone.map, mat = matGrid(m), w = m.mx, h = m.mz, S = 0.5, cw = Math.ceil(w * S), ch = Math.ceil(h * S);
     const c = makeCanvas(cw, ch), g = c.getContext('2d'), im = g.createImageData(cw, ch), d = im.data;
@@ -8961,12 +8975,42 @@
       g.fillRect(Math.floor(i * S), Math.floor(j * S), 1, 1);
     }
     g.globalAlpha = 1;
-    const t = own(new T.CanvasTexture(c));
+    // mem-hunt：WebKit（Safari、iPhone 上的所有浏览器）里贴图源用画好的像素（getImageData），不直接用画布。WebKit 把 2D 画布传成 WebGL 贴图
+    // 走的是画布 → GL 的拷贝，测试机上一次 0.8–0.9 秒（每次进烬渊都是新画布，卡在进区后的那一帧）；读像素只要几毫秒，传 ImageData 和传图片一样快。
+    // Chrome 反过来：画布直接传是 GPU 里的拷贝，很快，读像素却要等 GPU 进程（软件渲染下进区多 0.5 秒），所以照旧传画布。
+    // 画布不透明（底色 alpha 全是 255），读出来的就是画布上的像素，两种传法显存里的贴图逐像素相同（func 查）。画法本身不变，还是同一张 2D 画布
+    const viaData = asCanvas === undefined ? DEEP_VIA_DATA : !asCanvas;
+    const t = own(viaData ? new T.Texture(g.getImageData(0, 0, cw, ch)) : new T.CanvasTexture(c));
+    t.needsUpdate = true;
     t.flipY = false;
     // 画布按 sRGB 写，但贴图不标 SRGBColorSpace：标了的话 r186 用硬件 sRGB 格式，先解码再过滤，2 m 一个像素的火星放大后光晕更软更大（和 r128 比 ΔE 1.4）。
     // 改成和 r128 一样先过滤、再在着色器里解码：材质用 deepMat()（map_fragment 里 DECODE_VIDEO_TEXTURE 那一段就是采样后的 sRGB 解码）
     return t;
   }
+  // 测试用：当前区（烬渊）的深渊底贴图按 ImageData 源 / 画布源各建一份、传上去，从显存读回来比（返回两份的指纹和各自上传的毫秒数）
+  W.abyssDeepProbe = function () {
+    const z = W.zone;
+    if (!z || z.def.id !== 'abyss') return null;
+    const gl = renderer.getContext(), P = renderer.properties, n = zoneDisp.length, out = {};
+    for (const [k, asCanvas] of [['data', false], ['canvas', true]]) {
+      const t = abyssDeepTex(z, asCanvas), t0 = performance.now();
+      renderer.initTexture(t);
+      out[k + 'Ms'] = +(performance.now() - t0).toFixed(1);
+      const w = t.image.width, h = t.image.height, fb = gl.createFramebuffer(), px = new Uint8Array(w * h * 4);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, P.get(t).__webglTexture, 0);
+      gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.deleteFramebuffer(fb);
+      renderer.resetState();
+      let x = 2166136261;
+      for (let i = 0; i < px.length; i++) x = Math.imul(x ^ px[i], 16777619) >>> 0;
+      out[k] = x.toString(16) + ':' + w + 'x' + h;
+    }
+    zoneDisp.splice(n).forEach((d) => d.dispose());
+    out.via = DEEP_VIA_DATA ? 'data' : 'canvas';
+    return out;
+  };
   function deepMat(zone) {
     const m = own(new T.MeshBasicMaterial({ map: abyssDeepTex(zone) }));
     m.defines = { DECODE_VIDEO_TEXTURE: '' }; // 内置材质的构造参数里不收 defines（setValues 会跳过），建好以后再设
@@ -10219,11 +10263,54 @@
     }
     return { hash: h.toString(16), n };
   };
+  // ----- 着色器程序留用（mem-hunt） -----
+  // three 在一个程序的最后一个材质 dispose 时把程序删掉。换区时整区的材质一起 dispose，再进同一个区（或者别的区、下一只同类怪用到同一个程序）时
+  // 同样的程序要重新编译；W.precompile 原来每个区只预热一次，再进来时这些编译就落在进区后的头几帧（WebKit 低档每次进区 70–190 ms，Chrome 高档 1–2 s）。
+  // 首领传送门、异兆道具、预警圈也一样（预警圈每个用完就 dispose，同类的最后一个收掉以后，下一个要在战斗中现编）。
+  // 这里每个程序键留一个「占位」材质先不 dispose：程序一直在，再用到时直接复用，不再编译。同一个键一定是同一份着色器源码（func「内存」一步查）。
+  // ShaderMaterial 的程序键里是着色器源码的编号（WebGLShaderCache），源码还被占位材质用着，编号就不变，下一个同样源码的材质照样命中。
+  // 占位材质去掉贴图、uniform、onBeforeCompile 闭包的引用，不留住旧区的数据：只换掉占位材质自己身上的引用（uniforms 对象可能和别的材质共用，不改它的内容）。
+  // 最多留 KEEP_MAX 个，满了先进先出：最早的那个 dispose 掉，它的程序照常释放
+  const KEEP_MAX = 96;
+  const progKeep = new Map(); // 程序 cacheKey → 占位材质
+  const keptMats = new Set();
+  function retireMat(m) {
+    if (keptMats.has(m)) return;
+    const P = renderer && renderer.properties;
+    const mp = P && P.has(m) ? P.get(m) : null;
+    let fresh = false;
+    if (mp && mp.programs) for (const k of mp.programs.keys()) if (!progKeep.has(k)) fresh = true;
+    if (!fresh) return m.dispose();
+    for (const k in m) if (m[k] && m[k].isTexture) m[k] = null;
+    if (m.uniforms) m.uniforms = {};
+    mp.uniforms = {};
+    mp.uniformsList = null;
+    mp.envMap = null;
+    m.userData = {};
+    delete m.onBeforeCompile;
+    delete m.customProgramCacheKey;
+    for (const k of mp.programs.keys()) if (!progKeep.has(k)) progKeep.set(k, m);
+    keptMats.add(m);
+    while (keptMats.size > KEEP_MAX) {
+      const old = keptMats.values().next().value;
+      keptMats.delete(old);
+      for (const [k, v] of progKeep) if (v === old) progKeep.delete(k);
+      old.dispose();
+    }
+  }
+  const retire = (d) => (d.isMaterial ? retireMat(d) : d.dispose());
+  W.progKeep = () => ({ keys: progKeep.size, mats: keptMats.size, max: KEEP_MAX }); // 测试用
+  // 测试用：把留着的占位材质全部 dispose（没有别的材质在用的程序随之释放）
+  W.progKeepFlush = () => {
+    for (const m of keptMats) m.dispose();
+    keptMats.clear();
+    progKeep.clear();
+  };
   function disposeZone() {
     icull = null;
     if (!zoneGroup) return;
     scene.remove(zoneGroup);
-    for (const d of zoneDisp) d.dispose();
+    for (const d of zoneDisp) retire(d);
     zoneDisp = [];
     zoneGroup = null;
     zoneFx = null;
@@ -11104,12 +11191,11 @@
 
   // 第一次进某个区时把整个场景预热一遍（zones-integrate）：renderer.compile 不管视锥，把还没看到的布景、睡着的怪的材质都编好，
   // 场景里用到的贴图也先传上去（initTexture）。不做的话这些留到第一次进视野的那一帧现做，软件渲染下正好卡在走到第一群怪、开打的时候。
-  // 每个区每次会话只做一次（G.enterZone 刷完怪以后调）：再进同一个区时着色器和贴图都已经在了，不再花时间
-  const warmed = new Set();
+  // 每次进区都做（G.enterZone 刷完怪以后调）。原来每个区每次会话只做一次，但换区时整区的材质和贴图都 dispose 了，再进来时程序和贴图都得重来，
+  // 落在进区后的头几帧（mem-hunt）。现在程序由 retireMat 留着，再进同一个区时 compile 几乎不花时间；贴图是新建的，在这里传上去
   W.precompile = function () {
     const z = W.zone;
-    if (!z || warmed.has(z.def.id)) return;
-    warmed.add(z.def.id);
+    if (!z) return;
     const t0 = performance.now();
     const ew = encWarm(); // 异兆道具的材质一起编好：异兆第一次出现时不现编着色器
     scene.add(ew);
@@ -12576,8 +12662,25 @@
   function finishPose(ent, t, sdt) {
     const rig = ent.rig, o = ent.out;
     if (rig.post) rig.post(ent, o, t, sdt);
+    if (ent.flinchCd > 0) ent.flinchCd -= sdt;
     // 受击：朝攻击行进的方向一仰，同时先压扁再回弹
-    if (ent.hitT > 0 && ent.clip && ent.clip.steady) {
+    if (ent.hitT > 0 && ent.flinch) {
+      // boss-flinch：首领 / 精英的小抖动，只叠在 hitJ（躯干、头）上；一起动作（蓄力 / 出手 / 破防 / 死亡）立刻停掉
+      ent.hitT -= sdt;
+      if (ent.clip) ent.hitT = 0;
+      else {
+        const u = 1 - Math.max(0, ent.hitT) / ent.hitDur, env = u < 0.3 ? smooth01(u / 0.3) : 1 - smooth01((u - 0.3) / 0.7);
+        const hj = rig.hitJ, k = ent.hitS * env;
+        if (hj) for (let i = 0; i < hj.length; i++) {
+          o[hj[i]] += ent.hitZ * k * (i ? 1.3 : 1);
+          o[hj[i] + 2] -= ent.hitX * k * (i ? 1.3 : 1);
+        }
+        else {
+          o[0] += ent.hitZ * k;
+          o[2] -= ent.hitX * k;
+        }
+      }
+    } else if (ent.hitT > 0 && ent.clip && ent.clip.steady) {
       // boss-golem：蓄力 / 出手（steady）期间不仰、不压扁、不叠受击动作，只在 hitJ 上朝攻击方向抖一下（最多 0.12 弧度），读招的姿势不晃
       ent.hitT -= sdt;
       const u = 1 - Math.max(0, ent.hitT) / ent.hitDur, hj = rig.hitJ;
@@ -12722,14 +12825,37 @@
     return c ? c.k0 * c.dur : 0;
   };
   // 受击反应：ang 是这一击行进的方向（世界朝向角），strength 约 0.5（轻）~ 2（终结技）
-  W.hitReact = function (ent, ang, strength) {
+  // boss-flinch：首领 / 精英（ent.hitTier）挨打只有一下小的叠加抖动（躯干 / 头几度、约 0.14 s），不再整个人一仰 + 压扁 + 受击动作：
+  //   - 小的一下只闪白、不动；大的一下才抖：这一击 ≥ 最大生命的 FLINCH_BIG，或重技能（手感 ≥ 2）的暴击（o.frac / o.heavyCrit，没传 o 时按 strength ≥ 2 算大）；
+  //   - 每只每 FLINCH_GAP 秒最多抖一次，窗口里再挨打不续；
+  //   - 蓄力 / 出手 / 收招（o.busy：模拟里在出招、冲刺、破防）和任何在播的动作（蓄力、出手、破防、死亡）里一律不动，读招的姿势不晃；破防有自己的 broken 动作。
+  //   只动外观：模拟、架势、时序都不读这些值，也不取随机数
+  const FLINCH_BIG = 0.02, FLINCH_GAP = 0.5, FLINCH_DUR = 0.14;
+  const FLINCH_AMP = { boss: 0.05, elite: 0.08 }; // 弧度：首领约 3°，精英约 4.5°（头再多三成）
+  W.FLINCH = { big: FLINCH_BIG, gap: FLINCH_GAP, dur: FLINCH_DUR, amp: FLINCH_AMP }; // 测试读
+  W.hitReact = function (ent, ang, strength, o) {
     if (!ent || ent.removed) return;
     const a = ang - ent.group.rotation.y, s = strength === undefined ? 1 : strength;
+    const tier = ent.hitTier;
+    if (tier) {
+      if (ent.clip || ent.dying || (o && o.busy)) return;
+      const big = o ? o.frac >= FLINCH_BIG || !!o.heavyCrit : s >= 2;
+      if (!big || ent.flinchCd > 0) return;
+      ent.flinchCd = FLINCH_GAP;
+      ent.hitX = Math.sin(a);
+      ent.hitZ = Math.cos(a);
+      ent.hitS = FLINCH_AMP[tier] || FLINCH_AMP.boss;
+      ent.hitDur = ent.hitT = FLINCH_DUR;
+      ent.flinch = true;
+      ent.flinchN = (ent.flinchN || 0) + 1;
+      return;
+    }
     ent.hitX = Math.sin(a);
     ent.hitZ = Math.cos(a);
     ent.hitS = Math.min(2.2, s);
     ent.hitDur = 0.24 + 0.08 * Math.min(2, s);
     ent.hitT = ent.hitDur;
+    ent.flinch = false;
   };
 
   // 挂点的世界坐标：weapon（武器尖端）/ hand / head / chest。结果写进 out（不传则新建一个对象返回）；
@@ -13189,8 +13315,8 @@
   function disposeEnt(ent) {
     if (ent.removed) return;
     if (ent.group.parent) ent.group.parent.remove(ent.group);
-    for (const m of ent.mats) m.dispose();
-    for (const m of ent.own) m.dispose();
+    for (const m of ent.mats) retire(m);
+    for (const m of ent.own) retire(m);
     ent.removed = true;
   }
   W.removeEnt = function (ent) {
@@ -17809,6 +17935,7 @@
     else ent.uRim.value.setRGB(0.2, 0.15, 0.1);
     // （旧：暗色的 C 模型轮廓光 ×1.5。卡通配色下角色不再是暗色，靠 TOON 的轮廓光分开，不再加强）
     if (elite) {
+      ent.hitTier = 'elite'; // boss-flinch：挨打只有小的叠加抖动（见 W.hitReact）
       // 精英：更大、发光更强，轮廓上镀一圈金
       ent.k = 1.35;
       ent.body.scale.setScalar(1.35);
@@ -19761,8 +19888,28 @@
     for (let i = bossEnts.length - 1; i >= 0; i--) {
       const e = bossEnts[i];
       if (e.removed || e.rig.bossModel) bossEnts.splice(i, 1);
-      else if (e.kind === kind) e.swapTo = r;
+      else if (e.kind === kind) {
+        e.swapTo = r;
+        // mem-hunt：还睡着的首领（离玩家远、不在 near 里，animEnt 不跑）包一到就换，换完把新材质编好：
+        // 原来要等玩家走到首领房、首领开始动的那一帧才换、才现编着色器，第一场首领战一开场卡一下
+        if (bossAsleep(e) && bossSwapReady(e)) {
+          const t0 = performance.now();
+          bossSwap(e);
+          bossEnts.splice(i, 1);
+          const t1 = performance.now();
+          try {
+            renderer.compile(e.group, camera, scene);
+            for (const p of renderer.info.programs) if (p.getUniforms) p.getUniforms(); // r186 第一次用到才等编译，和 W.precompile 一样在这里等完
+          } catch (err) { /* 编不了就留到第一次画的时候 */ }
+          W.bossSwapInfo = { kind, buildMs: +(r.buildMs || 0).toFixed(1), swapMs: +(t1 - t0).toFixed(1), compileMs: +(performance.now() - t1).toFixed(1) }; // 测试 / 探针用
+        }
+      }
     }
+  }
+  function bossAsleep(ent) {
+    const list = G.state && G.state.enemies;
+    if (list) for (let i = 0; i < list.length; i++) if (list[i].ent === ent) return !list[i].awake && !list[i].dead;
+    return false;
   }
   // 原地换模型：只在首领闲着的时候（没在播动作；醒着的要在招式之间的空当：不在出招、冲刺、破防里），不调 newEnt、不取随机数
   function bossSwapReady(ent) {
@@ -19817,22 +19964,26 @@
     if (on) for (const k in BOSS_SPEC) if (bossData(k)) bossQueueSwap(k);
   };
   W.bossRig = (kind) => bossGlbRig(kind);
+  // 测试用（mem-hunt）：已经载好 / 正在载的首领包
+  W.bossPacks = () => Object.keys(BOSS_SPEC).map((k) => BOSS_SPEC[k].pack).filter((p) => G.assets && (G.assets.settled([p]) || G.assets.loading(p)));
   W.bossOldRig = (kind) => (BOSS_RIG[kind] ? BOSS_RIG[kind]() : null); // 测试用：原来的程序化骨架（对比尺寸）
   // 狂暴 / 阶段（enemies.js 在原有的狂暴提示和熄烛者换阶段那里调一次）：只记在外观实体上，不读模拟、不取随机数
   W.bossMood = function (ent, n) {
     if (ent && !ent.removed) ent.mood = n || 0;
   };
 
-  W.makeBoss = function (kind, elemHex) {
+  // warm：启动时的预热建的（warmEntities）——只为编着色器，不去要首领包（首领包按区加载，见 prefetchNext）
+  W.makeBoss = function (kind, elemHex, warm) {
     const eh = hexOf(elemHex);
     _c.set(eh); // 和小怪一样：暖色地面上的首领偏冷，冷色地面上的偏暖
     const warmGround = _c.r > 0.8 && _c.g < 0.6;
     // boss-golem：首领包已经在就直接用脚本生成的新模型，否则先用程序化外观、等包到了在闲着的时候原地换（newEnt 取随机数的次数两边一样）
     const glb = bossGlbRig(kind);
     const ent = newEnt(kind, glb || BOSS_RIG[kind](), warmGround ? 0xe6e9f6 : 0xf2ece6, eh, 1.15); // 卡通：染色收轻，同小怪
+    ent.hitTier = 'boss'; // boss-flinch：挨打只有小的叠加抖动（见 W.hitReact）
     ent.bossWarm = warmGround;
     if (glb) bossLook(ent);
-    if (!glb && BOSS_SPEC[kind] && !bossPackOff && !window.CA_PROCEDURAL_CHARS) {
+    if (!glb && BOSS_SPEC[kind] && !bossPackOff && !window.CA_PROCEDURAL_CHARS && !warm) {
       bossEnts.push(ent);
       if (bossData(kind)) bossQueueSwap(kind);
       else bossPackLater(kind);
@@ -20855,7 +21006,7 @@
       if (!MOB_RIG[t]().clips.broken) aliasClip(MOB_RIG[t](), 'broken', 'stagger');
       made.push(W.makeMob(t, 0xff8a3c, false));
     }
-    for (const k in BOSS_RIG) made.push(W.makeBoss(k, 0xff8a3c));
+    for (const k in BOSS_RIG) made.push(W.makeBoss(k, 0xff8a3c, true));
     for (const k in MINION_RIG) made.push(W.makeMinion(k));
     made.forEach((e, i) => e.group.position.set(((i % 3) - 1) * 5, 0, -Math.floor(i / 3) * 4));
     const loots = [];
@@ -21905,7 +22056,7 @@
       handle.reg = null;
     }
     scene.remove(handle.mesh);
-    handle.mat.dispose();
+    retire(handle.mat);
   };
 
   // 冲击环 / 斩击弧用对象池，稳定后不再分配
@@ -27646,7 +27797,7 @@
       const i = lootObjs.indexOf(mesh);
       if (i >= 0) lootObjs.splice(i, 1);
     } else if (kind === 'portal') {
-      for (const m of mesh.userData.mats) m.dispose();
+      for (const m of mesh.userData.mats) retire(m);
       if (portalObj === mesh) {
         portalObj = null;
         portalLight.intensity = 0;
@@ -29575,6 +29726,7 @@
       'void main(){ vec2 p = vUv * 2.0 - 1.0; float r = length(p); if (r > 1.0) discard;',
       '  float t = atan(p.x, p.y) / 6.28318 + 0.5; float a = 0.0;',
       '  if (vK > 1.5) { if (r < 0.955) discard; gl_FragColor = vec4(mix(vC, vec3(1.0), 0.1), vA > 0.66 ? 0.9 : (vA > 0.33 ? 0.55 : 0.25)); return; }', // 冲击环：只有一道细环（k = 2）
+      '  if (vK < -0.5) { if (r > 0.97) discard; gl_FragColor = vec4(vC, 0.06 * (vA > 0.66 ? 1.0 : (vA > 0.33 ? 0.62 : 0.3))); return; }', // 磐垒的护域铺底（k = -1）：整片很淡的加色，没有花样
       '  if (r > 0.9) a = (t <= vK || vK >= 0.999) ? 1.0 : 0.25;',
       '  else if (r > 0.7 && r < 0.78) { float s = fract(t * 6.0 + uTime * 0.25); a = s < 0.6 ? 0.75 : 0.0; }',
       '  if (a <= 0.0) discard; float k = vA > 0.66 ? 1.0 : (vA > 0.33 ? 0.62 : 0.3);',

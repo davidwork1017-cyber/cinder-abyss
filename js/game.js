@@ -2346,6 +2346,7 @@
   // 冷却技能按冷却折算（单独循环施放时的秒伤）；光环是每秒脉冲次数 × 每跳伤害（单体）
   G.skillDps = function (ctx) {
     const mi = ctx.minion;
+    if (mi && mi.mech === 'bastion') return 0; // 刻式「磐垒」只扛不打
     if (mi && mi.mech === 'link') return G.avgHit(ctx) * mi.cap * (mi.vx.k1 / (mi.vx.tick * Math.min(1, mi.interval / ctx.sk.rate))); // 刻式「魂链」：烧满之后的灼链
     if (mi && mi.mech === 'field') {
       // 刻式「焰田」打单体：火弹（每秒 r 枚）+ 脚下火地（几片共用一个计时，每 tick 秒一跳）+ 燎原（每 charge.max 枚一次，引爆这期间留下、还没灭的火地）
@@ -3572,7 +3573,7 @@
       let d = P.roll.t > 0 ? P.moveSpeed * 2.6 * P.roll.t : 0;
       while (d > 0 && !W.walkable(P.x + P.roll.dx * d, P.z + P.roll.dz * d, 0.6)) d -= 0.4;
       const lx = P.x + P.roll.dx * Math.max(0, d), lz = P.z + P.roll.dz * Math.max(0, d);
-      const ms = state.minions.filter((m) => !m.dead && !(m.rising > 0) && !(m.ctx && m.ctx.minion && m.ctx.minion.mech === 'bastion')); // 刻式「磐垒」扎根不动，不跟着闪
+      const ms = state.minions.filter((m) => !m.dead && !(m.rising > 0));
       const n = ms.length;
       ms.forEach((m, i) => {
         const a = P.face + Math.PI + (i - (n - 1) / 2) * (TAU / Math.max(3, n + 1));
@@ -4234,7 +4235,8 @@
       // 流血的跳：不闪白、不后仰、不甩命中火花（掉落的暗红碎屑在 tickBleed 里另放）
     } else {
       if (!inf.splash && !inf.noFlash) W.flash(e.ent, 1 + feel * 0.7 + (hit.crit ? 0.5 : 0)); // 溅击的溅射不闪白（一下溅到一群时整群闪白会糊成一片，闪白有下限、调不淡）；vf-vfx2：暴击再亮一点
-      W.hitReact(e.ent, ang, 0.9 + feel * 0.4); // 顺着这一击的方向一仰
+      // 顺着这一击的方向一仰；boss-flinch：首领 / 精英按这一击占最大生命的比例、是不是重技能暴击、是不是在出招，决定抖不抖（外观只读这些值）
+      W.hitReact(e.ent, ang, 0.9 + feel * 0.4, { frac: hit.total / Math.max(1, e.maxHp), heavyCrit: !!hit.crit && w >= 2, busy: e.busy > 0 || !!e.dash || e.brokenT > 0 });
       // 持续伤害的跳（黑洞 / 黑旋风，inf.tick）：只甩几片实例化的尖片，不留地面贴花、不打闪光（怪堆里每秒几十跳，贴花每片一次 draw call）
       if (inf.tick && W.chaosTick) W.chaosTick(e.x - sn * e.r * 0.7, h * 0.5, e.z - cs * e.r * 0.7, ang, hit.crit);
       else if (inf.splash !== 2) {
@@ -13770,7 +13772,7 @@
     state.focusT = 0;
     if (G.regroupMinions) G.regroupMinions(); // 召唤物跟着进入新区域，在入口处重新现身
     G.autoSummonDelay(); // 数量没变，不会重复召唤；缺的等它们现身之后再补
-    if (W.precompile) W.precompile(); // 第一次进这个区：着色器 / 贴图在进区时就准备好，不留到第一场仗（zones-integrate）
+    if (W.precompile) W.precompile(); // 着色器 / 贴图在进区时就准备好，不留到第一场仗（zones-integrate；mem-hunt 起每次进区都做，留着的程序不再编译）
 
     save.lastZone = idx;
     save.tier = tier;
