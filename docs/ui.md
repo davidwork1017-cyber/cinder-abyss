@@ -96,15 +96,28 @@
 | `IPHONE_16` | 393×852 | 59 | 34 |
 | `IPHONE_X` | 375×812 | 44 | 34 |
 
-`standaloneContext(browser, 预设, { rot })` 开一个按真机模型模拟的 WebKit 配置。模型是两张用户截图（2026-11-24、2026-11-25）对出来的：
+`standaloneContext(browser, 预设, { rot })` 开一个按真机模型模拟的 WebKit 配置。rot-safe2 按真机的设备信息读数（be309c4，2026-11-25）改过一次模型：
 
 - 网页从屏幕最顶上画起，状态栏盖在上面；
-- 布局视口少了状态栏那一截：`innerHeight`、`visualViewport.height`、`documentElement.clientHeight`、html 和 body 的 100% 高都是屏幕高减状态栏，`100vh` / `100lvh` 是整块屏幕高；
-- 真正画出来的只到文档盒子的底边，再往下是黑的，fixed 的东西伸过去也会被裁掉。
+- 刚打开时整个视口少状态栏那一截（`innerHeight`、`visualViewport`、`100lvh`、初始包含块都是屏幕高减状态栏）；
+- 过一会儿 `innerHeight`、`visualViewport.height`、`100lvh` 变成整块屏幕高，`documentElement.clientHeight` 和 html、body 的 100% 高却一直少状态栏（真机读数：窗口 874、可视区 874、clientHeight 812）；
+- 真正画出来的只到文档盒子的底边 = max(初始包含块, html 盒子, 不是 fixed 的 body)。
 
-所以旋转横屏在主屏幕 App 里这样摆（`js/touch.js` 的 `measure()`，只在这一处量）：html 撑到 `100lvh`（`html.t-stand`），body 改成 absolute，画面按 html 量出来的高摆；HUD 只放进 `visualViewport` 那一块，多出来的部分算进竖着的屏幕底边的安全区（`--t-cut`）。系统要是不让 html 长过布局视口，画面就按布局视口摆，底下留黑边，但 HUD 不会被裁。浏览器标签页里的旋转横屏照旧按 `innerHeight`。
+模拟里页面载好以后要 `settle()`（视口变成整块屏幕），重载用 `launch()`。rot-safe 的旧模型说 `innerHeight` / `visualViewport` 也少一截，真机上不是，所以它让 be309c4 过了。
 
-真机上的数值在 设置 → 设备信息（只在触屏模式下有），截图就能对模型。检查在 `test/rot-standalone.mjs`，webkit 冒烟的「旋转横屏 · 主屏幕 App · 可见区」一步用它。
+be309c4 在真机上的毛病（第二张截图）：视口从 812 变成 874 时，world.js 的 resize 比 touch.js 先跑，读到的还是旧画面尺寸，3D 画布和叠加层停在 812（画面右边一条暗边，叠加层上画的小地图被切）；touch.js 随后把画面量成 874，HUD 按 874 摆，主攻键、主线追踪条画过了 812。
+
+现在旋转横屏在主屏幕 App 里这样摆（`js/touch.js` 的 `measure()`，只在这一处量）：
+
+- html 撑到 `100lvh`（`html.t-stand`），body 改成 absolute，画面按 html 量出来的高摆，3D 画布和叠加层铺满；
+- HUD 只放进 `clientHeight`、`visualViewport`、`innerHeight` 最小的那一块，多出来的部分算进竖着的屏幕底边的安全区（`--t-cut`），不管系统往下画到哪，HUD 都不会被裁；
+- 画面尺寸一变，`layout()` 再发一次 `resize`；每帧再对一下 `G.world.viewSize()` 和画面尺寸，对不上就补一次。
+
+浏览器标签页里的旋转横屏照旧按 `innerHeight`。
+
+真机上的数值在 设置 → 设备信息（只在触屏模式下有）：画布的 CSS 尺寸、缓冲、渲染尺寸，画布和 HUD 各到竖着的屏幕哪里，各项高度（clientHeight、innerHeight、可视区、100lvh、html）。下面的「画面测试」在屏幕底那一截（clientHeight 到屏幕底）涂七条色带，每条用一种摆法：fixed 贴底、html 里 absolute、body 里 100lvh、html 底色（品红）、body 底色（青）、3D 画布、叠加层；顶上同样高的一条做对照，色带上面一行写着每条是什么。真机截一张图，就知道哪一层画到了屏幕底。它不存，刷新就关。
+
+检查在 `test/rot-standalone.mjs`，webkit 冒烟的「主屏幕 App · 可见区」和「主屏幕 App · 画布铺满」两步用它。
 
 ## 天赋页（B3）
 
