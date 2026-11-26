@@ -333,7 +333,7 @@
     },
 
     // ---------- 特殊弹（class-d2b1，炉匠，只能装在枪上）：kind 'round'，round 是弹种 ----------
-    // 从手里的枪打出去：一份伤害 = 这把枪的右键普攻连射 basicSec 秒（同熔光射线的 basicOf 折算：普攻的 wm × 发数，装备附加伤害 × 普攻的 addEff × 发数），
+    // 从手里的枪打出去：一份伤害 = 这把枪的右键普攻连射 basicSec 秒（同熔光炮台的 basicOf 折算：普攻的 wm × 发数，装备附加伤害 × 普攻的 addEff × 发数），
     // 全部转成弹本身的元素（elem）。弹的形状跟枪走（G.ROUND_GUN）：机炮连发 3 枚各 ×0.4、左轮一发 ×1.1（可以边走边打）、喷枪近程扇面 3 枚各 ×0.4（射程 ×0.6），
     // 三种枪一次施放的总伤害一样。每发加的热度 = 这把枪开火 basicSec 秒的热度 × 这一枚的倍率，打中算「最近打中过」，照样喂 R。
     // 没拿着枪时（只有没有职业的存档放得出来）按左轮的形状、用 wm 乘手里武器的伤害。useMult：一次施放对单体的倍率总和（以一份为 1）
@@ -713,24 +713,29 @@
     // R（量表技）：rgauge 为 true——没有冷却、不扣魔力，量表满了才能放，放出去量表清零。枪械的三招按武器伤害成长（吃「热度技伤害」），
     // 弓的四招是限时增益（buff.dur 秒，吃「增益持续时间」）
     meltray: {
-      name: '熔光射线', icon: '光', color: '#ffb36a', tags: ['weapon', 'attack', 'fire', 'light'], kind: 'rgatling', weaponOnly: true, wtype: 'gatling', rgauge: true,
-      // 按住 R 蓄力（瞄准线跟着准星），松手放出一道贯穿射线：长 len、宽 width 的直线上所有敌人挨一下（一半火焰一半闪电）。
-      // 伤害按机炮普攻折算（basicOf / basicSec，见 game.js 的 G.basicShots）：蓄满一发 = 机炮转满之后扫射 basicSec 秒——
-      //   普攻每发的武器伤害 × 普攻 wm、装备附加 × 普攻 addEff，乘上这几秒的发数（武器攻速、攻击速度算在内，辅助宝石不算），
-      //   再按射线自己的伤害加成、暴击和「热度技伤害」结算。wm 只是标明这是攻击技能，实际倍率由折算决定。
-      //   原来是 wm 40 × 一发的武器伤害：附加伤害只算一份、攻速不算，越往后越不值得放（蓄力加机炮重新转起来要停火约 3.5 秒）
-      // 蓄力 charge 秒满；伤害按蓄力程度 minK → 1；蓄满后再按住 hold 秒自动放出。蓄力时移动速度 × move
-      wm: 1, basicOf: 'basic_gatling', basicSec: 8, time: 0.3, mana: 0, cd: 0, charge: 1.4, hold: 1.0, minK: 0.3, len: 24, width: 2.4, beamT: 0.4, conv: { fire: 0.5, light: 0.5 }, ailment: 100,
-      w: 2, kb: 1.4, poise: 80, stop: 120, move: 0.35,
-      wclip: 'r_gatling',
-      wt: { phases: [0.3], cancel: 9, dur: 9, clip: { dur: 3.2, at: 0.3 } }, // 时长由蓄力自己管（起手 0.3 秒 + 蓄力 + 射线）
-      useMult: 1, // 一次施放对单体就是一击（倍率已经折算进伤害里）
-      desc: '按住 R 蓄力（1.4 秒蓄满），松手放出熔光射线，贯穿一条直线并重重击退。蓄满约等于机炮满速扫射 {basicSec} 秒。', alt: '伤害一半火焰、一半闪电，同时累积两种异常值。蓄力越久伤害越高；蓄满后再按住 1 秒自动放出。伤害随武器、附加伤害与攻击速度成长。',
+      name: '熔光炮台', icon: '台', color: '#ffb36a', tags: ['weapon', 'attack', 'fire', 'light'], kind: 'rgatling', weaponOnly: true, wtype: 'gatling', rgauge: true,
+      // laser-beam（用户 2026-11-26：蓄力手感差 → 改成放下两座自动开火的炮台）：热度满时按 R，身体两侧各落一座炮台（turret.side 米、略靠后 back 米），
+      //   活 turret.dur 秒，各自朝目标喷一道持续的熔光射线：每 tick 秒结算一次，长 len、宽 width 的直线上所有敌人挨一下（一半火焰一半闪电，两种异常值都涨）。
+      //   目标：你最近亲手打中的敌人（state.focus，range 米内、看得见）优先，否则 range 米内最近的醒着的敌人；目标死了 / 走远了 / 被墙挡住就重新挑。
+      //   炮管每秒最多转 turn 弧度（不瞬间对准）。炮台不能被打、没有血、不挡路；到时间、换区域、你倒下时收起；炮台还在时再放顶掉旧的（最多 n 座）。
+      //   出手只要一帧（cancel 0）：按住右键扫射不断，机炮的转速也保住（见 tickRanged）——成本只剩攒热度的那段时间。
+      // 伤害按机炮普攻折算（basicOf / basicSec，见 game.js 的 G.basicShots）：两座炮台活满全程打在同一个敌人身上 = 机炮转满之后扫射 basicSec 秒，
+      //   普攻每发的武器伤害 × 普攻 wm、装备附加 × 普攻 addEff，乘上这几秒的发数（武器攻速、攻击速度算在内，辅助宝石不算），再按这招自己的伤害加成、暴击和「热度技伤害」结算。
+      //   每一跳 = ctx 一击的 1 / (n × dur / tick)。不是召唤物：伤害、暴击都按你的攻击算，不吃召唤物加成，也不吃持续时间
+      // basicSec 8（laser-beam 实测，等装备、物品等级 10 / 40）：机炮「普攻 + 炮台」比只打普攻高约四成（旧的蓄力射线约两成），
+      //   和其他远程武器最好的那套比最多高约两成（机炮的普攻本来就最强，再高就成了唯一值得拿的武器）
+      wm: 1, basicOf: 'basic_gatling', basicSec: 8, time: 0.15, mana: 0, cd: 0, conv: { fire: 0.5, light: 0.5 }, ailment: 100,
+      turret: { n: 2, dur: 6, side: 1.6, back: 0.4, tick: 0.2, len: 14, width: 1.2, range: 14, turn: 3.5, y: 0.95 },
+      w: 0, kb: 0.12, poise: 6, move: 1,
+      wclip: null, // 不另播动作：右键照常扫射（炮台落地的特效由 world 的 W.turret 画）
+      wt: { phases: [0], cancel: 0, dur: 0.15 },
+      useMult: 1, // 单体整招就是 ctx 一击（倍率已经折算进伤害里）
+      desc: '热度满时可用：在身边放下两座熔光炮台，自动射线 6 秒、贯穿直线，约合机炮扫射 {basicSec} 秒的伤害。放的时候照常开火。', alt: '伤害一半火焰、一半闪电，同时累积两种异常值。炮台优先打你正在打的敌人，否则打最近的。不能被攻击，换区域或倒下时收起。伤害随武器、附加伤害与攻击速度成长，不算召唤物。',
     },
     firestorm: {
       name: '焚天炎爆', icon: '爆', color: '#ff6a2c', tags: ['weapon', 'attack', 'area', 'fire'], kind: 'rflamer', weaponOnly: true, wtype: 'flamer', rgauge: true,
       // 半径 radius 的火浪（全部火焰）；之后留下半径 burn.r 的火场，burn.dur 秒内每 burn.tick 秒一跳。
-      // 伤害和熔光射线一样按普攻折算（basicOf / basicSec，见 game.js 的 G.basicShots）：火浪 = 喷枪持续喷射 basicSec 秒，
+      // 伤害和熔光炮台一样按普攻折算（basicOf / basicSec，见 game.js 的 G.basicShots）：火浪 = 喷枪持续喷射 basicSec 秒，
       //   火场每一跳 = 喷射 burn.sec 秒（不算余烬）；整招单体 = 3.3 + 10 × 0.23 ≈ 5.6 秒。原来是火浪 wm 14、每跳 1 倍武器伤害：
       //   装备附加只算一份、攻速不算，40 级时放一发只比一直喷多赚约 1.5 秒普攻（镶了辅助只剩 0.5 秒）
       wm: 1, basicOf: 'basic_flamer', basicSec: 3.3, time: 0.75, mana: 0, cd: 0, radius: 7.5, conv: { fire: 1 }, ailment: 100, burn: { r: 6, dur: 8, tick: 0.8, sec: 0.23 }, // dur-tune：火场 5 → 8 秒、每 0.5 → 0.8 秒一跳，还是 10 跳
@@ -856,14 +861,14 @@
     flamer: { n: 3, k: 0.4, fan: 24, rangeK: 0.6 },
     none: { n: 1, k: 1.1 },
   };
-  // 按普攻折算的武器技（熔光射线、焚天炎爆）：描述里的「{basicSec} 秒」按数值填上——火浪 basicSec + 火场每跳 burn.sec × 跳数，
+  // 按普攻折算的武器技（熔光炮台、焚天炎爆）：描述里的「{basicSec} 秒」按数值填上——火浪 basicSec + 火场每跳 burn.sec × 跳数，
   // 改 basicSec / burn.sec 时文字跟着变（技能卡上的数字本来就是实时算的）
   for (const id in G.SKILLS) {
     const s = G.SKILLS[id];
     if (!s.basicOf || typeof s.desc !== 'string') continue;
     const B = s.burn, sec = s.basicSec + (B && B.sec !== undefined ? Math.round(B.dur / B.tick) * B.sec : 0);
     s.desc = s.desc.replace('{basicSec}', String(Math.round(sec * 10) / 10));
-    s.useMult = sec / s.basicSec; // 单体整招按 ctx 一击的倍数（熔光射线 1，焚天炎爆 = 5.6 / 3.3），和上面写的一致
+    s.useMult = sec / s.basicSec; // 单体整招按 ctx 一击的倍数（熔光炮台 1，焚天炎爆 = 5.6 / 3.3），和上面写的一致
   }
   // 混沌技能的前期补偿（只乘在 chaosEarly 的技能上）：倍率按宝石等级从 k0 / k1（1 级）缓缓降到 1（lvl 级），之后不变。
   // 先平后陡（1 − t²）：5–10 级的角色还能拿到大部分补偿，15 级（角色 20 级左右）收回到 0.75 倍的基础
