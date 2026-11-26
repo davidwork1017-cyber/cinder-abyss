@@ -10,7 +10,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { GAME_URL, diagStep, outerTimeoutWarning } from './harness.mjs'; // 引入 harness 也就装上了它的信号处理：SIGTERM 时打 KILLED、立即退出
 import { uiLayoutCheck, uiBlankPoint } from './ui-layout.mjs';
 import { cornerScenes, cornerHud, cornerCheck } from './corner-mask.mjs';
-import { STANDALONE_DEVICES, MOBILE_DEFAULT, standaloneContext, launch } from './devices.mjs';
+import { STANDALONE_DEVICES, MOBILE_DEFAULT, standaloneContext, launch, questReady, lateGrow, converged } from './devices.mjs';
 import { HUD_PARTS, PAINT_SRC, rotFrameProbe, rotFrameJudge, rotCanvasProbe, rotCanvasJudge } from './rot-standalone.mjs';
 
 let passed = 0, failed = 0;
@@ -1011,12 +1011,14 @@ await step('旋转横屏 · 主屏幕 App · 可见区（rot-safe）：iPhone 17
         const rot = await pev(() => G.rot && G.rot.dir);
         if (rot !== dir) bad.push(where + ' 打开时没接着转：' + rot);
         await pev(() => G.ui.hideTitle());
-        await p.waitForFunction(() => { const q = document.getElementById('quest'); return q && q.classList.contains('on'); }, null, { timeout: 15000 }).catch(() => {});
+        // rot-safe2：先等素材包、再按帧等追踪条（原来固定等 15 秒，机器忙时素材包没载完，375×812 偶尔报「主线追踪条没出来」）
+        const qw = await questReady(p);
+        if (qw) bad.push(where + ' ' + qw);
         await p.waitForTimeout(600);
         const o = await pev(rotFrameProbe, [HUD_PARTS, PAINT_SRC]);
         const j = rotFrameJudge(o, dev, where);
         bad.push(...j.bad);
-        if (!o.parts.find((x) => x.name === '主线追踪条').boxes.length) bad.push(where + ' 主线追踪条没出来');
+        if (!qw && !o.parts.find((x) => x.name === '主线追踪条').boxes.length) bad.push(where + ' 主线追踪条没出来');
         // 设备信息（只在默认设备上点一次）：设置里收着，点开是一块等宽字，字段齐
         if (dev === MOBILE_DEFAULT && dir === 'cw') {
           await pev(() => G.ui.pause());
@@ -1054,6 +1056,7 @@ await step('旋转横屏 · 主屏幕 App · 画布铺满、HUD 在 clientHeight
   const out = [];
   const bad = [];
   const runs = [[STANDALONE_DEVICES[0], 'cw'], [STANDALONE_DEVICES[0], 'ccw'], [STANDALONE_DEVICES[1], 'cw'], [STANDALONE_DEVICES[2], 'cw']];
+  let lateInfo = '';
   for (const [dev, dir] of runs) {
     const where = dev.width + '×' + dev.height + ' ' + dir;
     const c = await standaloneContext(browser, dev, { rot: dir });
@@ -1082,7 +1085,8 @@ await step('旋转横屏 · 主屏幕 App · 画布铺满、HUD 在 clientHeight
         await ready();
       });
       await pev(() => G.ui.hideTitle());
-      await p.waitForFunction(() => { const q = document.getElementById('quest'); return q && q.classList.contains('on'); }, null, { timeout: 15000 }).catch(() => {});
+      const qw = await questReady(p); // 先等素材包、再按帧等追踪条（HUD 检查要它在）
+      if (qw) bad.push(where + ' ' + qw);
       await p.waitForTimeout(600);
       const o = await pev(rotCanvasProbe);
       bad.push(...rotCanvasJudge(o, where));
@@ -1120,6 +1124,14 @@ await step('旋转横屏 · 主屏幕 App · 画布铺满、HUD 在 clientHeight
           if (off.on || off.n || off.w) bad.push(where + ' 画面测试刷新后没关：' + JSON.stringify(off));
         }
       }
+      // 晚长高（只在 375×812 上，zone-ready 全套里就是它停在 768）：resize 处理完 html 才长高、再没有事件，画面也要自己跟上
+      if (dev === STANDALONE_DEVICES[2]) {
+        await p.setViewportSize({ width: dev.width, height: dev.height - dev.sb });
+        await converged(p, Object.assign({}, dev, { height: dev.height - dev.sb })).then((w) => { if (w) bad.push(where + ' 回到刚打开的视口没跟上：' + w); });
+        const lg = await lateGrow(p, dev);
+        if (lg.why) bad.push(where + ' 晚长高（resize 处理完 html 才长高，之后没有事件）：' + lg.why);
+        else lateInfo = '；晚长高：先停在 ' + lg.stuck + '，自己跟上 ' + dev.height;
+      }
       if (errs.length) bad.push(where + ' 页面报错：' + errs.join(' | '));
       out.push(where + ' 画布到 ' + Math.round(o.gl ? o.gl[3] : 0) + '、渲染 ' + (o.vs ? o.vs.w + '×' + o.vs.h : '?') + '、主角 x ' + (o.hero ? o.hero.fx : '?'));
     } finally {
@@ -1127,7 +1139,7 @@ await step('旋转横屏 · 主屏幕 App · 画布铺满、HUD 在 clientHeight
     }
   }
   assert(!bad.length, bad.length + ' 处不合格：' + bad.slice(0, 6).join(' ｜ '));
-  return out.join('，') + '；HUD 在 clientHeight 以内，画面测试开得了、刷新就关';
+  return out.join('，') + '；HUD 在 clientHeight 以内，画面测试开得了、刷新就关' + lateInfo;
 });
 
 await browser.close();
