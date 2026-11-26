@@ -318,11 +318,12 @@ export async function cornerHud(page, configs, o) {
       // pickup-feed：拾取记录满着（触屏 3 行：长名字、×N、一行警告），按拾取记录的样子直接摆进去（不走寿命，量完拿掉）
       const fd = document.getElementById('feed');
       fd.querySelectorAll('.fd').forEach((n) => n.remove());
+      const fit = G.ui.feedFit ? G.ui.feedFit() : 3; // 这个画面上最多几行（左边有按钮挡着时更少）
       for (const [cls, c, html] of [
         ['', '#ffd75e', '<span class="ibox"><i class="ico"></i></span><span class="fd-t">霜银的统御雷纹戒·寻宝者之愿</span><b></b><em class="fd-up">▲</em>'],
         ['offcls noic', '#7fe0c0', '<span class="fd-t">自动分解 8 件 → 增幅尘 ×6、冠冕石 ×2、乱流石 ×1</span>'],
         ['warn', '#ff8a6a', '<span class="fd-t">背包满了</span><b></b>'],
-      ]) {
+      ].slice(0, fit)) {
         const d = document.createElement('div');
         d.className = 'fd __busy ' + cls;
         d.style.setProperty('--c', c);

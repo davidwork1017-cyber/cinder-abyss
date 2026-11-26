@@ -1834,6 +1834,7 @@ async function main() {
 
       // 拾取：走过去自动捡起，存进存档（从高到低排），提示与拾取记录里写数量
       save.blankGems = [];
+      G.ui.feedClear(); // 前面步骤留下的拾取记录（比如「背包满了」）不算
       const dust0 = save.cur.dust;
       const pick = (lvl) => {
         const l = G.spawnLoot('blank', { lvl }, P.x, P.z);
@@ -1843,7 +1844,7 @@ async function main() {
       };
       out.picked = pick(4);
       out.toast1 = T.toasts();
-      out.feed = document.getElementById('feed').innerText;
+      out.feed = document.getElementById('feed').innerText.replace(/\s+/g, ' ');
       out.picked2 = pick(2) && pick(6);
       out.gems = save.blankGems.join();
       out.stored = (JSON.parse(localStorage.getItem(KEY)).blankGems || []).join();
@@ -1854,7 +1855,7 @@ async function main() {
       out.useful9 = G.blankUseful(9);
       out.useful10 = G.blankUseful(10);
       out.uselessPicked = pick(5);
-      out.useless = { gems: save.blankGems.join(), dust: save.cur.dust - dust0, toast: T.toasts(), feed: document.getElementById('feed').innerText, want: '用不上的' + G.BLANK_GEM.short + ' → ' + G.CURRENCY.dust.name + ' ×1' };
+      out.useless = { gems: save.blankGems.join(), dust: save.cur.dust - dust0, toast: T.toasts(), feed: document.getElementById('feed').innerText.replace(/\s+/g, ' '), want: '用不上的' + G.BLANK_GEM.short + ' → ' + G.CURRENCY.dust.name + ' ×1' };
       save.skills = sk0;
       G.persist();
 
@@ -1898,7 +1899,7 @@ async function main() {
     const r = await ev(() => {
       const S = G.state, save = G.save, P = G.player, out = {};
       T.arena();
-      const keep = JSON.stringify({ bag: save.bag, cur: save.cur, skills: save.skills, supports: save.supports, bar: save.bar });
+      const keep = { bag: save.bag.slice(), cur: Object.assign({}, save.cur), skills: Object.assign({}, save.skills), supports: save.supports.slice(), bar: save.bar.slice(), boots: save.equip.boots };
       const put = (kind, data) => { const l = G.spawnLoot(kind, data, P.x, P.z); l.x = P.x; l.z = P.z; return l; };
       const toasts = [];
       const mo = new MutationObserver((ms) => { for (const m of ms) for (const n of m.addedNodes) if (n.nodeType === 1) toasts.push(n.textContent); });
@@ -1906,6 +1907,8 @@ async function main() {
       const lines = () => Array.from(document.querySelectorAll('#feed .fd')).map((n) => n.innerText.replace(/\s+/g, ' ').trim());
       try {
         save.bag.length = 0;
+        save.equip.boots = G.rollItem(10, 2, 'boots'); // 脚上穿着一双稀有的：捡到的普通鞋子不是 ▲
+        G.computeStats();
         // 1）三件没有 ▲ 的普通物品 + 三个同种通货：两行
         G.ui.feedClear();
         const whites = [];
@@ -1941,8 +1944,13 @@ async function main() {
         out.freshName = fresh ? '新技能 · ' + G.SKILLS[fresh].name + ' Lv ' + save.skills[fresh] : '';
       } finally {
         mo.disconnect();
-        const k = JSON.parse(keep);
-        Object.assign(save, k);
+        save.bag = keep.bag;
+        save.cur = keep.cur;
+        save.skills = keep.skills;
+        save.supports = keep.supports;
+        save.bar = keep.bar;
+        if (keep.boots) save.equip.boots = keep.boots;
+        else delete save.equip.boots;
         G.ui.feedClear();
         T.clearLoot();
         G.computeStats();
@@ -2035,7 +2043,7 @@ async function main() {
       const l = G.spawnLoot('support', 'multi', P.x, P.z);
       T.tp(l.x, l.z);
       G.debug.step(0.5);
-      out.dup = { picked: S.loot.indexOf(l) < 0, aug: save.cur.augment - aug0, n: save.supports.length, toast: T.toasts(), feed: document.getElementById('feed').innerText, want: '重复辅助宝石 → ' + G.CURRENCY.augment.name + ' ×1' };
+      out.dup = { picked: S.loot.indexOf(l) < 0, aug: save.cur.augment - aug0, n: save.supports.length, toast: T.toasts(), feed: document.getElementById('feed').innerText.replace(/\s+/g, ' '), want: '重复辅助宝石 → ' + G.CURRENCY.augment.name + ' ×1' };
       save.supports = sup0;
       T.clearLoot();
       G.persist();
@@ -8129,12 +8137,18 @@ async function main() {
       let calls = 0;
       const sr0 = G.salvageResult;
       G.salvageResult = (it) => (calls++, sr0(it));
+      // pickup-feed：拾取记录最多 4 行，后面捡到的稀有 / 烬铸可能把这一行挤掉；这里看的是分解有没有并进上面那一行（没有另起一行）
+      const ocEl = document.querySelector('#feed .fd.offcls');
+      let ocNew = 0;
+      const ocMo = new MutationObserver((ms) => { for (const m of ms) for (const n of m.addedNodes) if (n.nodeType === 1 && n.classList.contains('offcls')) ocNew++; });
+      ocMo.observe(document.getElementById('feed'), { childList: true });
       G.debug.step(0.6);
+      ocMo.disconnect();
       G.salvageResult = sr0;
       out.auto = {
         loot: G.state.loot.length, calls, curUp: JSON.stringify(save.cur) !== cur1,
         keep: Object.keys(keepers).filter((k) => save.bag.includes(keepers[k])).join(), gone: gone.filter((it) => !save.bag.includes(it)).length,
-        uqOff: G.offClassItem(keepers.uq), feed: feed(), lines: document.querySelectorAll('#feed .fd.offcls').length,
+        uqOff: G.offClassItem(keepers.uq), feed: ocEl ? ocEl.textContent : '', ocNew,
       };
       // 3）自己丢下的：捡回来照常进背包（不分）
       const mine = W(2, 'hammer');
@@ -8163,7 +8177,7 @@ async function main() {
     assert(r.feed1.txt === r.feed1.want, '第一件的拾取记录不对：' + JSON.stringify(r.feed1));
     assert(r.feedN.txt === r.feedN.want && r.feedN.lines === 1, '几件应并成一行、按通货合计：' + JSON.stringify(r.feedN));
     assert(r.auto.loot === 0 && r.auto.keep === 'own,ownM,lock,uq' && r.rq === false && r.auto.gone === 3 && r.auto.calls === 3 && r.auto.curUp && r.auto.uqOff, '自动拾取：本职业 / 锁定 / 烬铸 / 渊契应进背包，别的职业的分掉：' + JSON.stringify(r.auto));
-    assert(r.auto.lines === 1 && r.auto.feed.startsWith('自动分解 8 件'), '自动拾取的分解应接着并进同一行：' + JSON.stringify(r.auto));
+    assert(r.auto.ocNew === 0 && r.auto.feed.startsWith('自动分解 8 件'), '自动拾取的分解应接着并进同一行：' + JSON.stringify(r.auto));
     assert(r.own.flag && r.own.back, '自己丢下的应照常捡回来：' + JSON.stringify(r.own));
     assert(r.trader, '拾烬客买的别的职业的武器应进背包');
     assert(r.full.off && r.full.own && r.full.n === r.full.max, '背包满了：别的职业的应照样分掉，本职业的留在地上：' + JSON.stringify(r.full));

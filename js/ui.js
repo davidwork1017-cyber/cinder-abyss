@@ -7909,8 +7909,26 @@
   const FEED_MS = 2200;
   const FEED_WARN_MS = 3000; // 警告（背包满了 / 走近一点）：game.js 每 2.5 秒最多再报一次，亮 3 秒，站在掉落上时一直是同一行
   const FEED_FADE_MS = 400;
-  const feedMax = () => (touchOn() ? 3 : 4);
-  // 行数满了先挤掉最不要紧的（同样要紧挤掉最早的）：pr 4 新技能 / 宝石 / 烬铸以上 / 警告，3 稀有和 ▲，2 烛芯 / 自动分解 / 重复宝石，1 通货和并起来的普通、魔法物品
+  // 触屏最多 3 行，再按拾取记录下面还有多少地方减：左手模式 / 矮屏上技能键、翻滚、药瓶摆在左边时，最低一行不压到它们（最少 1 行）
+  const FEED_ROW_TOUCH = 25; // 一行 22 + 间距 3
+  function feedFit() {
+    if (!touchOn()) return 4;
+    const fe = wui.feed;
+    if (!fe) return 3;
+    const F = (e) => (G.rectToFrame ? G.rectToFrame(e.getBoundingClientRect()) : e.getBoundingClientRect());
+    const fr = F(fe);
+    const mw = parseFloat(getComputedStyle(fe).maxWidth);
+    const left = fr.left, right = left + (isFinite(mw) ? mw : 300), top = fr.top;
+    let lim = Infinity;
+    for (const b of document.querySelectorAll('[data-tb], #t-f.on')) {
+      const r = F(b);
+      if (r.width < 1 || r.height < 1) continue;
+      if (r.right > left && r.left < right && r.bottom > top) lim = Math.min(lim, r.top);
+    }
+    return Math.max(1, Math.min(3, Math.floor((lim - top + 3) / FEED_ROW_TOUCH)));
+  }
+  const feedMax = feedFit;
+  // 行数满了先挤掉最不要紧的（同样要紧挤掉最早的）：pr 4 新技能 / 宝石 / 烬铸以上 / 警告，3 稀有、▲ 和自动分解（东西被化掉了，得让人看到），2 烛芯 / 重复宝石，1 通货和并起来的普通、魔法物品
   function feedTrim() {
     const fl = wui.feedList;
     while (fl.length > feedMax()) {
@@ -7978,7 +7996,7 @@
       d.className = 'fd offcls';
       d.style.setProperty('--c', '#7fe0c0');
       wui.feed.appendChild(d);
-      f = { key: 'offcls', el: d, n: 0, cnt: 0, sum: {}, die: 0, life: FEED_MS, out: false, pr: 2 };
+      f = { key: 'offcls', el: d, n: 0, cnt: 0, sum: {}, die: 0, life: FEED_MS, out: false, pr: 3 };
       fl.push(f);
       feedTrim();
     }
@@ -8864,6 +8882,7 @@
     feedWarn, // 拾取时的警告（game.js）
     salvNote, // 手动分解的结果（game.js）
     feedClear, // 清空拾取记录（测试用）
+    feedFit, // 现在最多几行（桌面 4；触屏 3，左边有按钮挡着时更少）
     bigToast,
     bigToastReset,
     verdict, // 换装评估（只读）：{ badge, score, empty, lines } | null

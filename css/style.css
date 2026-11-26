@@ -4375,8 +4375,8 @@ html.touch-ui .co-body { margin-top: 0; font-size: 12px; line-height: 17px; disp
 html.touch-ui #coach.t-open .co-body { display: block; -webkit-line-clamp: unset; }
 /* 拾取记录：区域名下面、提示卡（顶上居中，最低到 +104）以下，最多 3 行 */
 html.touch-ui #feed { left: calc(var(--sa-l) + 8px); bottom: auto; top: calc(var(--sa-t) + 108px); max-width: min(300px, calc(calc(100 * var(--vw, 1vw)) * 0.42)); }
-/* 首领条出来时提示卡挪到 +112（两行到 +160 左右），拾取记录跟着让到它下面 */
-html.touch-ui.t-boss #feed { top: calc(var(--sa-t) + 168px); }
+/* 首领条出来时提示卡挪到 +112（和拾取记录同高）：拾取记录收窄，右边停在提示卡左边以外（提示卡最宽 min(40%, 360px)、居中） */
+html.touch-ui.t-boss #feed { max-width: min(300px, calc(50 * var(--vw, 1vw) - min(20 * var(--vw, 1vw), 180px) - var(--sa-l) - 18px)); }
 html.touch-ui .fd { height: 22px; line-height: 22px; font-size: 12px; gap: 5px; padding-right: 8px; }
 html.touch-ui .fd .ibox { width: 18px; height: 18px; }
 html.touch-ui .fd-note { font-size: 11px; }
