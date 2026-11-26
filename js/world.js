@@ -25805,7 +25805,7 @@
     const lo = qualId === 'low';
     if (!PF.vShape) return;
     if (blastCalm(x, z) || !b1Take()) { // class-d2b2：心火 / 燎原的「一群只放一处」：同一群里第二个起只留焦痕
-      b1ScorchChips(x, z, R, lo ? 1 : 2); // 超出每帧上限 / 同一群的第二处起：只留暗碎痕（打击痕迹池，不占形状批、不加 draw）
+      b1ScorchChips(x, z, R, lo ? 1 : 2); // 超出每帧上限 / 同一群的第二处起：只留暗碎痕（焦痕的实例网格，不占形状批、不加 draw）
       return;
     }
     tChunk(1, x, 0.9, z, 0, 0, 0, 0.06, lo ? 0.5 : 0.8, 0xffb86a, 0xff7a2a, 0); // scorch-thin：小星不再近白 // class-d2b2：低画质的小星收小（低画质不该比高画质显得重）
@@ -25818,11 +25818,12 @@
     }
     W.vDecal(VVD.scorch, x, z, R * (lo ? 0.3 : 0.4), 2.2, 0x7a2e14, { a: lo ? 0.4 : 0.5 }); // 原来 R × 0.55、满浓度：高画质淡一半、半径小三成；低画质再小一圈、更淡
   }
-  // 暗碎痕：爆燃中心附近几块小灰迹（W.decal 的灰迹，0.3–0.5 米，暗褐、软边、不发光；焦痕那种实心黑点像地上的洞）
+  // 暗碎痕：爆燃中心附近几块小而淡的焦痕（0.3–0.5 米，灰褐、不发光的颜色）。画进焦痕同一个实例网格（W.vDecal），
+  // 不用打击痕迹的网格：那个网格空着时不画，碎痕一放就会多一次 draw
   function b1ScorchChips(x, z, R, n) {
     for (let i = 0; i < n; i++) {
       const a = vr(0, TAU), d = R * vr(0.1, 0.45);
-      W.decal(4, x + Math.sin(a) * d, z + Math.cos(a) * d, vr(0.3, 0.5), vr(0, TAU), 0x4e3c34, vr(1.3, 1.9));
+      W.vDecal(VVD.scorch, x + Math.sin(a) * d, z + Math.cos(a) * d, vr(0.3, 0.5), vr(1.3, 1.9), 0x2e2622, { a: 0.45 });
     }
   }
   // 冻结：脚边一圈尖朝外的冰晶 + 往下掉的冰碴 + 一道冷色细环；地上一片冻青灰的霜痕（比地面暗；低画质不铺）
