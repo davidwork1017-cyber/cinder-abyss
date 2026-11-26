@@ -834,6 +834,7 @@
     restoreRot();
   }
   function disable() {
+    probe(false);
     setRot(null);
     watchTilt(false);
     watchIntro(false);
@@ -964,18 +965,34 @@
   // 现在：html 撑到 100lvh（html.t-stand，style.css），body 改成 absolute（跟着文档画），画面按 html 实际量出来的高摆（h，最多到屏幕高）；
   // HUD 只放进 visualViewport 那一块（vis，布局视口，一定画得出来），多出来的 cut = h − vis 算进竖着的屏幕底边的安全区（--t-cut）。
   // 100lvh 不比布局视口高的老系统上 h = vis：黑边还在，但 HUD 不会被裁。浏览器标签页里照旧按 innerHeight（工具栏伸缩时 layout() 重新量）
-  const view = { h: 0, vis: 0, cut: 0, stand: false };
+  // rot-safe2（真机读数 2026-11-25）：innerHeight、visualViewport 后来都是 874，只有 documentElement.clientHeight（初始包含块）还是 812。
+  // 所以 vis 取三者最小：HUD 只摆在 clientHeight 那一块里，不管系统往下画到哪都不会被裁；画布照旧铺满 h（html 量出来的整块屏幕）
+  // inp：量的时候窗口和屏幕多大（每帧对一下，只读不会触发排版的这几样）；html：当时 html 盒子的高
+  const view = { h: 0, vis: 0, cut: 0, stand: false, inp: '', html: 0 };
+  const viewInp = () => {
+    const sc = window.screen;
+    return window.innerWidth + ',' + window.innerHeight + ',' + (sc ? sc.width + 'x' + sc.height : '');
+  };
+  // 不改任何东西，照 measure() 的算法再算一遍画面高和 HUD 高（每 30 帧的兜底用；会读 html 盒子、visualViewport，触发一次排版）
+  function measureNow() {
+    const de = document.documentElement, ih = window.innerHeight, sc = window.screen, vv = window.visualViewport;
+    if (!view.stand) return { h: ih, vis: ih };
+    const vis = Math.round(Math.min(vv && vv.height > 0 ? vv.height : ih, ih, de.clientHeight || ih));
+    return { h: Math.max(vis, Math.min(sc.height, Math.round(de.getBoundingClientRect().height))), vis };
+  }
   function measure() {
     const de = document.documentElement, ih = window.innerHeight, sc = window.screen, vv = window.visualViewport;
     const stand = !!G.rot && navigator.standalone === true && !!sc && Math.abs(sc.width - window.innerWidth) <= 1;
     de.classList.toggle('t-stand', stand);
     view.stand = stand;
+    view.inp = viewInp();
     if (!stand) {
       view.h = view.vis = ih;
       view.cut = 0;
     } else {
-      view.vis = Math.round(vv && vv.height > 0 ? vv.height : ih);
-      view.h = Math.max(view.vis, Math.min(sc.height, Math.round(de.getBoundingClientRect().height)));
+      view.vis = Math.round(Math.min(vv && vv.height > 0 ? vv.height : ih, ih, de.clientHeight || ih));
+      view.html = Math.round(de.getBoundingClientRect().height);
+      view.h = Math.max(view.vis, Math.min(sc.height, view.html));
       view.cut = view.h - view.vis;
     }
     de.style.setProperty('--t-cut', view.cut + 'px');
@@ -1057,7 +1074,12 @@
     } catch (e) {
       /* 隐私模式 */
     }
-    layout();
+    inSetRot = true;
+    try {
+      layout();
+    } finally {
+      inSetRot = false;
+    }
     window.dispatchEvent(new Event('resize')); // 画布、叠加层、面板按新的画面尺寸重排（world.js / ui.js 听 resize）
     return !!dir;
   }
@@ -1098,11 +1120,20 @@
     return { t: n('top'), r: n('right'), b: n('bottom'), l: n('left') };
   }
   const MM_SIZE = 110;
+  let frameKey = '', inSetRot = false;
   function layout() {
     if (!T.on) return;
     // 可见高度：iOS 的工具栏会占掉一截（100vh 比看得见的高），按 visualViewport 算
     const vv = window.visualViewport;
     if (G.rot) placeRot(); // 旋转横屏：屏幕尺寸变了（工具栏伸缩）就重新摆
+    // 画面尺寸跟上次不一样了就再发一次 resize（rot-safe2）：world.js 的 resize 比这里先跑，读到的还是旧尺寸，
+    // iOS 主屏幕 App 刚打开时布局视口是 812、过一会儿才变 874，画布就一直停在 812（用户截图 2026-11-25，画面右边一条暗边、小地图被切）
+    const fk = G.rot ? G.viewW() + 'x' + G.viewH() : '';
+    if (fk !== frameKey) {
+      const was = frameKey;
+      frameKey = fk;
+      if (was && fk && !inSetRot) window.dispatchEvent(new Event('resize'));
+    }
     document.documentElement.style.setProperty('--app-h', Math.round(G.rot ? G.viewH() : vv && vv.height > 0 ? vv.height : window.innerHeight) + 'px');
     const s = safe();
     const k = MM_SIZE / ((W.minimapInfo && W.minimapInfo().size) || 172);
@@ -1137,7 +1168,7 @@
     o.fill.style.transform = 'scaleX(' + (max > 0 ? Math.max(0, Math.min(1, v / max)) : 0) + ')';
     o.num.textContent = key;
   }
-  let lastT = 0;
+  let lastT = 0, rotN = 0;
   function tick(now) {
     if (!T.on) {
       raf = 0;
@@ -1152,6 +1183,22 @@
       document.documentElement.classList.toggle('t-tsub', !!(ti && ti.classList.contains('sub'))); // 标题画面在子页上：右上角让给「返回」
     }
     if (T.portrait !== G.viewH() > G.viewW()) layout();
+    // 兜底（rot-safe2）：画面尺寸只靠事件重量不够——resize 事件处理完以后 html 盒子（min-height 100lvh）才长高的话，就再没有事件来了，
+    // 画面一直停在刚打开时的高（zone-ready 的 webkit 全套里 375×812 停在 768）。所以每帧对一下 measure() 用的输入，变了就重量；
+    // 每 30 帧再照 measure() 完整算一遍（html 盒子、visualViewport、clientHeight），和现在的不一样也重量。之后画布的尺寸和画面对不上就补一次 resize
+    if (G.rot) {
+      rotN++;
+      if (viewInp() !== view.inp) layout();
+      else if (rotN % 30 === 0) {
+        const m = measureNow();
+        if (m.h !== view.h || m.vis !== view.vis) layout();
+      }
+    }
+    if (G.rot && W.viewSize) {
+      const vs = W.viewSize();
+      if (vs.w !== Math.max(1, G.viewW()) || vs.h !== Math.max(1, G.viewH())) window.dispatchEvent(new Event('resize'));
+    }
+    if (probeOn) probePlace();
     dom.portrait.classList.toggle('on', T.portrait);
     // 触屏下开场卡片讲的就是触屏操作（swapIntro）：它弹过，首次提示卡就不再弹，不然同一套操作连讲两遍。
     // 卡片一打开就记下（不等点「开始」）：开着卡片刷新页面，回来也不会补弹提示卡
@@ -1245,12 +1292,16 @@
   }
 
   // 设置里的「设备信息」（rot-safe）：真机上截图核对视口模型用。只在本机显示，不往外发
-  let saProbe = null;
+  let saProbe = null, lvhProbe = null;
   function devInfo() {
     if (!saProbe) {
       saProbe = document.createElement('div');
       saProbe.style.cssText = 'position:fixed;left:0;top:0;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px)';
-      (dom ? dom.root : document.body).appendChild(saProbe);
+      lvhProbe = document.createElement('div');
+      lvhProbe.style.cssText = 'position:absolute;left:0;top:0;width:1px;height:100vh;height:100lvh;visibility:hidden;pointer-events:none';
+      const host = dom ? dom.root : document.body;
+      host.appendChild(saProbe);
+      host.appendChild(lvhProbe);
     }
     const cs = getComputedStyle(saProbe), px = (k) => Math.round(parseFloat(cs[k]) || 0);
     const sc = window.screen, vv = window.visualViewport, de = document.documentElement;
@@ -1261,6 +1312,7 @@
     const ver = ((document.querySelector('#title .t-foot span') || {}).textContent || '').match(/v\d+(\.\d+)*/);
     const lm = new Date(document.lastModified);
     const two = (n) => (n < 10 ? '0' : '') + n;
+    const cvs = canvasInfo();
     const when = isNaN(lm) ? '?' : lm.getFullYear() + '-' + two(lm.getMonth() + 1) + '-' + two(lm.getDate()) + ' ' + two(lm.getHours()) + ':' + two(lm.getMinutes());
     return [
       ['屏幕', sc.width + '×' + sc.height],
@@ -1272,10 +1324,122 @@
       ['旋转', G.rot ? '开 ' + G.rot.dir : '关'],
       ['方向', (so && so.type ? so.type : '?') + ' · ' + (window.orientation !== undefined ? window.orientation : '?')],
       ['画面', Math.round(G.viewW()) + '×' + Math.round(G.viewH()) + (G.rot ? ' · 按 ' + (view.stand ? 'html 高' : 'innerHeight') : '')],
-      ['画到', '竖着的屏幕 y ' + Math.round(Math.max(window.innerHeight, htmlH, bodyH)) + (G.rot ? ' · 可见 ' + view.vis + ' · 底边让出 ' + view.cut : '')],
+      // rot-safe2：画布、叠加层实际多大（CSS 尺寸 = 画面坐标，缓冲 = 像素），renderer 按多大画
+      ['画布', cvs.css + ' · 缓冲 ' + cvs.gl + ' · 渲染 ' + cvs.rd + ' · 叠加层 ' + cvs.ov],
+      // 画到：竖着的屏幕上，画布的底边到哪、HUD 摆到哪（HUD 只摆在 clientHeight / 可视区 / innerHeight 最小的那一块里）
+      ['画到', '画布到竖着的屏幕 y ' + cvs.bottom + ' · HUD 到 ' + (G.rot ? view.vis : Math.round(Math.min(window.innerHeight, de.clientHeight))) + (G.rot ? ' · 底边让出 ' + view.cut : '') + ' · 页面 ' + Math.round(Math.max(de.clientHeight, htmlH, bodyH))],
+      ['高度', 'clientHeight ' + de.clientHeight + ' · innerHeight ' + window.innerHeight + ' · 可视区 ' + (vv ? r1(vv.height) : '无') + ' · 100lvh ' + (lvhProbe ? lvhProbe.offsetHeight : '?') + ' · html ' + htmlH],
       ['html', '高 ' + htmlH + ' · clientHeight ' + de.clientHeight],
       ['版本', (ver ? ver[0] : '?') + ' · 页面 ' + when],
     ];
+  }
+  // 3D 画布 / 叠加层的尺寸，和 3D 画布在竖着的屏幕上的底边（getBoundingClientRect 是转过以后的屏幕坐标）
+  function canvasInfo() {
+    const gl = document.getElementById('gl'), ov = document.getElementById('overlay');
+    const vs = W.viewSize ? W.viewSize() : null;
+    const fr = gl ? G.rectToFrame(gl.getBoundingClientRect()) : null;
+    const sb = gl ? gl.getBoundingClientRect().bottom : 0;
+    return {
+      css: fr ? Math.round(fr.width) + '×' + Math.round(fr.height) : '?',
+      gl: gl ? gl.width + '×' + gl.height : '?',
+      ov: ov ? ov.width + '×' + ov.height : '?',
+      rd: vs ? vs.w + '×' + vs.h : '?',
+      bottom: Math.round(sb),
+    };
+  }
+
+  // 设置 → 设备信息 → 「画面测试」（rot-safe2）：在竖着的屏幕底边那一截（clientHeight 到屏幕底，真机上 812–874）涂几条色带，
+  // 每条用一种摆法，真机截图一看就知道哪一层画到了屏幕底；顶上同样高的一条做对照，上面一行写着每条是什么。只在本机，刷新就关
+  const PROBE_COLS = [
+    ['固定底', '#ff3b30'],
+    ['html 绝对', '#ff9500'],
+    ['body 100lvh', '#ffd60a'],
+    ['html 底色', '#ff00ff'],
+    ['body 底色', '#00e5ff'],
+    ['画布', '#30ff30'],
+    ['叠加层', '#3b6cff'],
+  ];
+  let probeOn = false, probeKey = '', probeEls = null;
+  function probeGeom() {
+    const de = document.documentElement, Ws = window.screen.width, Hs = window.screen.height;
+    const sw = G.rot ? G.rot.W : window.innerWidth, sh = G.rot ? G.rot.H : window.innerHeight; // 竖着的屏幕（画面没转时就是窗口）
+    const top = Math.min(de.clientHeight, sh - 62), bh = Math.max(20, sh - top);
+    const x0 = Math.round(sw * 0.125), cw = Math.floor((sw - 2 * x0) / PROBE_COLS.length);
+    return { sw, sh, top, bh, x0, cw, Ws, Hs };
+  }
+  // 竖着的屏幕上的矩形 → 画面（body 里）的矩形
+  function scrToFrame(x, y, w, h) {
+    const a = G.toFrame(x, y), b = G.toFrame(x + w, y + h);
+    return [Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y)];
+  }
+  function probePlace() {
+    const g = probeGeom(), de = document.documentElement, b = document.body;
+    const key = [G.rot ? G.rot.dir : '', g.sw, g.sh, g.top, G.viewW(), G.viewH()].join(',');
+    if (key === probeKey && probeEls) return;
+    probeKey = key;
+    probeOff(true);
+    const col = (i) => [g.x0 + i * g.cw, g.top, g.cw - 2, g.bh];
+    const el = (host, css, txt) => {
+      const d = document.createElement('div');
+      d.className = 't-probe';
+      d.style.cssText = 'pointer-events:none;box-sizing:border-box;z-index:2147483646;font:600 10px/12px system-ui,sans-serif;color:#000;text-align:center;overflow:hidden;' + css;
+      if (txt) d.textContent = txt;
+      host.appendChild(d);
+      return d;
+    };
+    const els = [];
+    const pos = (r) => 'left:' + r[0] + 'px;top:' + r[1] + 'px;width:' + r[2] + 'px;height:' + r[3] + 'px;';
+    // 顶部对照：fixed，顶上同样高的一条
+    els.push(el(de, 'position:fixed;left:0;top:0;width:' + g.sw + 'px;height:' + g.bh + 'px;background:rgba(255,255,255,.85);padding-top:' + Math.max(0, g.bh - 14) + 'px', '顶部对照'));
+    // 说明行：色带上面一行，写每条是什么（这一截一定画得出来）
+    PROBE_COLS.forEach((c, i) => els.push(el(de, 'position:absolute;' + pos([col(i)[0], g.top - 26, g.cw - 2, 24]) + 'background:' + c[1] + ';color:#000', c[0])));
+    // 1 固定底（html 里，不跟 body 转）
+    els.push(el(de, 'position:fixed;bottom:0;left:' + col(0)[0] + 'px;width:' + (g.cw - 2) + 'px;height:' + g.bh + 'px;background:' + PROBE_COLS[0][1], PROBE_COLS[0][0]));
+    // 2 html 里 absolute，top = clientHeight
+    els.push(el(de, 'position:absolute;' + pos(col(1)) + 'background:' + PROBE_COLS[1][1], PROBE_COLS[1][0]));
+    // 3 body 里，竖着的屏幕上 100lvh − 带高 到 100lvh（body 转着时换到画面坐标）
+    const r3 = col(2), bh = g.bh;
+    let css3;
+    if (!G.rot) css3 = 'left:' + r3[0] + 'px;top:calc(100lvh - ' + bh + 'px);width:' + r3[2] + 'px;height:' + bh + 'px;';
+    else if (G.rot.dir === 'cw') css3 = 'left:calc(100lvh - ' + bh + 'px);top:' + (g.sw - r3[0] - r3[2]) + 'px;width:' + bh + 'px;height:' + r3[2] + 'px;';
+    else css3 = 'left:calc(' + G.viewW() + 'px - 100lvh);top:' + r3[0] + 'px;width:' + bh + 'px;height:' + r3[2] + 'px;';
+    els.push(el(b, 'position:absolute;' + css3 + 'background:' + PROBE_COLS[2][1], PROBE_COLS[2][0]));
+    // 4–7 的字（色带本身由底色 / 画布画）
+    for (let i = 3; i < 7; i++) els.push(el(de, 'position:absolute;' + pos(col(i)) + 'padding-top:' + Math.max(0, g.bh / 2 - 6) + 'px', PROBE_COLS[i][0]));
+    // 4 / 5：html 底色品红，body 底色只在第 5 条那块是青色（其余透明），两块的画布挖空
+    const f4 = scrToFrame(...col(3)), f5 = scrToFrame(...col(4));
+    probeEls = { els, html: de.style.background, body: b.style.background };
+    de.style.background = PROBE_COLS[3][1];
+    b.style.background = 'linear-gradient(' + PROBE_COLS[4][1] + ',' + PROBE_COLS[4][1] + ') ' + f5[0] + 'px ' + f5[1] + 'px / ' + f5[2] + 'px ' + f5[3] + 'px no-repeat transparent';
+    const vw = G.viewW(), vh = G.viewH();
+    const hole = (f) => f[0] + 'px ' + f[1] + 'px,' + (f[0] + f[2]) + 'px ' + f[1] + 'px,' + (f[0] + f[2]) + 'px ' + (f[1] + f[3]) + 'px,' + f[0] + 'px ' + (f[1] + f[3]) + 'px,' + f[0] + 'px ' + f[1] + 'px,0 0';
+    const clip = 'polygon(evenodd,0 0,' + vw + 'px 0,' + vw + 'px ' + vh + 'px,0 ' + vh + 'px,0 0,' + hole(f4) + ',' + hole(f5) + ')';
+    for (const id of ['gl', 'overlay']) {
+      const c = document.getElementById(id);
+      if (c) c.style.clipPath = c.style.webkitClipPath = clip;
+    }
+    // 6 / 7：3D 画布、叠加层上各涂一条（world.js 的 drawProbe）
+    W.probe = { gl: scrToFrame(...col(5)), ov: scrToFrame(...col(6)) };
+  }
+  function probeOff(keep) {
+    if (probeEls) {
+      for (const e of probeEls.els) e.remove();
+      document.documentElement.style.background = probeEls.html;
+      document.body.style.background = probeEls.body;
+      probeEls = null;
+    }
+    for (const id of ['gl', 'overlay']) {
+      const c = document.getElementById(id);
+      if (c) c.style.clipPath = c.style.webkitClipPath = '';
+    }
+    W.probe = null;
+    if (!keep) probeKey = '';
+  }
+  function probe(on) {
+    probeOn = !!on;
+    if (probeOn) probePlace();
+    else probeOff();
+    return probeOn;
   }
   const devText = () => devInfo().map((x) => x[0] + '  ' + x[1]).join('\n');
   function devRefresh() {
@@ -1305,6 +1469,8 @@
   });
   T.keys = { MODE_KEY, HINT_KEY, SIZE_KEY, MIRROR_KEY, VIBE_KEY, ROT_KEY };
   T.devText = devText;
+  T.probe = probe; // 画面测试（rot-safe2）：不存，刷新就关
+  T.probeOn = () => probeOn;
   T.view = () => Object.assign({}, view);
   T.setRot = setRot; // 测试用
   T.goLandscape = goLandscape;
