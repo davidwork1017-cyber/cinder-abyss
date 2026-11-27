@@ -516,7 +516,6 @@ async function install() {
       },
     });
     T.hintsSeen(); // 情境提示按真实时间走，除了专门测它的那一步，其余步骤里都关掉
-    G.save.opts.hints = true; // hint-once：测试角色是高等级的老存档（默认关），专门测提示的步骤要它开着；设置里动过一样会写这个键
     G.debug.hold(true);
   });
 }
@@ -530,6 +529,11 @@ async function uiStep(name, fn) {
         G.ui.close();
         G.debug.hold(true);
         T.hintsSeen();
+        // hint-once：测提示的几步把「新手提示」开关写成 true（测试角色读档时多半是老手、默认关）；步骤前后拿掉，存档回到没有这个键
+        if (G.save && G.save.opts && 'hints' in G.save.opts) {
+          delete G.save.opts.hints;
+          G.persist();
+        }
       });
     await page.mouse.up();
     await reset();
@@ -808,6 +812,7 @@ async function timedMain() {
       G.save.bag.length = 0;
       G.save.blankGems = [];
       G.save.tut = { move: 1, attack: 1, bag: 1, craft: 1, support: 1, passive: 1, combo: 1, poise: 1, wskill: 1 };
+      G.save.opts.hints = true; // hint-once：开关打开（uiStep 收尾时拿掉）
       G.save.level = 3;
       G.computeStats();
       G.ui.refresh();
@@ -835,6 +840,7 @@ async function timedMain() {
       G.save.level = 5;
       G.computeStats();
       G.save.tut = { move: 1, attack: 1, dodge: 1, combo: 1, poise: 1, loot: 1, bag: 1, craft: 1, support: 1, execute: 1, boss: 1, portal: 1, wskill: 1 };
+      G.save.opts.hints = true; // hint-once：开关打开（uiStep 收尾时拿掉）
       G.resetPassives();
       G.player.flask.life = 3;
       G.ui.refresh();
@@ -9111,6 +9117,7 @@ async function main() {
       T.arena();
       T.hintsSeen();
       delete G.save.tut.blank;
+      G.save.opts.hints = true; // hint-once：开关打开（uiStep 收尾时拿掉）
       G.ui.hintsGap(0);
       G.save.blankGems = [];
       const P = G.player;
@@ -9162,6 +9169,7 @@ async function main() {
       G.save.bag.length = 0;
       G.save.blankGems = []; // 前面的步骤里可能随机捡到过无铭宝石：它的提示会插队
       G.save.tut = {};
+      G.save.opts.hints = true; // hint-once：开关打开（uiStep 收尾时拿掉）
       G.ui.refresh();
       G.debug.hold(false);
       return k;
@@ -9431,7 +9439,7 @@ async function main() {
     await ev((keep) => {
       G.debug.hold(true);
       T.hintsSeen();
-      G.save.opts.hints = true;
+      delete G.save.opts.hints;
       G.save.level = keep.level;
       G.save.xp = keep.xp;
       G.save.bag.length = 0;
@@ -11023,6 +11031,7 @@ async function main() {
       G.computeStats();
       T.hintsSeen();
       delete G.save.tut.combo;
+      G.save.opts.hints = true; // hint-once：开关打开（uiStep 收尾时拿掉）
       G.ui.hintsGap(0);
     });
     await frames(20);

@@ -864,11 +864,12 @@ await step('新手提示卡（hint-once）：旋转横屏里「捡到通货」�
       b: { l: Math.round(b.left), t: Math.round(b.top), r: Math.round(b.right), bt: Math.round(b.bottom) }, W, H, topB: Math.round(top.bottom),
       centre: b.left < W / 2 && b.right > W / 2 && b.top < H / 2 && b.bottom > H / 2,
       lines: Math.round(G.rectToFrame(co.querySelector('.co-body').getBoundingClientRect()).height / 17),
-      txt: co.innerText.replace(/\s+/g, ' '), seen: !!G.save.tut.craft && Object.keys(localStorage).some((k) => /^cinder-abyss/.test(k) && /"tut":\{[^}]*"craft":1/.test(localStorage.getItem(k) || '')), // 当前角色不一定在第 1 栏；看过的提示也写进全局那份 vis: G.ui.hints().visFor,
+      txt: co.innerText.replace(/\s+/g, ' '), seen: !!G.save.tut.craft, stored: Object.keys(localStorage).filter((k) => /"tut":\{[^}]*"craft":1/.test(localStorage.getItem(k) || '')).join(), vis: G.ui.hints().visFor,
     };
   });
   assert(r.b.t >= r.topB - 1 && r.b.l >= 0 && r.b.r <= r.W && !r.centre && r.lines <= 4 && r.txt.includes('通货') && r.txt.includes('「包」'), '提示卡应在顶栏下面、不压画面中央、最多四行：' + JSON.stringify(r));
-  assert(r.seen && r.vis >= 6 && r.vis <= 8, '一出现就应记为看过、亮 6–8 秒：' + JSON.stringify(r));
+  // 当前角色不一定在第 1 栏（这一页是转着新建的角色）；看过的提示也写进全局那份
+  assert(r.seen && /cinder-abyss-global/.test(r.stored) && r.vis >= 6 && r.vis <= 8, '一出现就应记为看过（写进存档）、亮 6–8 秒：' + JSON.stringify(r));
   await tap('#coach');
   await page.waitForTimeout(300);
   const after = await ev(() => ({ cur: G.ui.hints().current, on: document.getElementById('coach').classList.contains('on'), casts: !!G.player.cast, gap: G.ui.hints().gapLeft }));
