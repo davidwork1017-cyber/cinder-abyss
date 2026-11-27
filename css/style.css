@@ -2237,6 +2237,9 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
 .slot.ready .s-icon { animation: slot-ready 0.6s ease-out; }
 /* 光环：常驻生效，图标外一圈缓缓呼吸的光 */
 .slot.aura .s-icon { animation: slot-aura 2.4s ease-in-out infinite; }
+/* 装填（imbue）开着：一圈元素色的亮边 + 图标底色偏到元素色（开关状态，静止不闪） */
+.slot.imb-on { box-shadow: inset 0 0 0 2px var(--imb), 0 0 7px 1px color-mix(in srgb, var(--imb) 55%, transparent); }
+.slot.imb-on .s-icon { background-color: color-mix(in srgb, var(--imb) 22%, transparent); }
 @keyframes slot-aura {
   0%, 100% { box-shadow: 0 0 0 1px color-mix(in srgb, var(--c) 45%, transparent), 0 0 6px color-mix(in srgb, var(--c) 30%, transparent); }
   50% { box-shadow: 0 0 0 1px color-mix(in srgb, var(--c) 80%, transparent), 0 0 12px color-mix(in srgb, var(--c) 55%, transparent); }
@@ -2330,6 +2333,7 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
 #boss-ail .ail { justify-content: center; width: 24px; height: 24px; padding: 0; border-radius: 50%; }
 #boss-ail .ail .ico { width: 18px; height: 18px; }
 
+/* 拾取记录（pickup-feed）：一条一行、小图标小字，桌面最多 4 行、触屏 3 行，长名字截断不折行；淡入淡出都轻 */
 #feed {
   position: absolute;
   left: 22px;
@@ -2337,33 +2341,43 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 4px;
+  gap: 3px;
+  max-width: min(360px, calc(calc(100 * var(--vw, 1vw)) - 44px));
+  pointer-events: none;
 }
 .fd {
   --c: #d6d1c4;
   display: flex;
   align-items: center;
-  gap: 8px;
-  height: 30px;
-  padding: 0 14px 0 2px;
+  gap: 6px;
+  box-sizing: border-box;
+  max-width: 100%;
+  height: 24px;
+  padding: 0 10px 0 2px;
   font-size: 13px;
+  line-height: 24px;
   white-space: nowrap;
   color: var(--c);
-  background: linear-gradient(90deg, rgba(12, 8, 6, 0.9), rgba(12, 8, 6, 0.5));
+  background: linear-gradient(90deg, rgba(12, 8, 6, 0.78), rgba(12, 8, 6, 0.32));
   border-left: 2px solid var(--c);
   text-shadow: 0 1px 2px #000;
-  animation: fd-in 0.2s ease-out both;
-  transition: opacity 0.35s, transform 0.35s;
+  animation: fd-in 0.25s ease-out both;
+  transition: opacity 0.4s ease-in;
 }
-.fd.out { opacity: 0; transform: translateX(-10px); }
-.fd .ibox { width: 26px; height: 26px; }
-.fd b { color: #fff; font-weight: 600; font-variant-numeric: tabular-nums; }
+.fd.out { opacity: 0; }
+.fd .ibox { flex: none; width: 20px; height: 20px; }
+.fd-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.fd b { flex: none; color: #fff; font-weight: 600; font-variant-numeric: tabular-nums; }
 .fd b:empty { display: none; }
-.fd em { font-style: normal; }
+.fd em { flex: none; font-style: normal; }
 .fd-up { color: #8fe07a; }
 .fd-note { font-size: 11px; color: var(--faint); }
+/* 自动分解其他职业武器（T36）：并成一行后没有图标 */
+.fd.noic { padding-left: 8px; }
+/* 警告（背包满了 / 走近一点）：没有图标，暖红边 */
+.fd.warn { padding-left: 8px; font-weight: 600; background: linear-gradient(90deg, rgba(40, 10, 6, 0.82), rgba(40, 10, 6, 0.34)); }
 @keyframes fd-in {
-  from { opacity: 0; transform: translateX(-12px); }
+  from { opacity: 0; transform: translateX(-8px); }
   to { opacity: 1; transform: none; }
 }
 .toast.has-icon { display: flex; align-items: center; gap: 9px; }
@@ -3055,8 +3069,6 @@ body.alt-on #quest .q-h { display: none; }
 .bk-txt { min-width: 0; }
 .bk-top { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; }
 .bk-top b { font-family: var(--serif); font-size: 15px; letter-spacing: 1px; color: var(--blank); }
-.bk-lv { font-size: 12.5px; color: #f2eaff; }
-.bk-all { font-size: 11.5px; color: #8d8299; }
 .bk-how, .bk-msg { margin-top: 2px; font-size: 12px; line-height: 17px; color: #a79cb5; }
 .bk-msg { color: #9fdc8a; }
 .bk-msg .bad { color: #ff8a7a; }
@@ -3082,27 +3094,6 @@ body.alt-on #quest .q-h { display: none; }
 .sm-learn:hover { border-color: var(--blank); color: #fff; background: #1b1420; }
 .sm-learn.armed { border-color: var(--blank); background: #2a2036; box-shadow: 0 0 0 1px var(--blank), 0 0 12px rgba(226, 204, 255, 0.3); }
 .sm-learn.armed em { color: #fff; }
-.blank-up {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  height: 20px;
-  margin-left: 8px;
-  padding: 0 7px 0 3px;
-  vertical-align: 2px;
-  font-family: var(--sans);
-  font-weight: 400;
-  font-size: 11.5px;
-  letter-spacing: 0;
-  color: var(--blank);
-  background: #1a1420;
-  border: 1px solid #4a3d5c;
-  border-radius: 3px;
-  cursor: pointer;
-}
-.blank-up .ico { width: 18px; height: 18px; }
-.blank-up:hover { border-color: var(--blank); color: #fff; }
-.blank-up.armed { color: #fff; background: #2a2036; border-color: var(--blank); box-shadow: 0 0 10px rgba(226, 204, 255, 0.35); }
 
 /* ============================================================
    烬铸（稀有度 3）：偏暗的金红色，格子 / 卡片带一圈缓慢呼吸的余烬光
@@ -3671,6 +3662,8 @@ html.title-on #title { display: block; }
 /* 标题画面盖着的时候 HUD、世界层名牌、提示一律不显示 */
 html.title-on #hud, html.title-on #wui, html.title-on #overlay, html.title-on #toasts, html.title-on #coach,
 html.title-on #reticle, html.title-on #vignette, html.title-on #lowlife, html.title-on #death, html.title-on #tip { display: none; }
+/* 设置 → 设备信息 → 「画面测试」开着时标题画面也放出叠加层（t45）：上面只画测试色带（world.js 的 W.render），不然标题画面截图里叠加层那条永远是空的 */
+html.title-on.t-probe-on #overlay { display: block; }
 .t-shade {
   position: absolute;
   inset: 0;
@@ -4362,7 +4355,13 @@ html.touch-ui.t-boss #coach { top: calc(var(--sa-t) + 112px); }
 html.touch-ui #coach .co-tag, html.touch-ui #coach .co-ok { display: none; }
 html.touch-ui .co-body { margin-top: 0; font-size: 12px; line-height: 17px; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
 html.touch-ui #coach.t-open .co-body { display: block; -webkit-line-clamp: unset; }
-html.touch-ui #feed { left: calc(var(--sa-l) + 8px); bottom: auto; top: calc(var(--sa-t) + 100px); }
+/* 拾取记录：区域名下面、提示卡（顶上居中，最低到 +104）以下，最多 3 行 */
+html.touch-ui #feed { left: calc(var(--sa-l) + 8px); bottom: auto; top: calc(var(--sa-t) + 108px); max-width: min(300px, calc(calc(100 * var(--vw, 1vw)) * 0.42)); }
+/* 首领条出来时提示卡挪到 +112（和拾取记录同高）：拾取记录收窄，右边停在提示卡左边以外（提示卡最宽 min(40%, 360px)、居中） */
+html.touch-ui.t-boss #feed { max-width: min(300px, calc(50 * var(--vw, 1vw) - min(20 * var(--vw, 1vw), 180px) - var(--sa-l) - 18px)); }
+html.touch-ui .fd { height: 22px; line-height: 22px; font-size: 12px; gap: 5px; padding-right: 8px; }
+html.touch-ui .fd .ibox { width: 18px; height: 18px; }
+html.touch-ui .fd-note { font-size: 11px; }
 html.touch-ui #toasts { top: calc(var(--sa-t) + 116px); }
 html.touch-ui #big-toast { top: 30%; }
 
@@ -4988,7 +4987,6 @@ html.touch-ui { --fs-md: 14px; --fs-lg: 16px; --head-h: 36px; --hit: 44px; }
 .skc-in > .sk-socks { margin: 0 0 8px; }
 .skc-in > .sk-desc { margin-top: 0; }
 .skc-in .sk-up { margin-bottom: 8px; }
-.skc-in .sk-up .blank-up { margin-left: 0; }
 .supc .sup-desc { margin-top: 0; font-size: var(--fs-base); line-height: 19px; }
 .spc-at { margin: 8px 0 10px; font-size: var(--fs-sm); color: var(--dim); }
 .sh-acts .sh-al { flex: none; align-self: center; font-size: var(--fs-sm); color: var(--dim); }
@@ -5020,7 +5018,7 @@ html.touch-ui { --fs-md: 14px; --fs-lg: 16px; --head-h: 36px; --hit: 44px; }
   .sheet.skc .sock { height: 44px; border-radius: 22px; overflow: hidden; text-overflow: ellipsis; }
   .sheet.skc .sv-btn { min-height: 44px; padding: 0 10px; }
   .sheet.skc .sk-var { gap: 4px; }
-  .sheet.skc .blank-up, .sheet.skc .sk-auto-btn { min-height: 44px; }
+  .sheet.skc .sk-auto-btn { min-height: 44px; }
   .sheet.skc .alt-fold summary { min-height: 44px; }
   .sheet.skc .pk-row { min-height: 44px; }
   .sheet.skc .pk-back { min-width: 64px; height: 44px; font-size: var(--fs-base); }
@@ -5162,6 +5160,9 @@ button.m-row:hover .switch { border-color: var(--ember-2); }
 .m-row.del { flex-wrap: wrap; }
 .m-dacts { display: flex; gap: 8px; margin-left: auto; }
 .m-row.del .del-warn { flex: 1 1 180px; }
+.m-row.ask { flex-wrap: wrap; } /* 行内确认（T36 自动分解其他职业武器第一次打开）：说明占满一行，按钮放不下就换到下一行靠右 */
+.m-row.ask .opt-text { flex: 1 1 240px; }
+.m-row.ask .opt-text span { color: var(--dim); }
 #pause.set .pause-card { width: min(880px, calc(calc(100 * var(--vw, 1vw)) - 32px)); }
 html.touch-ui #pause.set .pause-card { width: calc(calc(100 * var(--vw, 1vw)) - var(--sa-l) - var(--sa-r) - 16px); }
 html.touch-ui .m-row { min-height: 44px; padding: 3px 0; }

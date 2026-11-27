@@ -30,13 +30,26 @@
   // 带节流的提示，避免同一条消息刷屏。只动界面（G.ui.toast 不取随机数、不改游戏状态），所以按真实时间节流：
   // 面板开着（游戏时间不走）时点「分解」「拾取」之类的提示照样能再出来
   const toastAt = {};
+  function uiDue(key, gapMs) {
+    if (!key) return true;
+    const now = Date.now();
+    if (now - (toastAt[key] || 0) < (gapMs || 1500)) return false;
+    toastAt[key] = now;
+    return true;
+  }
   function toast(msg, color, key, gapMs) {
-    if (key) {
-      const now = Date.now();
-      if (now - (toastAt[key] || 0) < (gapMs || 1500)) return;
-      toastAt[key] = now;
-    }
-    G.ui.toast(msg, color);
+    if (uiDue(key, gapMs)) G.ui.toast(msg, color);
+  }
+  // 拾取时的警告（走近一点、背包满了）不弹 toast，写成拾取记录里的一行（pickup-feed）；节流同 toast，同一个 key 共用一个时钟
+  function feedWarn(msg, key, gapMs) {
+    if (!uiDue(key, gapMs)) return;
+    if (G.ui.feedWarn) G.ui.feedWarn(msg, key);
+    else G.ui.toast(msg, '#ff8a6a');
+  }
+  // 手动分解的结果：写在背包页的绿色小字里（分解是在背包里点的；拾取记录在面板后面看不见）
+  function salvNote(msg) {
+    if (G.ui.salvNote) G.ui.salvNote(msg);
+    else G.ui.toast(msg, '#7fe0c0');
   }
   // 场景里的飘字提示（没有目标、魔力不足……）按游戏时间节流：飘字要取随机数，节流若看真实时间，
   // 帧快帧慢会让同一个种子打出不同的随机序列。暂停 / 面板开着时游戏时间不走，节流也跟着停
@@ -173,6 +186,8 @@
       // salvageRare 开着时魔法物品也一起分解（界面上「含魔法」显示为勾上且不能点），salvageMagic 本身不改，关掉「含稀有」就回到原来的状态
       // quality：画质档位 high / mid / low（世界层读取，见 G.world.setQuality）；auto = 玩家还没选过，每次启动按设备推断，掉帧时自动降档
       // hitFlash / hitStop / shake：打击手感的三个开关（受击闪光、顿帧、镜头震动），默认都开（vf-vfx2）
+      // salvageOffCls（T36，不在这里）：拾取时自动分解本职业用不了的武器。只在打开时写进 opts（true），关着就没有这个键，
+      // 从没打开过的存档一个新键都不多（和 cls 一样，退回旧代码时整份存档一字不差）；第一次打开要确认，确认过记在 tut.ascls
       opts: { autoWhite: false, hideNormal: false, autoSalvage: false, salvageMagic: false, salvageRare: false, quality: 'auto', hitFlash: true, hitStop: true, shake: true, ambience: true,
         volMaster: 80, volSfx: 80, volAmb: 60, volMusic: 50, mute: false }, // 音量（0–100，见 js/audio.js 的 G.audio.DEFAULTS）和静音
       seenHelp: false,
@@ -195,6 +210,7 @@
       bhCap: 1, bhNote: false, // 黑洞加「每跳最多伤到最近的 N 个」之后的存档；bhNote：学了黑洞的老存档，提示还没看过
       stFz: 1, stNote: false, // 魂潮狂热改成 12 秒 +15%（dur-tune）之后的存档；stNote：拿着魂幡（R 是魂潮）的老存档，提示还没看过
       dhCap: 1, dhNote: false, // 独骸加「每刀最多砍到 N 个」之后的存档；dhNote：选着独骸的老存档，提示还没看过
+      imbGen: 1, imbNote: false, // 装填（imbue）之后的存档；imbNote：学过铁水弹 / 雷楔 / 霜霰弹的老存档，提示还没看过
       hxCap: 1, hxNote: false, // 回旋加「每程最多伤到 N 个」之后的存档；hxNote：选着回旋的老存档，提示还没看过
       // 渊印：sealSeq 真正进区的次数（择印面板的随机种子，关掉地图再打开还是同样三枚）；
       // run 这一次进区 { zone, tier, seq, seal }（seal 为 null 是素印），读档时区域 / 层级对得上就接着用，倒下重生不动，换区 / 重进清掉
@@ -230,12 +246,24 @@
     return G.save;
   }
 
-  // 已学会的技能宝石随角色成长：等级不低于「角色等级 × 0.75」（和掉落宝石的等级曲线一致）。
-  // 否则宝石只能靠捡到更高等级的同名宝石来升，十几个技能里很难刷到想要的那个；召唤物不吃装备伤害，更依赖宝石等级。
-  // 返回这次被抬高的技能 id 列表
+  // 技能等级随角色成长：round(角色等级 × 0.75)，封顶 MAX_GEM_LEVEL。
+  // 技能宝石没有等级（gem-nolvl）：学会了的技能一律按这个等级算（G.skillLvl），和捡到的是哪颗宝石无关
   G.gemFloor = function () {
     return G.clamp(Math.round((G.save.level || 1) * 0.75), 1, MAX_GEM_LEVEL);
   };
+  // 已学技能此刻的等级：学会了 = G.gemFloor()，没学会 = 0。凡是要「技能等级」的地方都用它，别直接读 save.skills 的数。
+  // save.skills 里的数只当「学会了」用：只升不降（syncGemLevels 抬到下限，新学的记下限），改版前捡到的高于下限的旧值原样留着、不再起作用，
+  // 旧版本读这份存档时还是原来的等级（无损、可回退）。
+  // gemPin：测试 / 平衡工具按「宝石等级」量数值时（改版前直接改 save.skills），用 G.debug.pinGems(true) 让这里改回读存档里的数
+  G.gemPin = false;
+  G.skillLvl = function (id) {
+    const v = G.save && G.save.skills && G.save.skills[id];
+    if (!v) return 0;
+    return G.gemPin ? v : G.gemFloor();
+  };
+  // 刻式（A / B）要技能到 G.VARIANT_LVL 级，也就是角色到 G.VARIANT_CHAR_LVL 级（data.js；界面一律按角色等级说）
+  G.variantOpen = (id) => G.skillLvl(id) >= G.VARIANT_LVL;
+  // 存档里记的等级抬到下限（只升不降）。返回这次被抬高的技能 id 列表
   G.syncGemLevels = function () {
     const save = G.save;
     const up = [];
@@ -586,6 +614,7 @@
       volMaster: toInt(ro.volMaster, 0, 100, 80), volSfx: toInt(ro.volSfx, 0, 100, 80),
       volAmb: toInt(ro.volAmb, 0, 100, 60), volMusic: toInt(ro.volMusic, 0, 100, 50), mute: !!ro.mute,
     };
+    if (ro.salvageOffCls === true) s.opts.salvageOffCls = true; // 自动分解其他职业武器（T36）：只有打开时才有这个键，老存档没有 = 关
     s.seenHelp = !!raw.seenHelp;
     s.seenStory = !!raw.seenStory;
     s.tut = {};
@@ -684,6 +713,18 @@
     s.hxNote = !s.tut.hxnerf && ((raw.hxCap === undefined && s.variants.blade === 'c') || raw.hxNote === true);
     s.hxCap = 1;
     G.boomNerfed = s.hxNote ? 1 : 0;
+    // 装填（imbue，2026-11-25）之前的存档（没有 imbGen）：铁水弹 / 雷楔 / 霜霰弹改成了装填。学过其中任何一个的提示一次（tut.imbnote 看过就不再提示）；
+    // 宝石、等级、选过的刻式都按原样留着（a 还是 a、b 还是 b），这三个技能免费换刻式的那一次还给玩家
+    // imbFree（可选字段）：还回来的那一次还没用（选着刻式的技能，上面会按「选过就算用过」把它记成用过，所以要单独记着，读档往返不丢）
+    const rif = isObj(raw.imbFree) ? raw.imbFree : {};
+    for (const id of ['molten', 'wedge', 'rime']) {
+      if (raw.imbGen !== undefined && rif[id] !== true) continue;
+      delete s.variantFree[id];
+      if (s.variants[id]) (s.imbFree || (s.imbFree = {}))[id] = true;
+    }
+    s.imbNote = !s.tut.imbnote && ((raw.imbGen === undefined && ['molten', 'wedge', 'rime'].some((id) => s.skills[id] > 0)) || raw.imbNote === true);
+    s.imbGen = 1;
+    G.imbueRedone = s.imbNote ? 1 : 0;
     s.variantGen = G.VARIANT_GEN;
     const hadVar = Object.keys(s.variants).length > 0 || Object.keys(G.VARIANTS).some((id) => s.skills[id] >= G.VARIANT_LVL);
     s.varNote = !s.tut.variant2 && ((oldGen && hadVar) || raw.varNote === true);
@@ -722,6 +763,8 @@
     const rpk = isObj(raw.pinnacle) ? raw.pinnacle : {};
     s.pinnacle = { kills: toInt(rpk.kills, 0, 1e6, 0), pity: toInt(rpk.pity, 0, G.RELIC_DROP.pinnacle.pity, 0) };
     // 长明（class-d2b1）的保底计数：只在不为 0 时才有这个字段（没打过熄烛者 / 刚掉过的存档和以前一字不差，旧版本读到也不认识、照常丢掉）
+    // 装填（imbue，2026-11-25）：装着哪一种（没装时不写；老存档没有这个字段 = 没装）
+    if (typeof raw.imbue === 'string' && G.SKILL_BASE[raw.imbue] && G.SKILL_BASE[raw.imbue].kind === 'imbue') s.imbue = raw.imbue;
     const lp = toInt(raw.lampPity, 0, G.RELIGHT.pity, 0);
     if (lp > 0) s.lampPity = lp;
     // 烛芯：旧存档没有（全 0）；只认 G.FRAGS 的种类，个数 0–max。旧存档的保底计数 fragPity 不再读，也不再存
@@ -1239,6 +1282,9 @@
   G.canCast = (id) => !G.castBlock(id);
   // 能不能装上这件物品（只限制武器：别的职业的武器装不上）
   G.canEquip = (it) => !G.offClassItem(it);
+  // 「自动分解其他职业武器」（T36）会不会分掉这件：别的职业的武器，普通 / 魔法 / 稀有，没锁定。
+  // 烬铸、渊契（固定掉落）永远不分；本职业的、没有职业时都不分。开关和来源（自己丢下的不分）在 G.pickup 里看
+  G.offClsScrap = (it) => !!(it && it.slot === 'weapon' && it.rarity >= 0 && it.rarity <= 2 && !it.lk && !it.uq && !it.rq && G.offClassItem(it));
 
   // 起步天赋：本职业白送的那个节点（名字按职业起）
   G.clsNodeOf = (id) => {
@@ -1511,7 +1557,7 @@
     const s = G.save;
     let v = s && s.variants && s.variants[id];
     if (v === 'c') v = s.variantPrev && s.variantPrev[id];
-    return (v === 'a' || v === 'b') && G.VARIANTS[id] && s.skills && s.skills[id] >= G.VARIANT_LVL ? v : 'o';
+    return (v === 'a' || v === 'b') && G.VARIANTS[id] && s.skills && G.variantOpen(id) ? v : 'o';
   };
   // 这个技能的渊式此刻能不能用：身上那个部位戴着解锁它的渊契（直接看存档的装备，不等 computeStats）
   G.variantRelicOn = function (id) {
@@ -1563,13 +1609,17 @@
       if (v === 'o') delete save.variants[id];
       else save.variants[id] = v;
     } else {
-      if (!(save.skills[id] >= G.VARIANT_LVL)) return { ok: false, msg: '宝石 ' + G.VARIANT_LVL + ' 级才能选刻式' };
+      if (!G.variantOpen(id)) return { ok: false, msg: '角色 ' + G.VARIANT_CHAR_LVL + ' 级才能选刻式' };
       if (cur !== 'c' && cur === v) return { ok: true, cost: 0, same: true };
       if (G.variantBusy()) return { ok: false, msg: '战斗中不能换刻式（' + G.VARIANT_SAFE_R + ' 米内还有醒着的敌人）' };
       cost = G.variantCost(id);
       if ((save.cur[VC.cur] || 0) < cost) return { ok: false, msg: '需要 ' + cost + ' 颗' + G.CURRENCY[VC.cur].name };
       save.cur[VC.cur] -= cost;
       save.variantFree[id] = true;
+      if (save.imbFree && save.imbFree[id]) {
+        delete save.imbFree[id]; // 装填之前的存档还回来的那一次用掉了
+        if (!Object.keys(save.imbFree).length) delete save.imbFree;
+      }
       if (cur === 'c' && !G.variantRelicOn(id)) {
         if (v === 'o') delete save.variantPrev[id];
         else save.variantPrev[id] = v;
@@ -1621,7 +1671,12 @@
       G.SKILLS[id] = G.skillVariant(id, w);
       const sk = G.SKILLS[id];
       if (sk.kind === 'heart') return heartRatioVal(sk);
-      if (sk.buff) return 1 + (sk.brand ? 2 : 1) * Math.min(sk.flame.cap, sk.flame.k0 + sk.flame.k1 * ((G.save.skills[id] || 1) - 1)) * (1 + Math.max(0, P.S.flameEff || 0) / 100) / 100; // 蚀印：攒进去的那一份和附带的一样多
+      if (sk.kind === 'imbue') {
+        // 装填（imbue）：单体对等按「主力投射物 × 开着这种装填」算——附带的元素伤害、打冰缓的加成、雷楔放电（钉满 n 枚放 zap 份，平均每一击 +zap）
+        const I = sk.imbue, add = I.add + I.addLv * ((G.skillLvl(id) || 1) - 1);
+        return (1 + add / 100) * (1 + (I.chilled || 0) / 100) + (I.wedge ? I.wedge.zap : 0);
+      }
+      if (sk.buff) return 1 + (sk.brand ? 2 : 1) * Math.min(sk.flame.cap, sk.flame.k0 + sk.flame.k1 * ((G.skillLvl(id) || 1) - 1)) * (1 + Math.max(0, P.S.flameEff || 0) / 100) / 100; // 蚀印：攒进去的那一份和附带的一样多
       return G.variantDps(id);
     };
     let ref = 0;
@@ -1829,7 +1884,7 @@
     const bar = G.save.bar;
     for (let i = 0; i < bar.length; i++) {
       const b = bar[i];
-      if (!b || bar.indexOf(b) !== i || !G.auraSlotted(b)) continue;
+      if (!b || bar.indexOf(b) !== i || !(G.auraSlotted(b) || (b === G.save.imbue && G.SKILLS[b] && G.SKILLS[b].kind === 'imbue'))) continue; // 装着的装填（imbue）和光环一起排保留
       const r = G.auraReserve(b);
       if (pct + r > RESERVE_CAP + 1e-9) {
         if (b === id) return false;
@@ -1865,6 +1920,8 @@
     let pct = 0;
     for (const id of Object.keys(G.SKILLS)) if (G.auraOn(id)) pct += G.auraReserve(id);
     pct += G.relicReserve(); // 渊式「星雨」：自动落星改为保留魔力
+    const im = G.save && G.save.imbue ? G.imbueOn() : null;
+    if (im) pct += G.auraReserve(im); // 装填（imbue）：装着时保留
     return Math.min(90, pct);
   };
 
@@ -1880,6 +1937,7 @@
     const sup = G.SUPPORTS[supId];
     if (!sk || !sup || (sk.weaponOnly && !sk.basic)) return false; // 武器技镶不了辅助（远程普攻例外：镶在武器普攻卡上）
     if (sk.noSup && sk.noSup.indexOf(supId) >= 0) return false; // 技能自己排除的辅助
+    if (sk.kind === 'imbue') return sup.cost < 1; // 装填（imbue）：只认降低保留的（节流）
     if (sk.buff) return sup.cost < 1 || !!(sup.auraUp && sk.kind === 'aura'); // 黑焰这类增益光环：只认降低消耗（保留）的辅助，和加强光环效果的盛环
     if (sup.needCd && !(sk.cd > 0)) return false; // 储能：只能镶在有冷却的技能上
     if (sup.noId && sup.noId.indexOf(skillId) >= 0) return false; // 标签对得上、机制用不上的技能
@@ -2042,7 +2100,7 @@
   G.skillBase = function (id, lvl) {
     const sk = G.SKILLS[id];
     if (!sk) return {};
-    if (lvl === undefined) lvl = sk.weaponOnly ? G.weaponSkillLevel(id) : G.save.skills[id] || 1;
+    if (lvl === undefined) lvl = sk.weaponOnly ? G.weaponSkillLevel(id) : G.skillLvl(id) || 1;
     const out = {};
     if (sk.wm && sk.kind !== 'summon') {
       const wp = G.weaponStats(G.save.equip.weapon);
@@ -2073,7 +2131,7 @@
     const S = P.S;
     const sk = G.SKILLS[id];
     const isWs = !!sk.weaponOnly;
-    const lvl = isWs ? G.weaponSkillLevel(id) : save.skills[id] || 1;
+    const lvl = isWs ? G.weaponSkillLevel(id) : G.skillLvl(id) || 1;
     // champ：万魂降临的英灵——数值按召唤物算（ctx.minion），但它是武器技，不吃辅助宝石
     const isMinion = sk.kind === 'summon' || !!sk.champ;
     // mScale：伤害按召唤物算（召唤技能，以及魂潮这种 asMinion 的武器技）——只吃召唤物类属性
@@ -2272,6 +2330,7 @@
     }
     G.supXCtx(ctx, sups, isAura); // 取舍型 / 改玩法的辅助（support-expand）：ctx.x、冷却、穿透、光环效果
     if (P.heart) G.heartCtx(ctx); // 心火（class-d2b2）：火不到 40% 的补到 40%（和化元不叠加）
+    if (G.save.imbue) G.imbueCtx(ctx); // 装填（imbue）：物理投射物多带一份元素伤害
     if (P.relic.any || ctx.sk.mech === 'king') G.relicCtx(ctx); // 渊契：必然、同殇等改上下文；渊式「独骸」
     G.sealCtx(ctx); // 渊印的玩家侧印纹（迟滞 / 蚀环 / 孤影）
     return ctx;
@@ -3383,7 +3442,7 @@
   // 同一个敌人身上的累加成一记（每个敌人最多一记待发）；双生一击只扣生命：不暴击、不累积异常值、不削架势、不吸血、不触发命中效果，
   // 也不攒层数（蓄潮、影印、坍缩的质量、蚀印都不吃）。只看命中，不碰技能自己的状态，所以原式 / A / B / 渊式、持续施放、再按、召唤、光环都一样
   const TW = RM.shuangsheng;
-  G.twinOn = (id) => !!(id && G.SKILL_V[id]) && ((G.save.skills[id] || 0) >= G.VARIANT_LVL || G.variantOf(id) === 'c');
+  G.twinOn = (id) => !!(id && G.SKILL_V[id]) && (G.variantOpen(id) || G.variantOf(id) === 'c');
   G.relicTwinHit = function (e, ctx, hit, inf) {
     if (inf.proc || inf.twin || ctx.proc || !(hit.total > 0 || hit.flame > 0)) return;
     const own = G.twinOn(ctx.id);
@@ -4723,6 +4782,7 @@
       if (p.dmg === undefined) p.dmg = 0;
     }
     if (p.color === undefined) p.color = p.owner === 'p' ? 0xffffff : G.TYPE_HEX[p.dtype];
+    if (p.owner === 'p' && p.ctx && p.ctx.imb && !p.minion) p.tint = hexOf(G.SKILLS[p.ctx.imb.id].color); // 装填：拖尾按这种装填的颜色（雷楔是蓝紫，不是闪电的黄）
     p.trailT = 0;
     // 敌方弹丸换一套外形，和玩家的投射物分得开；秘弹连射的追踪弹有自己的样子（朝着飞行方向）
     // 魂潮的魂火（p.wisp）优先用 world.makeWisp，没有时借追踪弹的样子。
@@ -4959,7 +5019,9 @@
               if (p.boomCap && ++p.boomN > p.boomCap) cut = true;
               else {
                 // 远程武器的箭 / 子弹：multFn 算这一下的倍率（鹰眼的远距离加成），after 接着结算余烬 / 元素爆炸 / 熔芯弹；src 让专注按箭计数
-                const m = (p.multFn ? p.multFn(p, e) : p.mult || 1) * (p.boomK || 1); // boomK：回旋的回程
+                let m = (p.multFn ? p.multFn(p, e) : p.mult || 1) * (p.boomK || 1); // boomK：回旋的回程
+                const IM = p.ctx.imb; // 装填（imbue）
+                if (IM) m = imbueMult(p.ctx, e, m);
                 // class-d2b1：铁水弹的命中（连带引出的爆燃、溅到的伤害）特效全部静音，一次施放只放一处：
                 // 有爆炸的由第一枚炸开那一下画（W.projImpact 的 rd_molten），溅铁 / 熔穿在第一处命中画一个小的；其余的怪只冒几颗暗芯火星
                 const mu = !!p.vol, first = mu && !p.vol.shown;
@@ -4973,7 +5035,9 @@
                   if (first && !(p.explode > 0)) fxOpt('moltenHit', e.x, e.z, Math.atan2(p.dx, p.dz));
                   else fxOpt('emberSpark', e.x, e.z, e.height);
                 } // 顺着弹道推；aura：霜环「冰棱」的冰棱和光环脉冲一样不算连击；minion：骸弓的骨箭算召唤物的；kb / poise：灵弹的重弹（缺省按技能）
+                const kill0 = lastHit.killed;
                 if (p.after) p.after(p, e, lastHit.killed, lastHit.crit);
+                if (IM) imbueAfter(p.ctx, p.cast || p.capMap || p, e, m, kill0, p.pierce > 0, Math.atan2(p.dx, p.dz)); // 穿过去 = 还有贯穿（连锁弹开不算）
                 if (p.ctx.sk.mech === 'hook' && !e.dead) nailHook(p, e); // 刻式「钩钉」：往你身边拽
               }
             }
@@ -5024,6 +5088,7 @@
         // 跳焰：每一跳一道抛物线（落地 0.3，最高 1.9）
         const k = Math.min(1, p.skip.d / p.skip.seg);
         py = 0.3 + 1.6 * 4 * k * (1 - k);
+        if (p.mesh.userData) p.mesh.userData.hop = 1; // skill-b3b：画面上脚下画影子
       } else if (p.y0 !== undefined) {
         p.yT = (p.yT || 0) + dt;
         const k = Math.min(1, p.yT / 0.22);
@@ -5240,6 +5305,15 @@
       // 召唤技能：按键本身是「自动召唤」开关（main.js 里直接切换，不进缓冲）；
       // 只有 Shift + 按键留下的缓冲才是在准星处手动召唤一次，按住不放也不会连着召唤
       if (G.SKILLS[id].kind === 'summon' && !(G.input.tap[slot] > 0)) continue;
+      // 装填（imbue）：开关，只认轻点（按住不放不会来回切）。卸下自己装着的那种当场生效、不锁；装上 / 换一种要出手 time 秒，之后所有装填锁 lock 秒
+      if (G.SKILLS[id].kind === 'imbue') {
+        if (!(G.input.tap[slot] > 0)) continue;
+        G.input.tap[slot] = 0;
+        if (save.imbue === id) {
+          SKILL_FX.imbue(G.skillCtx(id));
+          continue;
+        }
+      }
       const ctx = G.skillCtx(id);
       if (!G.canAfford(ctx.cost)) {
         if (hintDue('noCost', 1.2)) {
@@ -6972,7 +7046,8 @@
       const n = c && c.channel ? c.pulses : 0;
       const rk = sk.mech === 'tide' ? G.relicSpinPulse(ctx) : 1; // 渊式「蓄潮」：每跳打得轻、攒层
       if (sk.mech === 'pull') whirlPull(ctx); // 刻式「旋涡斩」：先把一圈敌人往身边吸
-      W.slash(P.x, P.z, G.vr() * TAU, R, 360, hex, sk.mech === 'pull' ? { dur: 0.2, inner: 0.35, y: 0.6, dir: -1 } : { dur: 0.2, inner: 0.6, y: 0.9 });
+      // skill-b3b：360° 的刀光只留外沿一道细边（原来内沿 0.6 / 旋涡斩 0.35：一整圈 1 米多宽的奶油色实心带）
+      W.slash(P.x, P.z, G.vr() * TAU, R, 360, hex, sk.mech === 'pull' ? { dur: 0.2, inner: 0.86, y: 0.6, dir: -1 } : { dur: 0.2, inner: 0.9, y: 0.9 });
       if (W.spinPulse) W.spinPulse(P.ent, R, hex, ctx.time * 1.6, n === 1, sk.mech === 'pull' ? -1 : 1); // vf-vfx2：绕身的风刃、脚下的风纹、起手的尘环；刻式「旋涡斩」风刃反着转、往里收
       if (n % 2 === 1) W.burst(P.x, 0.25, P.z, 0xbfb3a0, 4, R * 0.9, 0.3); // 脚下扬起的尘
       G.sfx('swing', { step: n % 2 });
@@ -7078,8 +7153,11 @@
     for (const e of enemiesIn(p.x, p.z, R)) G.hitEnemy(e, p.ctx, 1, { ang: Math.atan2(e.x - p.x, e.z - p.z), kb: 0.15, poise: sk.poise, quiet: true }); // 推得很轻：留在火地里
     const F = S.field;
     addField({ kind: 'burn', x: p.x, z: p.z, r: F.r * ak, dur: F.dur, tick: F.tick, mult: F.mult, ctx: p.ctx, key: 'vSkipT', hex: 0xff7a2c, noDecal: true });
-    W.ring(p.x, p.z, R, 0xff8a3c, 0.25);
-    W.burst(p.x, 0.4, p.z, 0xffb050, 12, 5, 0.35);
+    // skill-b3b：落地 = 火色细环 + 压扁的尘环 + 矮尘 + 小火舌（原来加色的环 + 12 粒亮火星）
+    if (!(W.b3SkipLand && W.b3SkipLand(p.x, p.z, R))) {
+      W.ring(p.x, p.z, R, 0xff8a3c, 0.25);
+      W.burst(p.x, 0.4, p.z, 0xffb050, 12, 5, 0.35);
+    }
     G.sfx('impact', { type: 'fire', w: 0, crit: false });
     state.stats.vSkipLands = (state.stats.vSkipLands || 0) + 1;
     p.skip.left--;
@@ -7111,7 +7189,8 @@
     e.vStick = (e.vStick || 0) + 1;
     VS.sticks.push({
       e, ctx, gen, k, t: S.fuse, fuse: S.fuse, x: e.x, z: e.z,
-      fx: W.kv('orb', { hex: 0xffa040, s: 0.34 }), ring: W.kv('glyph', { hex: 0xff7a2c, s: (e.r + 0.7) * 2, y: 0.06 }),
+      // skill-b3b：火核 → 胸口一小簇越烧越快的火苗（stick）；脚下 2 米的浅色虚线引信圈不画了（hide）
+      fx: W.kv('orb', { hex: 0xffa040, s: 0.34, stick: 1 }), ring: W.kv('glyph', { hex: 0xff7a2c, s: (e.r + 0.7) * 2, y: 0.06, hide: 1 }),
     });
     W.burst(e.x, (e.height || 2) * 0.6, e.z, 0xffb050, 6, 2, 0.25);
     vCount();
@@ -7126,7 +7205,9 @@
     const x = st.e && !st.e.dead ? st.e.x : st.x, z = st.e && !st.e.dead ? st.e.z : st.z;
     const hits = enemiesIn(x, z, R);
     for (const o of hits) G.hitEnemy(o, ctx, st.k, { ang: Math.atan2(o.x - x, o.z - z), kb: 0.6, poise: 10, quiet: true });
-    if (W.blastFx) W.blastFx(x, z, R);
+    // skill-b3b：黏焰自己的引爆（从身上往上窜的火舌 + 细环，形状批），不再借爆燃的样子
+    if (W.b3StickBoom && W.b3StickBoom(x, z, R, st.e ? (st.e.height || 2) : 2)) {}
+    else if (W.blastFx) W.blastFx(x, z, R);
     else W.ring(x, z, R, 0xff8a3c, 0.3);
     G.sfx('impact', { type: 'fire', w: 1, crit: false });
     state.stats.vStickBooms = (state.stats.vStickBooms || 0) + 1;
@@ -7164,6 +7245,7 @@
       st.fx.y = h;
       st.fx.k = Math.sin(state.time * (6 + f * 26)) > 0 ? 0.85 : 0.15;
       st.fx.s = 0.3 + f * 0.14;
+      st.fx.f = f;
       st.ring.x = e.x;
       st.ring.z = e.z;
       st.ring.k = f;
@@ -7189,10 +7271,13 @@
     const R = S.r * Math.sqrt(p.ctx.area);
     VS.traps.push({
       x, z, ctx: p.ctx, t: S.dur, tt: 0.05, ph: Math.atan2(p.dx, p.dz), R,
-      fx: W.kv('blade', { hex: 0xdfe6f2, s: 0.75, y: 0.7 }), ring: W.kv('glyph', { hex: 0xcfd6e6, s: R * 2, y: 0.05 }),
+      // skill-b3b：锯刃是共用的「旋转刃」件；地上原来的 2.5 米白色粗环 → 一圈暗色锯痕（只画边的虚线，亮着的段数 = 剩下的时间），
+      // 比地面亮的浅色擦痕 → 暗色的锯口；钉下去的白色火花 → 暖灰的碎屑
+      fx: W.kv('blade', { hex: 0xdfe6f2, s: 0.75, y: 0.7 }), ring: W.kv('glyph', { hex: 0x2c2622, s: R * 2, y: 0.05, edge: 1, dash: 20, ew: 0.09, k: 1 }),
     });
-    W.decal(0, x, z, 0.8, Math.atan2(p.dx, p.dz), 0xcfd6e6, S.dur, 0.12);
-    W.burst(x, 0.6, z, 0xffffff, 10, 4, 0.25);
+    if (W.b3PinScar) W.b3PinScar(x, z, Math.atan2(p.dx, p.dz), R, S.dur);
+    else W.decal(0, x, z, 0.8, Math.atan2(p.dx, p.dz), 0xcfd6e6, S.dur, 0.12);
+    W.burst(x, 0.6, z, 0x9a8c7a, 6, 3, 0.25);
     state.stats.vPins = (state.stats.vPins || 0) + 1;
     vCount();
   }
@@ -7201,7 +7286,7 @@
     if (i >= 0) VS.traps.splice(i, 1);
     kvOff(tr.fx);
     kvOff(tr.ring);
-    G.world.burst(tr.x, 0.6, tr.z, 0xcfd6e6, 6, 2, 0.25);
+    G.world.burst(tr.x, 0.6, tr.z, 0x8a8478, 6, 2, 0.25);
     vCount();
   }
   function tickTraps(dt) {
@@ -7233,7 +7318,7 @@
         n++;
       }
       if (n) {
-        G.world.burst(tr.x, 0.7, tr.z, 0xfff0d0, 3, 3, 0.15);
+        G.world.burst(tr.x, 0.7, tr.z, 0xb0a08a, 3, 3, 0.15); // skill-b3b：锯的火花压到暖灰
         state.stats.vTrapHits = (state.stats.vTrapHits || 0) + n;
       }
     }
@@ -7246,7 +7331,7 @@
       while (VS.orbits.length >= max) orbitOff(VS.orbits[0]);
       VS.orbits.push({ ctx, t: O.dur * ctx.durK, fx: W.kv('blade', { hex: 0xdfe6f2, s: 0.55, rx: Math.PI / 2 - 0.25, y: 1.0 }), hitAt: new Map() });
     }
-    W.burst(P.x, 1.0, P.z, 0xcfd6e6, 8, 3, 0.25);
+    W.burst(P.x, 1.0, P.z, 0x8a94a6, 8, 3, 0.25);
     G.sfx('swing', { step: 0 });
     vCount();
   }
@@ -7280,7 +7365,7 @@
         if (state.time - (o.hitAt.get(e) || -99) < S.gap) continue;
         o.hitAt.set(e, state.time);
         G.hitEnemy(e, o.ctx, 1, { ang: a + Math.PI / 2, kb: 0.15, quiet: true });
-        G.world.burst(x, 1.0, z, 0xfff0d0, 3, 3, 0.15);
+        G.world.burst(x, 1.0, z, 0xb0a08a, 3, 3, 0.15);
         state.stats.vOrbitHits = (state.stats.vOrbitHits || 0) + 1;
       }
     }
@@ -7352,13 +7437,16 @@
     while (VS.pylons.length >= S.max + ctx.durCap) pylonOff(VS.pylons[0]); // 绵延：上限 +1
     const py = {
       x, z, ctx, t: S.dur * ctx.durK, tt: 0,
-      fx: W.kv('spike', { hex: 0xc9a83a, x, z, sx: 1, sz: 1, sy: 2.3 }), top: W.kv('orb', { hex: 0xffe45e, x, z, y: 2.35, s: 0.42, k: 0.6 }),
+      // skill-b3b：桩画成有底座的晶柱（pylon：形状批），柱头的小球照旧（放电时闪）
+      fx: W.kv('spike', { hex: 0xc9a83a, x, z, sx: 1, sz: 1, sy: 2.3, pylon: 1 }), top: W.kv('orb', { hex: 0xffe45e, x, z, y: 2.35, s: 0.3, k: 0.6 }),
     };
     VS.pylons.push(py);
     W.bolt([{ x: P.x, z: P.z }, { x, z }], 0xffe45e, true);
-    if (W.vShock) W.vShock(x, z, S.r * Math.sqrt(ctx.area), 0xffe45e, 0.3, 0); // 电桩的范围：一道往外推的细环
-    else W.ring(x, z, S.r * Math.sqrt(ctx.area), 0xffe45e, 0.3);
-    W.decal(3, x, z, 0.9, G.vr() * TAU, 0xffe45e, py.t);
+    // skill-b3b：原来两道 6 米的亮金大环铺满半屏 → 桩脚下一圈贴地的折线 + 三条往外窜的短电灼纹；脚下的亮色贴花 → 暗焦痕
+    if (W.b3PylonZig) W.b3PylonZig(x, z, 0xffe45e, true);
+    else if (W.vShock) W.vShock(x, z, S.r * Math.sqrt(ctx.area), 0xffe45e, 0.3, 0);
+    if (W.b3PylonZig) W.vDecal('scorch', x, z, 0.8, Math.min(py.t, 6), 0x2a2410, { a: 0.7 });
+    else W.decal(3, x, z, 0.9, G.vr() * TAU, 0xffe45e, py.t);
     py.tt = S.tick * 0.6; // 插下去之后很快电第一下（不当帧电：按住连插也不会多电）
     state.stats.vPylons = (state.stats.vPylons || 0) + 1;
     vCount();
@@ -7386,6 +7474,7 @@
     if (!best) return null;
     G.hitEnemy(best, py.ctx, S.mult, { ang: Math.atan2(best.x - py.x, best.z - py.z), quiet: true });
     G.world.bolt([{ x: py.x, z: py.z }, { x: best.x, z: best.z }], 0xffe45e, true);
+    if (G.world.b3PylonZig) G.world.b3PylonZig(py.x, py.z, 0xffe45e, false); // skill-b3b：放电时桩脚下的折线一闪
     py.top.k = 1;
     state.stats.vZaps = (state.stats.vZaps || 0) + 1;
     return best;
@@ -7494,7 +7583,8 @@
     VS.cores.push({
       x, z, ctx, t: C.dur, n: 0, gap: 0.3, R: C.r * Math.sqrt(ctx.area),
       fx: W.kv('rock', { hex: 0x3a1a10, x, z, y: 0.25, s: 1.25, ry: G.vr() * TAU }), glow: W.kv('orb', { hex: 0xff5a1c, x, z, y: 0.45, s: 0.8, k: 0.4 }),
-      ring: W.kv('glyph', { hex: 0xff5a2c, x, z, y: 0.05, s: C.r * Math.sqrt(ctx.area) * 2, k: 1 }),
+      // skill-b3b：地上的符环 → 只画边的余烬色虚线（中间调，亮着的段数 = 还能引爆的次数），原来是近白的粗双环（加色）
+      ring: W.kv('glyph', { hex: 0xd8682c, x, z, y: 0.05, s: C.r * Math.sqrt(ctx.area) * 2, k: 1, edge: 1, dash: 16, ew: 0.1 }),
     });
     state.stats.vCores = (state.stats.vCores || 0) + 1;
     vCount();
@@ -7539,7 +7629,7 @@
         continue;
       }
       // 裂纹一明一暗；刚被点爆时整团发白，慢慢暗回去；用掉的次数在地上的符环里少一段
-      c.glow.k = Math.max(0.2 + 0.25 * (Math.sin(state.time * 5 + i) > 0 ? 1 : 0), c.glow.k - dt * 2);
+      c.glow.k = Math.min(0.55, Math.max(0.2 + 0.25 * (Math.sin(state.time * 5 + i) > 0 ? 1 : 0), c.glow.k - dt * 2)); // skill-b3b：刚点爆时不再整团发白（封顶 0.55）
       c.glow.s = 0.75 + 0.1 * c.glow.k;
       c.ring.k = 1 - c.n / c.ctx.sk.core.n;
       c.ring.a = c.t < 0.5 ? 0.3 : 1;
@@ -7550,10 +7640,11 @@
     const len = Math.max(0.5, rayLen(x, z, Math.atan2(dx, dz), S.len, 0.3));
     VS.ploughs.push({
       x, z, x0: x, z0: z, dx, dz, d: 0, len, sp: S.len / S.t, ctx, hit: new Set(), fd: -9, // fd：上一片火的位置（落点那一片第一帧就铺）
-      fx: W.kv('rock', { hex: 0x5a2a14, x, z, y: 0.55, s: 1.3 }), glow: W.kv('orb', { hex: 0xff6a20, x, z, y: 0.6, s: 0.95, k: 0.7 }),
+      // skill-b3b：滚动的岩块提亮成看得见的岩色（原来暗红褐在焦地上看不见），里面的火光球缩小、不发白，岩块盖在它外面
+      fx: W.kv('rock', { hex: 0x7a6450, x, z, y: 0.6, s: 1.35 }), glow: W.kv('orb', { hex: 0xff6a20, x, z, y: 0.55, s: 0.6, k: 0.35 }),
     });
-    // 长条的犁痕一次铺好（贴地擦痕，长度的一半 = len / 2）
-    W.decal(0, x + (dx * len) / 2, z + (dz * len) / 2, len / 2, Math.atan2(dx, dz), 0xff6a2c, S.field.dur + 0.5, S.w * 0.45);
+    // 长条的犁痕一次铺好（贴地擦痕，长度的一半 = len / 2）；skill-b3b：改成跟着岩块一段段铺的暗色焦沟（W.b3PloughStep），不再是一条加色的细橙线
+    if (!W.b3PloughStep) W.decal(0, x + (dx * len) / 2, z + (dz * len) / 2, len / 2, Math.atan2(dx, dz), 0xff6a2c, S.field.dur + 0.5, S.w * 0.45);
     state.stats.vPloughs = (state.stats.vPloughs || 0) + 1;
     vCount();
   }
@@ -7577,7 +7668,7 @@
         G.hitEnemy(e, p.ctx, S.mult, { ang: ang + (side * Math.PI) / 2, w: 1, kb: 1.8, poise: 14, quiet: true, core: true });
         if (!e.isBoss && W.knockUp) W.knockUp(e.ent, 0.5);
       }
-      if (G.vr() < 0.6) W.burst(p.x, 0.4, p.z, 0xffa040, 3, 3, 0.3);
+      if (!(W.b3PloughStep && W.b3PloughStep(p, S.w * ak, S.field.dur + 0.5)) && G.vr() < 0.6) W.burst(p.x, 0.4, p.z, 0xffa040, 3, 3, 0.3);
       // 每 2.6 米留一片火（沟里的火）
       if (p.d - p.fd >= 2.6 || (p.d >= p.len && p.fd < p.len - 0.5)) {
         p.fd = p.d;
@@ -7719,7 +7810,8 @@
     VS.disc = {
       x: P.x + ai.dx * 0.8, z: P.z + ai.dz * 0.8, tx: P.x + ai.dx * len, tz: P.z + ai.dz * len, ph: 'out', t: 0,
       hover: Math.max(S.hover, S.trip - 2 * flight), ctx, hits: new Map(),
-      fx: W.kv('blade', { hex: 0xe8c9a0, s: 1.3, rx: Math.PI / 2, y: 1.0 }), ring: W.kv('glyph', { hex: 0xe8c9a0, s: S.r * Math.sqrt(ctx.area) * 2, y: 0.05, k: 1 }),
+      // skill-b3b：扔出去的是共用的「旋转刃」件（大一号、偏武器的铜色）；脚下原来的奶油色圈 → 一圈很淡的暗色尘痕虚线
+      fx: W.kv('blade', { hex: 0xe8c9a0, tint: 0xc8a478, s: 1.3, rx: Math.PI / 2, y: 1.0 }), ring: W.kv('glyph', { hex: 0x4a4038, s: S.r * Math.sqrt(ctx.area) * 2, y: 0.05, k: 1, edge: 1, dash: 14, ew: 0.07 }),
     };
     G.sfx('swing', { step: 1 });
     state.stats.vThrows = (state.stats.vThrows || 0) + 1;
@@ -7770,7 +7862,7 @@
     c.fx.rz += dt * 26;
     c.fx.y = c.ph === 'hover' ? 0.9 + Math.sin(state.time * 12) * 0.05 : 1.0;
     c.ring.a = c.ph === 'hover' ? 1 : 0.3;
-    if (G.vr() < 0.5) W.burst(c.x, 0.9, c.z, 0xe8c9a0, 1, 1.5, 0.2);
+    if (G.vr() < 0.5) W.burst(c.x, 0.9, c.z, 0xa89478, 1, 1.5, 0.2);
     const R = S.r * Math.sqrt(c.ctx.area);
     let n = 0;
     for (const e of enemiesIn(c.x, c.z, R)) {
@@ -7783,7 +7875,8 @@
       n++;
     }
     if (n) {
-      W.slash(c.x, c.z, G.vr() * TAU, R, 360, 0xe8c9a0, { dur: 0.14, inner: 0.7, y: 0.95 });
+      if (W.thinRing) W.thinRing(c.x, c.z, R, 0xb8a080, 0x6a5a48, 0.16, 12); // skill-b3b：打中一圈细边（原来 360° 的奶油色实心弯月）
+      else W.slash(c.x, c.z, G.vr() * TAU, R, 360, 0xe8c9a0, { dur: 0.14, inner: 0.7, y: 0.95 });
       G.sfx('impact', { type: 'phys', w: 0, crit: lastHit.crit });
       state.stats.vDiscHits = (state.stats.vDiscHits || 0) + n;
     }
@@ -8743,6 +8836,7 @@
   function updateAuras(dt) {
     const W = G.world;
     let shown = 0;
+    tickImbue(); // 装填：拿下技能栏就卸下
     // 兜底：技能栏变了却没人重算属性时，保留比例对不上就当场重算（不然光环生效了却没扣保留）
     if (G.reservePct() !== P.reservePct) G.computeStats();
     for (const id of Object.keys(G.SKILLS)) {
@@ -9404,6 +9498,189 @@
     G.world.fxMute(false);
     if (spark) fxOpt('emberSpark', e.x, e.z, e.height);
   }
+  // ---------- 装填（imbue，2026-11-25）：铁水 / 雷楔 / 霜霰 ----------
+  // 开关：存档里的 save.imbue（没装时不写这个字段，老存档读进来就是没装）。同一时间只有一种：这里是唯一改它的地方（G.imbueSet），
+  // 以后的天赋 / 辅助 / 新装填也只走这里。生效要：宝石学会、在技能栏上、职业和手里的武器用得了、保留放得下（和光环一起排，见 G.auraFits）
+  G.imbueOn = function () {
+    const s = G.save, id = s && s.imbue;
+    if (!id) return null;
+    const sk = G.SKILLS[id];
+    if (!sk || sk.kind !== 'imbue' || !s.skills || !s.skills[id] || !s.bar || s.bar.indexOf(id) < 0 || G.castBlock(id)) return null;
+    return G.auraFits(id) ? id : null;
+  };
+  // 装填的物理投射物：攻击 + 投射物（机炮 / 左轮 / 弓的普攻、散钉、飞刃、跳射、反冲弹、乱射）。喷枪的火舌不是投射物（本来就是火、打怪群已经最强），不算；绊雷（埋地）、召唤物、法术不算
+  G.imbueFits = (sk) => !!(sk && sk.tags && !sk.asMinion && sk.kind !== 'summon' && sk.kind !== 'snare' && sk.kind !== 'imbue' && sk.tags.indexOf('attack') >= 0 && sk.tags.indexOf('projectile') >= 0);
+  // 装上 / 卸下 / 换一种（id 为空 = 卸下）。返回 { ok, msg }
+  G.imbueSet = function (id) {
+    const s = G.save, prev = s.imbue || null;
+    if (id && prev === id) id = null; // 再按一次：卸下
+    if (id) {
+      s.imbue = id;
+      if (!G.auraFits(id)) {
+        if (prev) s.imbue = prev;
+        else delete s.imbue;
+        return { ok: false, msg: '保留不足' };
+      }
+    } else delete s.imbue;
+    // 装上 / 换一种之后所有装填锁一会儿（卸下不锁）
+    if (id) for (const k in G.SKILLS) if (G.SKILLS[k].kind === 'imbue') P.cds[k] = Math.max(P.cds[k] || 0, G.SKILLS[k].lock || 0);
+    G.computeStats();
+    return { ok: true, on: s.imbue || null, prev };
+  };
+  SKILL_FX.imbue = function (ctx) {
+    const r = G.imbueSet(ctx.id);
+    const sk = ctx.sk;
+    if (!r.ok) G.world.text(P.x, P.z, r.msg, '#c9c2b4', 14);
+    else G.world.text(P.x, P.z, (r.on ? '装上' : '卸下') + sk.name, sk.color, 15);
+    fxOpt('imbueOn', P.ent, G.imbueOn() ? G.SKILLS[G.imbueOn()].elem : null);
+    G.sfx('imbue', { type: r.ok && r.on ? 'on' : 'off', elem: sk.elem });
+    state.stats.imbueSets = (state.stats.imbueSets || 0) + 1;
+  };
+  // 每帧：从技能栏上拿掉 / 宝石没学 / 不是装填了就当场卸下（不然放回技能栏会悄悄又装上）
+  function tickImbue() {
+    const s = G.save, id = s && s.imbue;
+    if (!id) return;
+    const sk = G.SKILLS[id];
+    if (!sk || sk.kind !== 'imbue' || !s.skills[id] || !s.bar || s.bar.indexOf(id) < 0) {
+      delete s.imbue;
+      G.computeStats();
+      fxOpt('imbueOn', P.ent, null);
+    }
+  }
+  G.tickImbue = tickImbue;
+  // skillCtx 末尾调：装着时，装填的物理投射物多带一份元素伤害、多累积一点异常值，ctx.imb 交给命中时的效果
+  G.imbueCtx = function (ctx) {
+    const id = G.imbueOn();
+    if (!id || ctx.minion || !G.imbueFits(ctx.sk)) return;
+    const sk = G.SKILLS[id], I = sk.imbue, lvl = G.skillLvl(id) || 1;
+    ctx.extra[sk.elem] = (ctx.extra[sk.elem] || 0) + I.add + I.addLv * (lvl - 1);
+    ctx.ailment += I.ailment || 0;
+    ctx.imb = { id, elem: sk.elem, I };
+  };
+  // 触发出来的伤害（铁水 / 放电 / 冰屑）：全部换成这种元素，不再带装填的额外伤害，也不再触发装填
+  const imbProcCache = new WeakMap();
+  function imbProcCtx(ctx) {
+    let c = imbProcCache.get(ctx);
+    if (!c) {
+      c = elemCtx(ctx, ctx.imb.elem);
+      c.extra = {};
+      c.imb = null;
+      c.ailment = ctx.sk.ailment || 0;
+      imbProcCache.set(ctx, c);
+    }
+    return c;
+  }
+  // 冰缓 / 冻住 / 首领深寒
+  const imbChilled = (e) => e.freeze > 0 || e.bossChill > 0 || !!(e.bu && e.bu.cold > 0);
+  G.imbChilled = imbChilled;
+  // 这一击的倍率修正（霜霰：打冰缓的敌人更痛）
+  function imbueMult(ctx, e, m) {
+    const I = ctx.imb.I;
+    return I.chilled && imbChilled(e) ? m * (1 + I.chilled / 100) : m;
+  }
+  G.imbueMult = imbueMult;
+  // 每次出手的触发计数（同一次出手共用：散钉 5 枚、多重投射、机炮一发）、每秒上限
+  const imbCast = new WeakMap();
+  const imbRate = { splash: [], shard: [] };
+  function imbRateOk(kind, perSec) {
+    const L = imbRate[kind], t = state.time;
+    while (L.length && (t - L[0] >= 1 || L[0] > t)) L.shift(); // 时钟倒回去（换区 / 重开）时旧的记录作废
+    if (L.length >= perSec) return false;
+    L.push(t);
+    return true;
+  }
+  // 投射物（或喷枪的一跳）打中 e 之后：key 是这次出手（p.cast / p.capMap / 自己），pass 是穿过去了（还有贯穿）
+  function imbueAfter(ctx, key, e, m, killed, pass, dir) {
+    const I = ctx.imb.I;
+    let st = imbCast.get(key);
+    if (!st) imbCast.set(key, (st = { sp: 0, sh: 0, wd: null, zp: 0 }));
+    if (I.splash && killed && st.sp < (I.splash.chain || 1) && imbRateOk('splash', I.splash.perSec)) {
+      st.sp++;
+      imbSplash(ctx, e.x, e.z, m, I.splash, st);
+    }
+    if (I.wedge && !e.dead) {
+      if (!st.wd) st.wd = new Set();
+      if (!st.wd.has(e)) {
+        st.wd.add(e);
+        if (imbWedge(ctx, e, m, I.wedge, st.zp < 1)) st.zp++;
+      }
+    }
+    if (I.shard && (killed || pass) && st.sh < 1 && imbRateOk('shard', I.shard.perSec)) {
+      st.sh++;
+      imbShards(ctx, e, m, I.shard, dir);
+    }
+  }
+  G.imbueAfter = imbueAfter;
+  // 铁水：打死的敌人身上炸开一小摊（连溅：铁水炸死的接着炸，一次出手一共最多 chain 摊）
+  function imbSplash(ctx, x, z, m, S, st) {
+    const pc = imbProcCtx(ctx), R = S.r * Math.sqrt(ctx.area);
+    const dead = [];
+    for (const o of enemiesIn(x, z, R)) {
+      G.world.fxMute(true);
+      G.hitEnemy(o, pc, m * S.k, { ang: Math.atan2(o.x - x, o.z - z), w: 0, kb: 0.4, poise: 4, quiet: true, extra: true });
+      G.world.fxMute(false);
+      if (lastHit.killed) dead.push(o);
+    }
+    fxOpt('imbSplash', x, z, R);
+    G.sfx('imbue', { type: 'splash' });
+    state.stats.imbSplash = (state.stats.imbSplash || 0) + 1;
+    if (S.chain) for (const o of dead) if (st.sp < S.chain && imbRateOk('splash', S.perSec)) {
+      st.sp++;
+      imbSplash(ctx, o.x, o.z, m, S, st);
+    }
+  }
+  // 雷楔：钉一枚，钉满 n 枚放电（这几枚伤害之和 × zap），再连到附近 chain 个。
+  // can：这次出手还能不能放电（每次出手最多放 1 次：散钉一把钉进一群怪，只有一个放电，其余的留到下一把）。放了电返回 true
+  function imbWedge(ctx, e, m, W0, can) {
+    let s = e.imbW;
+    if (!s || state.time - s.at > W0.keep) s = e.imbW = { n: 0, sum: 0, at: 0 };
+    if (s.n < W0.n) {
+      s.n++;
+      s.sum += m;
+    }
+    s.at = state.time;
+    if (s.n < W0.n || !can) {
+      fxOpt('imbWedge', e, s.n, W0.n);
+      return false;
+    }
+    const tot = s.sum * W0.zap;
+    e.imbW = null;
+    fxOpt('imbWedge', e, 0, W0.n);
+    const pc = imbProcCtx(ctx);
+    G.hitEnemy(e, pc, tot, { ang: Math.atan2(e.x - P.x, e.z - P.z), w: 1, kb: 0, poise: 4, extra: true, splash: 2, quiet: true }); // 不放通用的命中星芒（放电有自己的蓝紫折线和细边，免得和暴击一个样）
+    const tg = W0.chain > 0 ? nearestOthers(e, W0.r * Math.sqrt(ctx.area), W0.chain) : [];
+    for (const o of tg) G.hitEnemy(o, pc, tot * W0.chainK, { ang: Math.atan2(o.x - e.x, o.z - e.z), w: 0, kb: 0, poise: 2, quiet: true, extra: true });
+    fxOpt('imbZap', e, tg);
+    G.sfx('round', { type: 'zap' });
+    state.stats.imbZap = (state.stats.imbZap || 0) + 1;    return true;
+  }
+  // 霜霰：从敌人背后炸出冰屑（冰环：四周一圈）；不打被命中的那个
+  function imbShards(ctx, e, m, S0, dir) {
+    const pc = imbProcCtx(ctx), ak = Math.sqrt(ctx.area);
+    const hitIt = (o) => {
+      G.world.fxMute(true);
+      G.hitEnemy(o, pc, m * S0.k, { ang: Math.atan2(o.x - e.x, o.z - e.z), w: 0, kb: 0.3, poise: 3, quiet: true, extra: true });
+      G.world.fxMute(false);
+    };
+    if (S0.r) {
+      const R = S0.r * ak;
+      for (const o of enemiesIn(e.x, e.z, R)) if (o !== e) hitIt(o);
+      fxOpt('imbShards', e.x, e.z, dir, 360, R);
+    } else {
+      const L = S0.len * ak, half = (S0.arc / 2) * DEG;
+      for (const o of enemiesIn(e.x, e.z, L)) {
+        if (o === e) continue;
+        const d = dist(o.x, o.z, e.x, e.z);
+        if (d > o.r + 0.3 && Math.abs(angDiff(Math.atan2(o.x - e.x, o.z - e.z), dir)) > half + Math.asin(Math.min(1, o.r / Math.max(0.01, d)))) continue;
+        if (!losClear(e.x, e.z, o.x, o.z)) continue;
+        hitIt(o);
+      }
+      fxOpt('imbShards', e.x, e.z, dir, S0.arc, L);
+    }
+    G.sfx('imbue', { type: 'shard' });
+    state.stats.imbShard = (state.stats.imbShard || 0) + 1;
+  }
+
   // ---------- 特殊弹 ----------
   // 手里这把枪（机炮 / 喷枪 / 左轮）；不是枪返回 null
   function roundGun() {
@@ -9467,6 +9744,7 @@
     const range = (line ? line.len : sk.range) * (sh.rangeK || 1);
     const pk = sh.k / 1.1; // 击退、架势按这一枚的份数摊（机炮三枚加起来和左轮一发差不多）
     const W0 = sk.wedge;
+    const rcb = vol ? vol.rcb || (vol.rcb = { done: false }) : { done: false }; // 反冲弹：一次出手只炸一次（机炮一次出手打三枚弹壳，共用 vol）
     for (let j = 0; j < n; j++) {
       const ang = a0 + (n > 1 ? -fan / 2 + (fan * j) / (n - 1) : 0);
       const p = shootProj(ctx, ang, { cast, vk: 'rd_' + sk.round, mult: W0 ? k * W0.hit : k, range, speed: line ? 70 : sk.speed, r: sk.projR, after: roundAfter });
@@ -9489,6 +9767,7 @@
           p.multFn = (q) => q.rk * (1 + Math.min(B.max, B.step * Math.max(0, q.hit.size - 1)));
         }
       } else if (line) p.pierce = 999;
+      if (sk.round === 'recoil' && sk.blast) p.rcBlast = rcb; // 反冲弹（imbue 批）：命中炸开，一次出手只炸一次
       else if (sk.round === 'wedge' && sk.mech === 'net') {
         const ai = aimInfo();
         p.life = Math.max(0.05, (G.clamp(ai.dist + 1.5, 2, range) - 0.8) / p.speed); // 打空的楔子钉在准星稍过去一点（准星上站着的敌人照样打得到）
@@ -9513,6 +9792,10 @@
       if (sk.mech === 'splash') moltenSplash(p, e);
       else if (sk.pool) moltenPool(p.ctx, e.x, e.z);
     } else if (sk.round === 'wedge') wedgeStick(p, e);
+    else if (sk.round === 'recoil' && p.rcBlast && !p.rcBlast.done) {
+      p.rcBlast.done = true;
+      recoilBlast(p, e);
+    }
     else if (sk.round === 'rime') {
       if (sk.mech === 'deep') {
         if (p.frz) {
@@ -9522,6 +9805,17 @@
         }
       } else rimeShards(p, e);
     }
+  }
+  // 反冲弹：命中处炸开（半径 r，k 份这一发的伤害，物理），把四周的敌人往外推；被直击的那个也在里面
+  function recoilBlast(p, e) {
+    const B = p.ctx.sk.blast, R = B.r * Math.sqrt(p.ctx.area), x = e.x, z = e.z;
+    for (const o of enemiesIn(x, z, R)) {
+      G.world.fxMute(true);
+      G.hitEnemy(o, p.ctx, p.rk * B.k, { ang: o === e ? Math.atan2(p.dx, p.dz) : Math.atan2(o.x - x, o.z - z), w: 1, kb: B.kb, poise: B.poise || 10, quiet: true });
+      G.world.fxMute(false);
+    }
+    fxOpt('recoilBlast', x, z, R, Math.atan2(p.dx, p.dz));
+    state.stats.recoilBlast = (state.stats.recoilBlast || 0) + 1;
   }
   // 铁水弹没打中敌人（撞墙 / 飞到尽头炸开）：照样留一摊铁水
   function moltenEnd(p) {
@@ -10065,11 +10359,39 @@
       return;
     }
     const R = sk.radius * ak, list = [];
-    for (const e of enemiesIn(m.x, m.z, R)) if (losClear(m.x, m.z, e.x, e.z)) list.push(e);
-    groupHit(list, ctx, 1, (e) => ({ ang: Math.atan2(e.x - m.x, e.z - m.z), quiet: true }), true);
-    if (list.length) G.hitStop((sk.stop || 30) * ctx.stopK);
-    fxOpt('mineBoom', m.x, m.z, R, false);
-    G.sfx('cls2', { type: 'boom' });
+    // 连爆（imbue 批）：炸开时把半径内别的绊雷也引爆（每枚隔 chain.gap 秒）。同一串里每个敌人只吃一次全额，
+    // 后面再炸到它只按 chain.k 份，额外的一共最多 chain.cap 份（3 枚叠在一起打首领 ≤ 1 + cap 倍，不是 3 倍）
+    const CH = sk.chain, ch = m.chain || (m.chain = { got: new Map(), n: 0 });
+    const full = [], part = [];
+    for (const e of enemiesIn(m.x, m.z, R)) {
+      if (!losClear(m.x, m.z, e.x, e.z)) continue;
+      const g = ch.got.get(e);
+      if (g === undefined) {
+        ch.got.set(e, 0);
+        full.push(e);
+      } else if (CH && g + CH.k <= CH.cap + 1e-9) {
+        ch.got.set(e, g + CH.k);
+        part.push(e);
+      }
+      list.push(e);
+    }
+    groupHit(full, ctx, 1, (e) => ({ ang: Math.atan2(e.x - m.x, e.z - m.z), quiet: true }), ch.n === 0);
+    if (part.length) groupHit(part, ctx, CH.k, (e) => ({ ang: Math.atan2(e.x - m.x, e.z - m.z), quiet: true, kb: 0.3 }), false);
+    if (list.length && ch.n === 0) G.hitStop((sk.stop || 30) * ctx.stopK);
+    fxOpt('mineBoom', m.x, m.z, R, ch.n > 0); // 连爆的第二枚起：一圈暗色碎片（cluster calm）
+    if (ch.n === 0) G.sfx('cls2', { type: 'boom' });
+    if (CH) {
+      let k = 0;
+      for (const o of mines.slice()) {
+        if (o === m || o.chain || dist(o.x, o.z, m.x, m.z) > R) continue;
+        o.chain = ch;
+        ch.n++;
+        mines.splice(mines.indexOf(o), 1);
+        fxOpt('mineSet', o, false);
+        state.stats.mineChain = (state.stats.mineChain || 0) + 1;
+        G.after(CH.gap * ++k, () => mineBoom(o));
+      }
+    }
     if (sk.mech === 'cluster') {
       const C = sk.cluster;
       const px = Math.cos(m.ang), pz = -Math.sin(m.ang); // 垂直于射出的方向
@@ -10089,13 +10411,24 @@
     }
   }
   function tickMines(dt) {
-    for (let i = mines.length - 1; i >= 0; i--) {
-      const m = mines[i];
+    // 连爆 / 到时炸开会在循环里把别的雷从 mines 里拿掉（imbue 批）：按开头的那一份走，已经被拿掉的跳过
+    for (const m of mines.slice().reverse()) {
+      const i = mines.indexOf(m);
+      if (i < 0) continue;
       m.t -= dt;
       m.arm -= dt;
       if (m.t <= 0) {
         mines.splice(i, 1);
         fxOpt('mineSet', m, false);
+        // 到时（imbue 批）：上了膛、炸开的半径里有敌人就炸，不然熄掉
+        const sk = m.ctx.sk;
+        if (sk.mine.expire && m.arm <= 0) {
+          const R = (sk.mech === 'tether' ? sk.root.r : sk.radius) * Math.sqrt(m.ctx.area);
+          if (state.enemies.some((e) => !e.dead && !e.friendly && Math.hypot(e.x - m.x, e.z - m.z) - (e.r || 0.5) <= R && losClear(m.x, m.z, e.x, e.z))) {
+            state.stats.mineExpire = (state.stats.mineExpire || 0) + 1;
+            mineBoom(m);
+          }
+        }
         continue;
       }
       if (m.arm > 0) continue;
@@ -11553,8 +11886,14 @@
   // =====================================================================
   // 掉落与拾取
   // =====================================================================
-  function gemLevel() {
-    return G.clamp(Math.round(state.zone.level * 0.75) + G.randInt(0, 1), 1, MAX_GEM_LEVEL);
+  // 技能宝石 / 无铭宝石没有等级（gem-nolvl）。改版前这里掷等级（round(区域等级 × 0.75) + 0 或 1）要抽一次随机数：
+  // 照抽不用，掉落序列的其余部分（物品、通货、拾烬客货架）和战斗指纹都和改版前一字不差
+  function gemDraw() {
+    Math.random();
+  }
+  function blankData() {
+    gemDraw();
+    return {};
   }
   // 无铭技能宝石的掉落几率（首领首杀另外必掉）：普通怪比随机技能宝石的 1.2% 略低
   const BLANK_DROP = (G.BLANK_DROP = { boss: 0.2, elite: 0.04, mob: 0.008 });
@@ -11564,17 +11903,21 @@
   // 随机技能宝石（首领另有一颗必掉）：技能宝石从 14 种加到 20 种（skill-expand），精英 / 普通怪的几率 × 20/14（原来 0.075 / 0.012），每一种老宝石的掉率不变
   // 有职业的存档再乘 G.gemDropK（宝石总数 / 20：特殊弹加到 24 种，class-d2b1）；没有职业时池子还是那 20 种，几率不变
   const SKILL_DROP = (G.SKILL_DROP = { elite: (0.075 * 20) / 14, mob: (0.012 * 20) / 14 });
-  // preferNew：挑玩家还没有的宝石的概率
-  // 有职业时（class-d2）：最后那一下 G.pick 换成一次 G.weighted，本职业能用的宝石合起来占 G.CLASS_LOOT.gem（75%），
-  // 随机数次数和没有职业时一样；用不上的那 25% 由 G.spawnLoot 变成同等级的无铭宝石。usable：只挑能用的（拾烬客的货架）
+  // 挑一颗技能宝石：池子里还有没学会的，就一定挑没学会的（gem-nolvl：宝石没有等级，学会了的再掉一颗没用）。
+  // 有职业时先挑这个职业能用、还没学会的；都学会了再挑别的职业的（G.spawnLoot 把它变成无铭宝石）；全都学会了才是重复的，拾取时再换成别的（见 G.pickup）。
+  // 有职业时（class-d2）最后那一下是一次 G.weighted（本职业能用的宝石合起来占 G.CLASS_LOOT.gem），没有职业时是 G.pick。usable：只挑能用的（拾烬客的货架）。
+  // 随机数次数和改版前一样：改版前「挑没有的宝石的概率 preferNew」那一次照抽不用（现在总是挑没有的），等级那一次见 gemDraw
   function pickSkillGem(preferNew, usable) {
     const C = G.clsDef();
     // 武器技不掉落；没有职业时不掉 clsOnly 的宝石（特殊弹，class-d2b1），池子和随机数次数都和以前一样
     const all = C && usable ? G.classGems(G.save.cls) : G.gemDropPool(G.save.cls);
     const fresh = all.filter((id) => !G.save.skills[id]);
-    const pool = fresh.length && Math.random() < preferNew ? fresh : all;
+    if (fresh.length) Math.random();
+    const own = C ? fresh.filter((id) => G.classCanUse(G.save.cls, id)) : fresh;
+    const pool = own.length ? own : fresh.length ? fresh : all;
     const id = C ? classGemPick(pool) : G.pick(pool);
-    return { id, lvl: gemLevel() };
+    gemDraw();
+    return { id };
   }
   function classGemPick(pool) {
     const cls = G.save.cls;
@@ -11611,7 +11954,7 @@
       G.spawnLoot('skill', pickSkillGem(1), x, z);
       for (let i = 0; i < SUPPORT_DROP.boss; i++) G.spawnLoot('support', pickSupportGem(i ? 0.7 : 1), x, z);
       // 无铭技能宝石：每个首领第一次倒下必掉一颗（第一个区域的首领就是新角色的保底），之后再打有小几率
-      if ((e.bossKind && !save.bossKills[e.bossKind]) || Math.random() < BLANK_DROP.boss) G.spawnLoot('blank', { lvl: gemLevel() }, x, z);
+      if ((e.bossKind && !save.bossKills[e.bossKind]) || Math.random() < BLANK_DROP.boss) G.spawnLoot('blank', blankData(), x, z);
       uniqueDrop(e, ilvl);
       G.relicBossDrop(e, ilvl); // 渊契：和烬铸分开掷
       // 击杀区域首领：印烛芯（任何印下都掷，几率按这次进区的印，见 G.fragChance）
@@ -11625,7 +11968,7 @@
       const needFirst = save.supports.length === 0 && !state.loot.some((l) => l.kind === 'support');
       if (needFirst || Math.random() < SUPPORT_DROP.elite) G.spawnLoot('support', pickSupportGem(needFirst ? 1 : 0.7), x, z);
       if (Math.random() < SKILL_DROP.elite * G.gemDropK(save.cls)) G.spawnLoot('skill', pickSkillGem(0.7), x, z);
-      if (Math.random() < BLANK_DROP.elite) G.spawnLoot('blank', { lvl: gemLevel() }, x, z);
+      if (Math.random() < BLANK_DROP.elite) G.spawnLoot('blank', blankData(), x, z);
       return;
     }
     // 区域刷的普通怪（horde）掉落几率按 G.BALANCE.loot 打折：怪多了一倍，一整区合计约 ×1.15
@@ -11635,7 +11978,7 @@
     if (Math.random() < 0.09 * kCur * qk) G.spawnLoot('cur', G.rollCurrency(), x, z);
     if (Math.random() < SKILL_DROP.mob * kGem * G.gemDropK(save.cls)) G.spawnLoot('skill', pickSkillGem(0.7), x, z);
     if (Math.random() < SUPPORT_DROP.mob * kGem) G.spawnLoot('support', pickSupportGem(0.7), x, z);
-    if (Math.random() < BLANK_DROP.mob * kGem) G.spawnLoot('blank', { lvl: gemLevel() }, x, z);
+    if (Math.random() < BLANK_DROP.mob * kGem) G.spawnLoot('blank', blankData(), x, z);
   };
 
   // 烬铸武器：五个首领都会掉（层级 1 起），各掉各的那一把；连续 pity 次没掉，下一次必掉（计数存档，掉了清零）
@@ -11686,7 +12029,7 @@
     // 有职业时（class-d2）：这个职业用不上的技能宝石掉下来就是同等级的无铭技能宝石（不浪费）。没有职业时不动
     if (kind === 'skill' && G.clsDef() && !G.classCanUse(G.save.cls, data.id)) {
       kind = 'blank';
-      data = { lvl: data.lvl, from: data.id };
+      data = { from: data.id };
     }
     // 在落点周围找一个可走、且尽量不与其他掉落重叠的位置
     let bx = x;
@@ -11718,11 +12061,11 @@
       color = G.CURRENCY[data].color;
       beam = false;
     } else if (kind === 'skill') {
-      label = '技能宝石：' + G.SKILLS[data.id].name + ' Lv ' + data.lvl;
+      label = '技能宝石：' + G.SKILLS[data.id].name;
       color = GEM_COLOR;
       beam = true;
     } else if (kind === 'blank') {
-      label = G.BLANK_GEM.name + ' Lv ' + data.lvl;
+      label = G.BLANK_GEM.name;
       color = G.BLANK_GEM.color;
       beam = true;
     } else if (kind === 'frag') {
@@ -11740,9 +12083,9 @@
   };
 
   // 学会一个新技能：开好 3 个辅助槽，技能栏有空格就放进去；返回放进的格子（没有空格时 -1）
-  function learnSkill(id, lvl) {
+  function learnSkill(id) {
     const save = G.save;
-    save.skills[id] = Math.max(lvl, G.gemFloor()); // 新学的技能也不低于随角色成长的等级
+    save.skills[id] = G.gemFloor(); // 存档里记下限（技能等级一律按 G.skillLvl 算，这个数只当「学会了」，旧版本读档时也是这个等级）
     save.sockets[id] = [null, null, null];
     const free = G.freeBarSlot();
     if (free >= 0) save.bar[free] = id;
@@ -11751,37 +12094,44 @@
   }
 
   // ---------- 无铭技能宝石 ----------
-  // 手里最高的一颗（没有时 0）
-  G.blankBest = () => G.save.blankGems[0] || 0;
-  // 某个等级的无铭宝石还有没有用处：有没学会的技能，或有低于这个等级的已学技能
-  G.blankUseful = function (lvl) {
+  // 手里有几颗。宝石没有等级（gem-nolvl）；save.blankGems 还是一串数（从高到低），新捡到的记当时的下限，旧版本读档时照常是一颗颗有等级的宝石
+  G.blankCount = () => G.save.blankGems.length;
+  // 无铭宝石还有没有用处：还有能学、没学会的技能
+  G.blankUseful = function () {
     const sk = G.save.skills;
-    return G.blankTargets().some((id) => !sk[id] || sk[id] < lvl);
+    return G.blankTargets().some((id) => !sk[id]);
   };
+  // 收下一颗无铭宝石（满 BLANK_MAX 颗时不收），返回收没收下
+  function addBlank() {
+    const save = G.save;
+    if (save.blankGems.length >= BLANK_MAX) return false;
+    save.blankGems.push(G.gemFloor());
+    save.blankGems.sort((a, b) => b - a);
+    return true;
+  }
+  // 用不上的宝石（学会了的技能宝石、再也学不到新技能的无铭宝石）：还有能学的技能就化成一颗无铭宝石，否则化成一个随机通货（按普通通货的掉落权重）。
+  // 返回拾取记录用的 how：{ t: 'dup', blank: true } 或 { t: 'dup', cur: 通货 id, n: 1 }（拾取不弹 toast，pickup-feed）
+  function convertGem(allowBlank) {
+    if (allowBlank && G.blankUseful() && addBlank()) return { t: 'dup', blank: true };
+    const cur = G.rollCurrency();
+    grantCurrency(cur, 1);
+    return { t: 'dup', cur, n: 1 };
+  }
   // 无铭宝石能学 / 能升的技能：有职业时只限这个职业能用的
   G.blankTargets = () => (G.clsDef() ? G.classGems(G.save.cls) : G.GEM_SKILLS);
-  // 对某个技能用一颗无铭宝石：没学会就学会，学会了就升到宝石的等级。总是用手里等级最高的那颗；
-  // 已学技能的等级不低于它时不能用。成功返回 { id, lvl, from（原等级，新学为 0）, slot（新学时放进的技能栏格子，-1 为没有空格） }
+  // 用一颗无铭宝石学会一个还没学会的技能（学会了的不能用）。用掉手里记的数最低的那颗（几颗都一样，高的留给可能读这份存档的旧版本）。
+  // 成功返回 { id, slot（放进的技能栏格子，-1 为没有空格） }
   G.useBlankGem = function (id) {
     const save = G.save;
     const sk = G.SKILLS[id];
-    const lvl = G.blankBest();
-    const have = save.skills[id] || 0;
-    if (!sk || sk.weaponOnly || !lvl || lvl <= have) return null;
+    if (!sk || sk.weaponOnly || !save.blankGems.length || save.skills[id]) return null;
     if (G.clsDef() && !G.classCanUse(save.cls, id)) return null; // 别的职业的技能：学不了
-    save.blankGems.shift();
-    const B = G.BLANK_GEM;
-    let slot = -1;
-    if (!have) {
-      slot = learnSkill(id, lvl);
-      toast('习得技能：' + sk.name + ' Lv ' + save.skills[id] + (slot >= 0 ? '' : '（去技能页绑定）') + ' · 用掉一颗' + B.short, GEM_COLOR);
-    } else {
-      save.skills[id] = lvl;
-      toast(sk.name + ' 升至 Lv ' + lvl + ' · 用掉一颗' + B.short, GEM_COLOR);
-    }
+    save.blankGems.pop();
+    const slot = learnSkill(id);
+    toast('习得技能：' + sk.name + (slot >= 0 ? '' : '（去技能页绑定）') + ' · 用掉一颗' + G.BLANK_GEM.short, GEM_COLOR);
     G.sfx('gem');
     G.persist();
-    return { id, lvl, from: have, slot };
+    return { id, slot };
   };
 
   function grantCurrency(id, n) {
@@ -11794,19 +12144,29 @@
     const idx = state.loot.indexOf(loot);
     if (idx < 0 || P.dead) return false;
     if (dist(loot.x, loot.z, P.x, P.z) > 7) {
-      toast('走近一点', '#c8b89a', 'far', 900);
+      feedWarn('走近一点', 'far', 900);
       return false;
     }
+    // 拾取结果交给拾取记录（G.ui.onPickup 的 how）：拾取不弹 toast（pickup-feed）。
+    // how.t：'new' 新学会 / 新得到，'up' 升级，'dup' 重复的化成通货（cur、n）；技能宝石另有 lvl（学会后的等级）、bar（放进了技能栏）
+    let how = null;
 
     // 选项「拾取时自动分解普通物品」：不进背包，直接化成通货（普通物品通常什么也分解不出）
     const scrapped = loot.kind === 'item' && loot.data.rarity === 0 && !!save.opts.autoSalvage && !loot.data.lk; // 锁定的物品（丢出去又捡回来）照常进背包
+    // 选项「自动分解其他职业武器」（T36）：本职业用不了的武器不进背包，按手动分解的规则（G.salvageResult）化成通货。
+    // 玩家自己丢下的（loot.own）照常捡回来；背包满了也能分。开关关着时这里不调 G.salvageResult，Math.random 的调用次数不变
+    const offRes = !scrapped && loot.kind === 'item' && !!save.opts.salvageOffCls && !loot.own && G.offClsScrap(loot.data) ? G.salvageResult(loot.data) : null;
     if (scrapped) {
       const res = G.salvageResult(loot.data);
       for (const id in res) grantCurrency(id, res[id]);
       G.sfx('pickup', { r: 0 });
+    } else if (offRes) {
+      for (const id in offRes) grantCurrency(id, offRes[id]);
+      G.sfx('pickup', { cur: 1 });
+      G.persist();
     } else if (loot.kind === 'item') {
       if (save.bag.length >= BAG_SIZE) {
-        toast('背包已满', '#ff8a6a', 'bagfull', 2500);
+        feedWarn('背包满了', 'bagfull', 2500);
         return false;
       }
       save.bag.push(loot.data);
@@ -11827,50 +12187,31 @@
       G.sfx('pickup', { cur: 1 });
     } else if (loot.kind === 'skill') {
       const id = loot.data.id;
-      const lvl = loot.data.lvl;
-      const name = G.SKILLS[id].name;
-      const have = save.skills[id];
-      if (!have) {
-        const free = learnSkill(id, lvl);
-        toast('习得技能：' + name + ' Lv ' + save.skills[id] + (free >= 0 ? '' : '（按 G 绑定）'), GEM_COLOR);
-      } else if (lvl > have) {
-        save.skills[id] = lvl;
-        toast(name + ' 升至 Lv ' + lvl, GEM_COLOR);
-      } else {
-        grantCurrency('dust', 1);
-        toast('重复的技能宝石化为 1 ' + G.CURRENCY.dust.name, G.CURRENCY.dust.color);
-      }
+      if (!save.skills[id]) {
+        const free = learnSkill(id);
+        how = { t: 'new', bar: free >= 0 };
+      } else how = convertGem(true); // 学会了的：化成无铭宝石或通货（拾取记录看 how）
       G.sfx('gem');
       G.persist();
     } else if (loot.kind === 'frag') {
       // 烛芯：按种类计数（熄烛者的开启材料，见 G.FRAGS）
       const F = save.frags;
       F[loot.data] = Math.min(G.FRAG_DROP.max, (F[loot.data] || 0) + 1);
-      toast('获得' + G.FRAGS[loot.data].name + '（共 ' + F[loot.data] + ' 个）', G.FRAGS[loot.data].color);
       G.sfx('gem');
       G.persist();
     } else if (loot.kind === 'blank') {
-      const lvl = loot.data.lvl;
-      const B = G.BLANK_GEM;
-      if (!G.blankUseful(lvl) || save.blankGems.length >= BLANK_MAX) {
-        // 所有技能都已学会且都不低于这个等级：这颗再也用不上，和重复的技能宝石一样化成尘
-        grantCurrency('dust', 1);
-        toast('用不上的' + B.name + '化为 1 ' + G.CURRENCY.dust.name, G.CURRENCY.dust.color);
-      } else {
-        save.blankGems.push(lvl);
-        save.blankGems.sort((a, b) => b - a);
-        toast('获得' + B.name + ' Lv ' + lvl + '（共 ' + save.blankGems.length + ' 颗，按 G 使用）', B.color);
-      }
+      if (G.blankUseful() && addBlank()) how = { t: 'new', n: save.blankGems.length };
+      else how = convertGem(false); // 能学的技能都学会了（或已攒满）：化成通货
       G.sfx('gem');
       G.persist();
     } else {
       const id = loot.data;
       if (save.supports.indexOf(id) < 0) {
         save.supports.push(id);
-        toast('获得辅助宝石：' + G.SUPPORTS[id].name + '（按 G 镶嵌）', SUP_COLOR);
+        how = { t: 'new' };
       } else {
         grantCurrency('augment', 1);
-        toast('重复的辅助宝石化为 1 ' + G.CURRENCY.augment.name, G.CURRENCY.augment.color);
+        how = { t: 'dup', cur: 'augment', n: 1 };
       }
       G.sfx('gem');
       G.persist();
@@ -11879,7 +12220,7 @@
     state.loot.splice(idx, 1);
     if (W.lootPick) W.lootPick(loot.x, loot.z, hexOf(loot.color), !!(loot.mesh.userData && loot.mesh.userData.bt)); // vf-vfx3：拾取的环 + 飞向脚下的碎晶
     W.removeMesh(loot.mesh);
-    G.ui.onPickup(loot, scrapped); // 拾取记录（带图标）、背包里的「新」标记
+    G.ui.onPickup(loot, scrapped, offRes, how); // 拾取记录（带图标）、背包里的「新」标记
     return true;
   };
 
@@ -11944,14 +12285,13 @@
     }
     if (save.level >= MAX_LEVEL) save.xp = 0;
     if (!gained) return;
-    const gemsUp = G.syncGemLevels();
+    G.syncGemLevels(); // 存档里记的等级跟着抬（技能等级本来就按角色等级算，不另外提示）
     G.computeStats();
     if (!P.dead) {
       P.life = P.maxLife;
       P.mana = P.maxMana;
     }
     toast('等级提升：Lv ' + save.level + '（获得 ' + gained + ' 点天赋点）', '#ffd75e');
-    if (gemsUp.length) toast('技能宝石随之成长到 Lv ' + G.gemFloor() + '：' + gemsUp.map((id) => G.SKILLS[id].name).join('、'), GEM_COLOR);
     if (G.world.levelUpFx) G.world.levelUpFx(P.x, P.z); // vf-vfx3：金色的环往外画开 + 竖直的细光痕（原来 4.5 米环 + 30 粒金光点）
     else G.world.ring(P.x, P.z, 4.5, 0xffd75e, 0.6);
     G.sfx('level');
@@ -12030,7 +12370,7 @@
     const res = G.salvageResult(it);
     for (const id in res) grantCurrency(id, res[id]);
     const txt = resultText(res);
-    if (txt) toast('分解获得：' + txt, '#7fe0c0');
+    if (txt) salvNote('分解获得：' + txt);
     return commit();
   };
 
@@ -12051,7 +12391,7 @@
     save.bag = keep;
     for (const id in sum) grantCurrency(id, sum[id]);
     const txt = resultText(sum);
-    toast('分解了 ' + n + ' 件普通物品' + (txt ? '，获得：' + txt : ''), '#c8b89a');
+    salvNote('分解了 ' + n + ' 件普通物品' + (txt ? '，获得：' + txt : ''));
     return commit();
   };
 
@@ -12111,6 +12451,7 @@
     const it = save.bag.splice(i, 1)[0];
     const loot = G.spawnLoot('item', it, P.x, P.z);
     loot.noAuto = true;
+    loot.own = true; // 自己丢下的：捡回来时不自动分解（T36）
     G.persist();
     return loot;
   };
@@ -12612,7 +12953,7 @@
     for (let i = 0, n = sealCount(2); i < n; i++) G.spawnLoot('item', G.rollItem(lvl, G.rollRarity(rm * 2)), x, z);
     for (let i = 0, n = sealCount(1); i < n; i++) G.spawnLoot('cur', G.rollCurrency(), x, z);
     if (Math.random() < SUPPORT_DROP.elite) G.spawnLoot('support', pickSupportGem(0.7), x, z);
-    if (Math.random() < BLANK_DROP.elite) G.spawnLoot('blank', { lvl: gemLevel() }, x, z);
+    if (Math.random() < BLANK_DROP.elite) G.spawnLoot('blank', blankData(), x, z);
   }
   G.encReward = function (R, lvl, x, z) {
     const rm = encRm();
@@ -13229,7 +13570,10 @@
       const item = G.rollItem(lvl, rar, want[i % want.length]);
       out.push({ kind: 'item', item, price: item.rarity >= 2 ? T.price.rare : T.price.magic });
     }
-    out.push(Math.random() < 0.5 ? { kind: 'skill', data: pickSkillGem(0.7, true), price: T.price.gem } : { kind: 'support', data: pickSupportGem(0.7), price: T.price.gem }); // 有职业时只摆能用的宝石
+    // 有职业时只摆能用的宝石；能用的技能都学会了（挑出来的是学会了的）就换成一颗辅助宝石，不摆没用的
+    let gem = Math.random() < 0.5 ? { kind: 'skill', data: pickSkillGem(0.7, true), price: T.price.gem } : null;
+    if (!gem || save.skills[gem.data.id]) gem = { kind: 'support', data: pickSupportGem(0.7), price: T.price.gem };
+    out.push(gem);
     // 另外固定一格辅助宝石（辅助种类多了，support-expand）：和上一格不重样
     let sid = pickSupportGem(0.7);
     for (let k = 0; k < 6 && out[out.length - 1].data === sid; k++) sid = pickSupportGem(0.7);
@@ -13578,7 +13922,7 @@
     for (let i = 0; i < 3; i++) G.spawnLoot('item', G.rollItem(ilvl, 2), x, z);
     for (const id of ['exalt', 'exalt', 'divine']) G.spawnLoot('cur', id, x, z);
     for (let i = 0; i < 3; i++) G.spawnLoot('cur', G.rollCurrency(), x, z);
-    G.spawnLoot('blank', { lvl: gemLevel() }, x, z);
+    G.spawnLoot('blank', blankData(), x, z);
     for (let i = 0; i < 2; i++) G.spawnLoot('support', pickSupportGem(i ? 0.7 : 1), x, z);
     // 巅峰渊契：首杀必掉；之后 chance、连续 pity 次没掉下一次必掉。两件里还没拾到过的优先，都拾到过就各半
     let pid = null;
