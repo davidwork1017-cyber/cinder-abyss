@@ -342,6 +342,8 @@ def build(k, prov, lod='hi', part=None):
         bpy.data.meshes.remove(me_cut)
     else:
         me_body = _decimate(me_src, target, log, 'decimate', spec.get('remesh', 0.0))
+    if spec.get('post_small'):
+        me_body = _drop_bits(me_body, spec['post_small'], log, 'post_small')
     # ---- 发光壳：发光面往外长 shell_grow 圈（盖住和本体的接缝），沿顶点法线往外推 shell 米，单独减面 ----
     me_glow = None
     if glow.any():
@@ -363,6 +365,8 @@ def build(k, prov, lod='hi', part=None):
         bg.to_mesh(me_g)
         bg.free()
         me_glow = _decimate(me_g, spec['glow_lods'][lod], log, 'decimate_glow')
+        if spec.get('post_small'):
+            me_glow = _drop_bits(me_glow, spec['post_small'], log, 'post_small_glow')
         bpy.data.meshes.remove(me_g)
     bm.free()
     # ---- 本体每个面：4 点在源网格（非发光面）上找最近的面，颜色取平均 ----
@@ -414,6 +418,27 @@ def build(k, prov, lod='hi', part=None):
         if im.users == 0:
             bpy.data.images.remove(im)
     print('CA_AI ' + json.dumps(dict(prov=prov, lod=lod, mode='fc', part=part, src_tris=src_tris, **log), ensure_ascii=False), flush=True)
+
+
+def _drop_bits(me, frac, log, key):
+    """减面以后断开的小碎片（护身符挂环上的细条、弓臂上的碎屑）：面数少于总数 frac 的连通块删掉"""
+    bm = bmesh.new()
+    bm.from_mesh(me)
+    bm.faces.ensure_lookup_table()
+    bm.faces.index_update()
+    tot = len(bm.faces)
+    bits = [f for isl in importer._islands(bm) if len(isl) < frac * tot for f in isl]
+    if bits:
+        bmesh.ops.delete(bm, geom=bits, context='FACES')
+        loose = [v for v in bm.verts if not v.link_faces]
+        if loose:
+            bmesh.ops.delete(bm, geom=loose, context='VERTS')
+    out = bpy.data.meshes.new(me.name + '_c')
+    bm.to_mesh(out)
+    bm.free()
+    bpy.data.meshes.remove(me)
+    log[key] = len(bits)
+    return out
 
 
 def _remesh(me, voxel):

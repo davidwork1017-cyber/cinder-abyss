@@ -1,7 +1,7 @@
 {
  "_comment": "AI 生成武器的来源记录（ai3d-weapons，试点）。processing 是 art/ai/weapon.py 的处理参数（npm run build:art 读这里）。源 GLB 不进仓库，只记 sha256；概念图不进仓库。",
  "id": "ca/aiwpn_amulet",
- "title": "护身符（圆形金框、中间一块粉色宝石、顶上挂环；断成几截的链子去掉）",
+ "title": "护身符（圆形金框的坠子、中间一块粉色宝石；断成几截的链子和挂环去掉）",
  "pilot": true,
  "source": {
   "name": "gear-amulet-01",
@@ -134,7 +134,7 @@
    {
     "at": {
      "long": [
-      0.745,
+      0.52,
       1.01
      ]
     }
@@ -184,6 +184,8 @@
    "shell_grow": 1,
    "cut_body": true
   },
-  "lods_note": "lo（低画质掉落）：本体 135 + 发光 24，不超过原来脚本件的掉落模型（160）"
+  "lods_note": "lo（低画质掉落）：本体 135 + 发光 24，不超过原来脚本件的掉落模型（160）",
+  "drop_small": 0.02,
+  "post_small": 0.03
  }
 }

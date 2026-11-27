@@ -558,24 +558,24 @@
    "file": "assets/ca/aiwpn/aiwpn_amulet.glb",
    "ship": true,
    "replaces": null,
-   "tris": 659,
-   "verts": 1977,
+   "tris": 658,
+   "verts": 1974,
    "materials": 1,
    "textures": 0,
    "bounds": {
     "min": [
-     -0.138,
+     -0.137,
      -0.249,
      -0.05
     ],
     "max": [
      0.137,
-     0.127,
-     0.051
+     0.012,
+     0.05
     ]
    },
-   "h": 0.376,
-   "r": 0.138,
+   "h": 0.262,
+   "r": 0.137,
    "y0": -0.249,
    "source": {
     "script": "art/ai/importer.py",
@@ -593,7 +593,7 @@
    },
    "lod": "hi",
    "mode": "fc",
-   "sha256": "f6f9a34140f73c5d9ed86f499d09dc43c5972273119a8e6e61766cee96723e8f"
+   "sha256": "2479a07f8b013c9220bfdbf0aaffac951d07d53ef57c2656419db0dab4d36340"
   },
   {
    "id": "ca/aiwpn_amulet_lo",
@@ -608,19 +608,19 @@
    "textures": 0,
    "bounds": {
     "min": [
-     -0.139,
-     -0.251,
+     -0.14,
+     -0.247,
      -0.049
     ],
     "max": [
-     0.14,
-     0.126,
-     0.051
+     0.136,
+     0.011,
+     0.05
     ]
    },
-   "h": 0.377,
+   "h": 0.258,
    "r": 0.14,
-   "y0": -0.251,
+   "y0": -0.247,
    "source": {
     "script": "art/ai/importer.py",
     "gen": "ai",
@@ -637,7 +637,7 @@
    },
    "lod": "lo",
    "mode": "fc",
-   "sha256": "84a3b04be36f4cc3388dac7214933e26335ecc832ff901f90b8cbb69e0bd8a14"
+   "sha256": "6d289e9cc4fcee60c359b60e0028ca58d129189dd51aaaa9cc38a86ddc46bac3"
   },
   {
    "id": "ca/aiwpn_banner",
@@ -1174,8 +1174,8 @@
    "file": "assets/ca/aiwpn/aiwpn_eagle.glb",
    "ship": true,
    "replaces": null,
-   "tris": 439,
-   "verts": 1317,
+   "tris": 432,
+   "verts": 1296,
    "materials": 1,
    "textures": 0,
    "bounds": {
@@ -1209,7 +1209,7 @@
    },
    "lod": "hi",
    "mode": "fc",
-   "sha256": "917eb25e18687a50476236cf56faa7bd950c6fbea3db2299968783e889461860"
+   "sha256": "1d98da5f00d76a3af9af37b3727f0e8a802850989cc16303f704a4ac79700a06"
   },
   {
    "id": "ca/aiwpn_eagle_lo",
@@ -1218,8 +1218,8 @@
    "file": "assets/ca/aiwpn/aiwpn_eagle_lo.glb",
    "ship": true,
    "replaces": null,
-   "tris": 370,
-   "verts": 1110,
+   "tris": 363,
+   "verts": 1089,
    "materials": 1,
    "textures": 0,
    "bounds": {
@@ -1231,7 +1231,7 @@
     "max": [
      0.141,
      0.715,
-     0.043
+     0.04
     ]
    },
    "h": 1.42,
@@ -1253,7 +1253,7 @@
    },
    "lod": "lo",
    "mode": "fc",
-   "sha256": "1ccc7dad0a5e24779bc82696555db1e6d25349d7484e9864229a345ffb8a3bf0"
+   "sha256": "14db8bc0961ff950f708befa52bba4636adca0ede8b88bf118adb5ddf0fc99df"
   },
   {
    "id": "ca/aiwpn_emberbow",
@@ -1262,8 +1262,8 @@
    "file": "assets/ca/aiwpn/aiwpn_emberbow.glb",
    "ship": true,
    "replaces": null,
-   "tris": 450,
-   "verts": 1350,
+   "tris": 447,
+   "verts": 1341,
    "materials": 1,
    "textures": 0,
    "bounds": {
@@ -1297,7 +1297,7 @@
    },
    "lod": "hi",
    "mode": "fc",
-   "sha256": "dce08127d6b7d1c83807d4544d5aa6e725aa7861e8ac2bd9442abfe7fb4cb8f2"
+   "sha256": "b95ff181f0526e2193063073b582cb4b72963d7ec8b6a94d6d1c1dddbbd9a835"
   },
   {
    "id": "ca/aiwpn_emberbow_lo",
@@ -1306,8 +1306,8 @@
    "file": "assets/ca/aiwpn/aiwpn_emberbow_lo.glb",
    "ship": true,
    "replaces": null,
-   "tris": 440,
-   "verts": 1320,
+   "tris": 437,
+   "verts": 1311,
    "materials": 1,
    "textures": 0,
    "bounds": {
@@ -1341,7 +1341,7 @@
    },
    "lod": "lo",
    "mode": "fc",
-   "sha256": "06a916f7a8e5c5cda03e11925e7d0c1703ba50de0b1d0b36094b0fc4b9ed6007"
+   "sha256": "1b6a85706d0fd0f5b91796f2cb8295c9e6e577ae1be3e3674506bb8febd4df78"
   },
   {
    "id": "ca/aiwpn_flamer",
@@ -1886,20 +1886,20 @@
    "file": "assets/ca/aiwpn/aiwpn_huntbow.glb",
    "ship": true,
    "replaces": null,
-   "tris": 440,
-   "verts": 1320,
+   "tris": 438,
+   "verts": 1314,
    "materials": 1,
    "textures": 0,
    "bounds": {
     "min": [
      -0.1,
      -0.708,
-     -0.024
+     -0.023
     ],
     "max": [
      0.231,
      0.71,
-     0.023
+     0.022
     ]
    },
    "h": 1.418,
@@ -1921,7 +1921,7 @@
    },
    "lod": "hi",
    "mode": "fc",
-   "sha256": "bb21cf347dcd03a75246b649186104f56ad8a137872841901b395b15ab82308e"
+   "sha256": "0d072851734a43a6e7d0657d667b60cbe8221edb0a4a53d047bfdac3db311a7b"
   },
   {
    "id": "ca/aiwpn_huntbow_lo",
@@ -1930,20 +1930,20 @@
    "file": "assets/ca/aiwpn/aiwpn_huntbow_lo.glb",
    "ship": true,
    "replaces": null,
-   "tris": 380,
-   "verts": 1140,
+   "tris": 378,
+   "verts": 1134,
    "materials": 1,
    "textures": 0,
    "bounds": {
     "min": [
      -0.1,
      -0.712,
-     -0.024
+     -0.023
     ],
     "max": [
      0.231,
      0.71,
-     0.023
+     0.022
     ]
    },
    "h": 1.422,
@@ -1965,7 +1965,7 @@
    },
    "lod": "lo",
    "mode": "fc",
-   "sha256": "a836ba7a91bdd37b97c7684d16a14d06ec7fce05e5df7d502c2b4b40c74511a9"
+   "sha256": "e55dfd7445bb3ac86a200be92caa12e71c188a0251b2a59a03cf0fda361eb136"
   },
   {
    "id": "ca/aiwpn_katana",
@@ -2361,7 +2361,7 @@
    },
    "lod": "hi",
    "mode": "fc",
-   "sha256": "203a5fc59032784f7771aee0cba540dcde6dcb3ee05074740d936873b2c02921"
+   "sha256": "2b9fab753e4ff43812d2427252f578617a16aedeb364e667c7c19f44da4bfd5a"
   },
   {
    "id": "ca/aiwpn_runebow_lo",
@@ -2405,7 +2405,7 @@
    },
    "lod": "lo",
    "mode": "fc",
-   "sha256": "0d44070c71d66d3c552322b159dc5345274622b5e24e7c54ed0bf5affca5f127"
+   "sha256": "2b977491a5b6a9fa1d720d0662a2c035e0290ad2e04fef18d25eadd83a9b91b5"
   },
   {
    "id": "ca/aiwpn_staff",

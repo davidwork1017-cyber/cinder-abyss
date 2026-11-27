@@ -13532,9 +13532,9 @@
     body: { loot: { s: 1, y: 0 } },
     gloves: { loot: { s: 1, y: 0 } },
     boots: { loot: { s: 1, y: 0 } },
-    belt: { loot: { s: 1, y: 0 } },
+    belt: { loot: { s: 1, y: 0 }, loScripted: true }, // 体素重建后的 lo 档读不出是一圈腰带，低画质照旧用脚本件
     ring: { loot: { s: 1, y: 0 } },
-    amulet: { loot: { s: 1, y: 0 } },
+    amulet: { loot: { s: 1.5, y: 0 } }, // 去掉链子和挂环以后只剩坠子，放大到原来护身符在地上的大小
   };
   let aiwSt = 0; // 0 还没看 / 1 可以用 / 2 不用（开关关着、包没引入或解码失败）
   function aiwOn(type) {
