@@ -13585,6 +13585,12 @@
     GRIP_2H[G_GAT] = [F[0], F[0], 0.1, F[1]];
     GRIP_2H[G_HAM] = AIW_FIT.hammer.grip2h;
   }
+  // 主角骨架（手里的 lo 档）和两档掉落模型都建好以后，包里解码出来的源几何体就用不着了（约 0.4 MB）：放掉。之后不再读它们
+  function aiwRelease() {
+    if (!G.assets.dropGeo) return;
+    for (const t of AIW_TYPES) for (const sfx of ['', '_lo']) G.assets.dropGeo('ca/aiwpn_' + t + sfx);
+    for (const sfx of ['', '_lo']) G.assets.dropGeo('ca/aiwpn_gatling_barrel' + sfx);
+  }
   // 掉落模型（LOOT_MODEL 的格式：[本体, 发光]）
   function aiwLoot(t, lo) {
     const F = AIW_FIT[t].loot, sfx = lo ? '_lo' : '';
@@ -21633,6 +21639,7 @@
     lootWarm = false;
     // AI 武器（&aiwpn=1）：另一档画质的掉落模型也先建好（换画质档以后不再新建几何体）
     if (aiwOn()) for (const t of AIW_TYPES) for (const lo of [false, true]) if (!lootModels[t + (lo ? '~lo' : '~hi')]) lootModels[t + (lo ? '~lo' : '~hi')] = aiwLoot(t, lo);
+    if (aiwOn()) aiwRelease();
     allyFxVisible(true); // 召唤法阵 / 聚焦标记平时是隐藏的：预热这一帧让它们露个面，着色器一并编译
     warmWeaponFx(true);
     if (ghosts.length) ghosts[0].mesh.visible = true; // 残影（亮度 0）：第一次冲刺 / 一闪时不再现编译着色器

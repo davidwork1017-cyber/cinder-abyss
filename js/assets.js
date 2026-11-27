@@ -482,6 +482,12 @@
   };
   A.texPending = (name) => !!(texState[name] && !texState[name].done); // 测试用：这个包这一档的解码还在路上
   A.geo = (key) => geos[key] || null;
+  // 用完就放掉的几何体（AI 武器：主角骨架和两档掉落模型都建好以后，包里解码出来的源几何体不再要）
+  A.dropGeo = (key) => {
+    delete geos[key];
+    delete geoInfo[key];
+    delete geoPack[key];
+  };
   A.geoInfo = (key) => geoInfo[key] || null;
   A.geoPack = (key) => geoPack[key] || null;
   A.packOfTex = (id) => INDEX.textures[id] || null;
