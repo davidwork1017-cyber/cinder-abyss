@@ -13509,7 +13509,7 @@
     blade: { hand: [0, 0, 0.03], loot: { s: 0.67, y: -0.24 } },
     staff: { hand: [0, 0, 0], loot: { s: 0.5, y: -0.25 } },
     hammer: { hand: [0, 0, 0.03], loot: { s: 0.73, y: -0.405 }, grip2h: [-0.2, 0.62, 0.15] },
-    gatling: { hand: [0, -0.01, 0.035], loot: { s: 0.75, y: -0.11, gun: true }, fore: [0.3, 0.06] },
+    gatling: { hand: [0, -0.01, 0.035], loot: { s: 0.75, y: -0.05, gun: true }, fore: [0.3, 0.06] },
   };
   let aiwSt = 0; // 0 还没看 / 1 可以用 / 2 不用（开关关着、包没引入或解码失败）
   function aiwOn(type) {

@@ -652,19 +652,19 @@
    "textures": 0,
    "bounds": {
     "min": [
-     -0.259,
-     -0.185,
-     -0.165
+     -0.235,
+     -0.168,
+     -0.149
     ],
     "max": [
-     0.419,
-     0.626,
-     0.164
+     0.381,
+     0.569,
+     0.149
     ]
    },
-   "h": 0.811,
-   "r": 0.419,
-   "y0": -0.185,
+   "h": 0.737,
+   "r": 0.381,
+   "y0": -0.168,
    "source": {
     "script": "art/ai/importer.py",
     "gen": "ai",
@@ -683,7 +683,7 @@
    "lod": "hi",
    "mode": "fc",
    "part": "body",
-   "sha256": "d168a01f7376b0f1bc3ba1104bd880af0bec898d2b67d9d9009fb2f39385de9f"
+   "sha256": "8006fdd652e3b197fe7f993d03da2215558e3924707f75ca6495800c9f2f89d4"
   },
   {
    "id": "ca/aiwpn_gatling_barrel",
@@ -698,19 +698,19 @@
    "textures": 0,
    "bounds": {
     "min": [
-     0.075,
-     0.617,
-     -0.136
+     0.068,
+     0.561,
+     -0.124
     ],
     "max": [
-     0.41,
-     0.916,
-     0.131
+     0.373,
+     0.832,
+     0.119
     ]
    },
-   "h": 0.299,
-   "r": 0.41,
-   "y0": 0.617,
+   "h": 0.272,
+   "r": 0.373,
+   "y0": 0.561,
    "source": {
     "script": "art/ai/importer.py",
     "gen": "ai",
@@ -729,7 +729,7 @@
    "lod": "hi",
    "mode": "fc",
    "part": "barrel",
-   "sha256": "04cdad4fb523c06f7049acb72f71e79484e5de7a6b9f3299dcacfb3af91c4831"
+   "sha256": "73a6da400488cfb838011df48ae87aa66618eeaf129ebacc134599c743ad73a3"
   },
   {
    "id": "ca/aiwpn_gatling_barrel_lo",
@@ -738,25 +738,25 @@
    "file": "assets/ca/aiwpn/aiwpn_gatling_barrel_lo.glb",
    "ship": true,
    "replaces": null,
-   "tris": 89,
-   "verts": 267,
+   "tris": 140,
+   "verts": 420,
    "materials": 1,
    "textures": 0,
    "bounds": {
     "min": [
-     0.084,
-     0.611,
-     -0.125
+     0.077,
+     0.561,
+     -0.112
     ],
     "max": [
-     0.4,
-     0.917,
-     0.124
+     0.361,
+     0.833,
+     0.111
     ]
    },
-   "h": 0.306,
-   "r": 0.4,
-   "y0": 0.611,
+   "h": 0.273,
+   "r": 0.361,
+   "y0": 0.561,
    "source": {
     "script": "art/ai/importer.py",
     "gen": "ai",
@@ -775,7 +775,7 @@
    "lod": "lo",
    "mode": "fc",
    "part": "barrel",
-   "sha256": "7f0897054277c257d4a425af94f6fc895f961f63e41e06c2f8c9749985f62044"
+   "sha256": "f4edd0a3a35e2b212a01947d297cef809355fb8ee3937b547459d0f242b8af72"
   },
   {
    "id": "ca/aiwpn_gatling_lo",
@@ -784,25 +784,25 @@
    "file": "assets/ca/aiwpn/aiwpn_gatling_lo.glb",
    "ship": true,
    "replaces": null,
-   "tris": 273,
-   "verts": 819,
+   "tris": 240,
+   "verts": 720,
    "materials": 1,
    "textures": 0,
    "bounds": {
     "min": [
-     -0.258,
-     -0.178,
-     -0.168
+     -0.228,
+     -0.162,
+     -0.149
     ],
     "max": [
-     0.419,
-     0.627,
-     0.171
+     0.381,
+     0.57,
+     0.156
     ]
    },
-   "h": 0.805,
-   "r": 0.419,
-   "y0": -0.178,
+   "h": 0.732,
+   "r": 0.381,
+   "y0": -0.162,
    "source": {
     "script": "art/ai/importer.py",
     "gen": "ai",
@@ -821,7 +821,7 @@
    "lod": "lo",
    "mode": "fc",
    "part": "body",
-   "sha256": "506d0f5537f4deaced1bf3969b873817e711d84535170e482d7d2927d34659cb"
+   "sha256": "566d127029bf236d91756dd358a7f7e4b654d534f6f268fb17bdf9b3ae599f89"
   },
   {
    "id": "ca/aiwpn_hammer",
