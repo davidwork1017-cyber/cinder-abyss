@@ -115,9 +115,9 @@ for (const [name, pk] of Object.entries(manifest.packs)) {
           continue;
         }
         if (a.mode === 'fc') {
-          // AI 武器（ai3d-weapons，外观 fc）：带索引的紧凑包（tools/glb.mjs 的 packFc：位置 + 颜色 + 发光 + 索引，不存法线、不带 UV）
+          // AI 武器（ai3d-weapons，外观 fc）：带索引、量化过的紧凑包（tools/glb.mjs 的 packFc：16 位位置 + 8 位 sRGB 颜色 + 8 位发光 + 索引，不存法线、不带 UV）
           const q = packFc(readGlb(buf));
-          (data.geo || (data.geo = {}))[a.id] = { sha: a.sha256, n: q.n, p: b64(q.p), c: b64(q.c), ...(q.g ? { g: b64(q.g) } : {}), i: b64(q.i), i32: q.i instanceof Uint32Array ? 1 : 0, fc: 1 };
+          (data.geo || (data.geo = {}))[a.id] = { sha: a.sha256, n: q.n, q: q.q, p: b64(q.p), c: b64(q.c), ...(q.g ? { g: b64(q.g) } : {}), i: b64(q.i), i32: q.i instanceof Uint32Array ? 1 : 0, fc: 2 };
           continue;
         }
         const b = bakeGeo(readGlb(buf));

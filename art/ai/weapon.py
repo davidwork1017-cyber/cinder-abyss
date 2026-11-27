@@ -245,6 +245,37 @@ def build(k, prov, lod='hi', part=None):
             if loose:
                 bmesh.ops.delete(bm, geom=loose, context='VERTS')
         log['dropped'] = len(dead)
+    if spec.get('drop_rod'):
+        # drop_rod：弓握把上横穿的一根杆（生成时和弓熔在一起的箭）。长轴 long 这一段里，横向（up）超出握把宽度的面都删掉；
+        # 握把宽度按上下相邻两段（各 band 宽）里弓身的横向范围取，再放宽 pad
+        r = spec['drop_rod']
+        bm.faces.ensure_lookup_table()
+        sp0 = np.array(hi - lo)
+        cs = [((np.array(f.calc_center_median()) - np.array(lo)) / sp0, f) for f in bm.faces]
+        l0, l1 = r['long']
+        bw = r.get('band', 0.05)
+        near = [c[0] for c, f in cs if (l0 - bw <= c[2] < l0) or (l1 < c[2] <= l1 + bw)]
+        if near:
+            g0, g1 = min(near) - r.get('pad', 0.02), max(near) + r.get('pad', 0.02)
+            dead = [f for c, f in cs if l0 <= c[2] <= l1 and not (g0 <= c[0] <= g1)]
+            if dead:
+                bmesh.ops.delete(bm, geom=dead, context='FACES')
+                loose = [v for v in bm.verts if not v.link_faces]
+                if loose:
+                    bmesh.ops.delete(bm, geom=loose, context='VERTS')
+            log['drop_rod'] = dict(grip=[round(float(g0), 3), round(float(g1), 3)], faces=len(dead))
+    if spec.get('drop_small'):
+        # drop_small：删完以后剩下的小碎块（断开的弦、箭头）：面数少于总数的这个比例
+        bm.faces.ensure_lookup_table()
+        bm.faces.index_update()
+        tot = len(bm.faces)
+        bits = [f for isl in importer._islands(bm) if len(isl) < spec['drop_small'] * tot for f in isl]
+        if bits:
+            bmesh.ops.delete(bm, geom=bits, context='FACES')
+            loose = [v for v in bm.verts if not v.link_faces]
+            if loose:
+                bmesh.ops.delete(bm, geom=loose, context='VERTS')
+        log['drop_small'] = len(bits)
     bm.faces.ensure_lookup_table()
     bm.faces.index_update()
     bm.verts.index_update()
@@ -273,10 +304,12 @@ def build(k, prov, lod='hi', part=None):
         hit[i] = m.mean()
     glow = hit >= G.get('frac', 0.5)
     if G.get('box'):
-        b = G['box']  # 归一化的包围盒范围：{"up": [a, b], "long": [a, b]}
+        b = G['box']  # 归一化的包围盒范围：{"up" / "long" / "thick": [a, b]}
         nu = (cen[:, 0] - lo.x) / span[0]
         nl = (cen[:, 2] - lo.z) / span[2]
+        nt = (cen[:, 1] - lo.y) / span[1]
         glow &= (nu >= b.get('up', [0, 1])[0]) & (nu <= b.get('up', [0, 1])[1]) & (nl >= b.get('long', [0, 1])[0]) & (nl <= b.get('long', [0, 1])[1])
+        glow &= (nt >= b.get('thick', [0, 1])[0]) & (nt <= b.get('thick', [0, 1])[1])  # thick：厚度方向（0 = -y 正面）
     nb = _adj(faces)
     raw = glow.copy()
     glow = _morph(nb, glow, area, G)
@@ -305,10 +338,10 @@ def build(k, prov, lod='hi', part=None):
         me_cut = bpy.data.meshes.new('aiw_cut')
         bc.to_mesh(me_cut)
         bc.free()
-        me_body = _decimate(me_cut, target, log, 'decimate')
+        me_body = _decimate(me_cut, target, log, 'decimate', spec.get('remesh', 0.0))
         bpy.data.meshes.remove(me_cut)
     else:
-        me_body = _decimate(me_src, target, log, 'decimate')
+        me_body = _decimate(me_src, target, log, 'decimate', spec.get('remesh', 0.0))
     # ---- 发光壳：发光面往外长 shell_grow 圈（盖住和本体的接缝），沿顶点法线往外推 shell 米，单独减面 ----
     me_glow = None
     if glow.any():
@@ -383,8 +416,28 @@ def build(k, prov, lod='hi', part=None):
     print('CA_AI ' + json.dumps(dict(prov=prov, lod=lod, mode='fc', part=part, src_tris=src_tris, **log), ensure_ascii=False), flush=True)
 
 
-def _decimate(me, target, log, key):
-    """Decimate · Collapse（三角化）到 target 个三角形以内；比例按实测修正，最多 6 轮"""
+def _remesh(me, voxel):
+    """体素重建（OpenVDB，固定算法）：补上小洞（腰带的扣眼）、并掉小碎块（铆钉），减面才降得下去；颜色照旧从源网格取"""
+    ob = bpy.data.objects.new('aiw_rm', me)
+    bpy.context.scene.collection.objects.link(ob)
+    md = ob.modifiers.new('rm', 'REMESH')
+    md.mode = 'VOXEL'
+    md.voxel_size = voxel
+    md.adaptivity = 0.0
+    for o in bpy.context.scene.objects:
+        o.select_set(o is ob)
+    bpy.context.view_layer.objects.active = ob
+    bpy.ops.object.modifier_apply(modifier='rm')
+    out = ob.data
+    bpy.data.objects.remove(ob)
+    return out
+
+
+def _decimate(me, target, log, key, voxel=0.0):
+    """Decimate · Collapse（三角化）到 target 个三角形以内；比例按实测修正，最多 6 轮。voxel > 0 时先体素重建"""
+    if voxel > 0:
+        me = _remesh(me.copy(), voxel)
+        log[key + '_remesh'] = dict(voxel=voxel, faces=len(me.polygons))
     ob = bpy.data.objects.new('aiw_dec', me)
     bpy.context.scene.collection.objects.link(ob)
     n0 = sum(len(p.vertices) - 2 for p in me.polygons)

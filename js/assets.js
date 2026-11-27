@@ -212,7 +212,16 @@
         const g = new T.BufferGeometry();
         if (e.fc) {
           // AI 武器（ai3d-weapons，外观 fc）：带索引的紧凑包（tools/glb.mjs 的 packFc），展开成不带索引的三角形、按面算法线（平直），发光进 aGlow
-          const idx = e.i32 ? new Uint32Array(b64ToBuf(e.i)) : new Uint16Array(b64ToBuf(e.i)), P0 = f32(e.p), C0 = f32(e.c), G0 = e.g ? f32(e.g) : null;
+          // fc: 2 = 量化过的（16 位位置按包围盒 q 还原、8 位 sRGB 颜色转线性、8 位发光）
+          const idx = e.i32 ? new Uint32Array(b64ToBuf(e.i)) : new Uint16Array(b64ToBuf(e.i)), qp = new Uint16Array(b64ToBuf(e.p)), qc = new Uint8Array(b64ToBuf(e.c)), qg = e.g ? new Uint8Array(b64ToBuf(e.g)) : null;
+          const nv = qp.length / 3, P0 = new Float32Array(nv * 3), C0 = new Float32Array(nv * 3), G0 = qg ? new Float32Array(nv) : null, q = e.q;
+          const s2l = (x) => (x <= 0.04045 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4));
+          for (let k = 0; k < nv * 3; k++) {
+            const a = k % 3;
+            P0[k] = q[a] + (qp[k] / 65535) * q[3 + a];
+            C0[k] = s2l(qc[k] / 255);
+          }
+          if (G0) for (let k = 0; k < nv; k++) G0[k] = qg[k] / 255;
           const P = new Float32Array(idx.length * 3), C = new Float32Array(idx.length * 3), GL = G0 ? new Float32Array(idx.length) : null;
           for (let k = 0; k < idx.length; k++) {
             const v = idx[k];

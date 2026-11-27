@@ -259,10 +259,12 @@ export function packAi(g) {
   return { n: I.length, verts, p: Float32Array.from(P), u: Float32Array.from(U), c: Float32Array.from(C), i: verts < 65536 ? Uint16Array.from(I) : Uint32Array.from(I) };
 }
 
-// ---------- AI 武器（ai3d-weapons，外观 fc）的紧凑包：bakeGeo 的结果按 (位置, 颜色, 发光) 焊接成带索引的网格 ----------
+// ---------- AI 武器（ai3d-weapons，外观 fc）的紧凑包：bakeGeo 的结果按 (位置, 颜色, 发光) 焊接成带索引的网格，再量化 ----------
 // 颜色是逐面的（按件聚成几种色块），同一色块里的角大多能共用顶点；法线不存（游戏端展开成不带索引的三角形、按面重算，平直着色）。
-// 输出 { n: 索引数, p: 位置 Float32 × 3, c: 颜色 Float32 × 3, g: 发光 Float32 × 1（没有发光面时为 null）, i: 索引 Uint16 / Uint32 }，顺序 = 第一次出现的顺序（固定）
+// 量化：位置按这件的包围盒存成 16 位（误差 < 包围盒的 1/65535，2 米的件不到 0.04 毫米），颜色存成 8 位 sRGB（暗部不起色带），发光 8 位。
+// 输出 { n: 索引数, q: [minx, miny, minz, 范围 x, y, z], p: Uint16 × 3, c: Uint8 × 3, g: Uint8（没有发光面时为 null）, i: 索引 Uint16 / Uint32 }，顺序 = 第一次出现的顺序（固定）
 export function packFc(g) {
+  const l2s = (x) => (x <= 0.0031308 ? x * 12.92 : 1.055 * Math.pow(x, 1 / 2.4) - 0.055);
   const b = bakeGeo(g), map = new Map(), P = [], C = [], GL = [], I = [];
   const f = new Float32Array(1), u32 = new Uint32Array(f.buffer), bits = (x) => ((f[0] = x), u32[0]);
   for (let k = 0; k < b.count; k++) {
@@ -278,8 +280,21 @@ export function packFc(g) {
     }
     I.push(v);
   }
-  const verts = P.length / 3;
-  return { n: I.length, verts, p: Float32Array.from(P), c: Float32Array.from(C), g: b.glow ? Float32Array.from(GL) : null, i: verts < 65536 ? Uint16Array.from(I) : Uint32Array.from(I) };
+  const verts = P.length / 3, lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+  for (let k = 0; k < verts; k++) for (let a = 0; a < 3; a++) {
+    lo[a] = Math.min(lo[a], P[k * 3 + a]);
+    hi[a] = Math.max(hi[a], P[k * 3 + a]);
+  }
+  const q = [0, 1, 2].map((a) => Math.fround(lo[a])).concat([0, 1, 2].map((a) => Math.fround(Math.max(1e-6, hi[a] - lo[a]))));
+  const qp = new Uint16Array(verts * 3), qc = new Uint8Array(verts * 3), qg = new Uint8Array(verts);
+  for (let k = 0; k < verts; k++) {
+    for (let a = 0; a < 3; a++) {
+      qp[k * 3 + a] = Math.max(0, Math.min(65535, Math.round(((P[k * 3 + a] - q[a]) / q[3 + a]) * 65535)));
+      qc[k * 3 + a] = Math.max(0, Math.min(255, Math.round(l2s(Math.max(0, Math.min(1, C[k * 3 + a]))) * 255)));
+    }
+    qg[k] = Math.max(0, Math.min(255, Math.round(GL[k] * 255)));
+  }
+  return { n: I.length, verts, q, p: qp, c: qc, g: b.glow ? qg : null, i: verts < 65536 ? Uint16Array.from(I) : Uint32Array.from(I) };
 }
 
 // ---------- 首领包（boss-golem）：带蒙皮和动作的首领 GLB → 游戏直接用的数组（和布景件的预烘焙一样，游戏端不解析 GLB、不解码调色板） ----------

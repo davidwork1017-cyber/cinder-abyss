@@ -8,7 +8,7 @@
     "kit":     { "tris": 2000,  "materials": 1, "textures": 1, "h": [0.05, 12.0] },
     "weapon":  { "tris": 900,   "materials": 1, "textures": 1, "h": [0.3, 1.8] },
     "boss":    { "tris": 8000,  "materials": 2, "textures": 1, "h": [3.5, 7.0], "rigged": true, "bones": 40, "weights": 4, "albedo": { "material": "ai_golem_albedo", "maxPx": 512 } },
-    "aiweapon": { "tris": 1200, "lodTris": 400, "materials": 1, "textures": 0, "h": [0.05, 2.2], "origin": "grip", "_comment": "AI 生成的武器（ai3d-weapons，art/ai/weapon.py，外观 fc：逐面颜色写进 COLOR_0、不带贴图）：tris = 掉落模型高 / 中画质（lod=hi）的上限，lodTris = 手里和低画质掉落（lod=lo）的上限，按件再和原来的脚本件比（不比它重，见 docs/art-pipeline.md）；机炮的枪管束是单独一件（h 的下限放宽到 0.05）；origin = grip：原点在握把中心（check-art 不按「底面中心」查，改查原点在包围盒里）" },
+    "aiweapon": { "tris": 1200, "lodTris": 500, "materials": 1, "textures": 0, "h": [0.05, 2.5], "origin": "grip", "_comment": "AI 生成的武器（ai3d-weapons，art/ai/weapon.py，外观 fc：逐面颜色写进 COLOR_0、不带贴图）：tris = 掉落模型高 / 中画质（lod=hi）的上限，lodTris = 手里和低画质掉落（lod=lo）的上限（脚本件的弓有 480 个三角形），按件再和原来的脚本件比（不比它重，见 docs/art-pipeline.md）；机炮的枪管束是单独一件（h 的下限放宽到 0.05）；origin = grip：原点在握把中心（check-art 不按「底面中心」查，改查原点在包围盒里）" },
     "aiprop":  { "tris": 5000,  "lodTris": 2000, "materials": 1, "textures": 1, "h": [0.03, 8.0], "texPx": 512, "texLowPx": 256, "_comment": "AI 生成的静态布景件（ai3d-pilot，art/ai/importer.py）：tris = 高 / 中画质（lod=hi）的上限，lodTris = 低画质（lod=lo）的上限；外观 albedo 时 GLB 里不带图（材质 ai_albedo），反照率贴图在 tools/asset-sources.json 的 textures（ai 类，边长 texPx、低档 texLowPx）；外观 vc 时和脚本件一样只用共享调色板" }
   },
   "requiredAttributes": ["POSITION", "NORMAL", "TEXCOORD_0", "COLOR_0"],

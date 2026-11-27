@@ -247,7 +247,7 @@ export function checkArt() {
         } else if (aiFc) {
           // AI 武器的紧凑包（packFc）：重新打一遍逐字节相同
           const q = packFc(g);
-          if (e.n !== q.n || e.p !== b64(q.p) || e.c !== b64(q.c) || e.g !== (q.g ? b64(q.g) : undefined) || e.i !== b64(q.i) || e.fc !== 1) bad(id, 'js/assets/kit-' + a.zone + '.js 里的 AI 武器和重新打包的不一致（重新打包）');
+          if (e.n !== q.n || JSON.stringify(e.q) !== JSON.stringify(q.q) || e.p !== b64(q.p) || e.c !== b64(q.c) || e.g !== (q.g ? b64(q.g) : undefined) || e.i !== b64(q.i) || e.fc !== 2) bad(id, 'js/assets/kit-' + a.zone + '.js 里的 AI 武器和重新打包的不一致（重新打包）');
         } else {
           const b = bakeGeo(g);
           if (e.n !== b.count || e.p !== b64(b.pos) || e.nn !== b64(b.nor) || e.c !== b64(b.col) || e.g !== b64(b.glow) || e.u !== undefined || e.t !== undefined) bad(id, 'js/assets/kit-' + a.zone + '.js 里的几何体和重新烘焙的不一致（重新打包）');
