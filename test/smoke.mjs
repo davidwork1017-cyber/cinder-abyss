@@ -2195,6 +2195,7 @@ async function main() {
   await step('升级：经验满后升级、回满、得到天赋点并在 HUD 上提醒', async () => {
     const r = await ev(() => {
       const P = G.player, save = G.save;
+      G.ui.toastReset(); // 前面步骤 60 秒内的升级提示不算（toast-zero：60 秒内再升级不另弹）
       P.life = 30;
       const need = G.xpNeed(save.level) - save.xp;
       const max0 = P.maxLife;

@@ -1164,19 +1164,30 @@
     toastTimer(TOAST_SHOW);
   }
   function toastReset() {
+    lvlToast.at = -1e9;
+    lvlToast.pend = 0;
     clearTimeout(toastT);
     toastQueue.length = 0;
     if (toastCur && toastCur.el.parentNode) toastCur.el.parentNode.removeChild(toastCur.el);
     toastCur = null;
     for (const k in toastKeyAt) delete toastKeyAt[k];
   }
-  // 升级（game.js）：这条还亮着或排着时又升了：改写成最新的等级、天赋点加在一起，不另弹一条
-  const lvlToast = { pts: 0 };
+  // 升级（game.js）：这条还亮着或排着时又升了：改写成最新的等级、天赋点加在一起，不另弹一条。
+  // 上一条升级提示出来不到 60 秒又升了：不再弹（金环、经验条、「有 N 点天赋尚未分配」照常在），点数记着，算进下一条升级提示
+  const lvlToast = { pts: 0, at: -1e9, pend: 0 };
   function levelToast(level, gained) {
+    const now = performance.now();
     const live = (toastCur && toastCur.key === 'lvl' && !toastCur.out) || toastQueue.some((o) => o.key === 'lvl');
-    lvlToast.pts = live ? lvlToast.pts + gained : gained;
+    if (!live && now - lvlToast.at < TOAST_GAP) {
+      lvlToast.pend += gained;
+      return;
+    }
+    lvlToast.pts = live ? lvlToast.pts + gained : gained + lvlToast.pend;
+    lvlToast.pend = 0;
+    if (!live) lvlToast.at = now;
     toast('等级提升：Lv ' + level + '（获得 ' + lvlToast.pts + ' 点天赋点）', '#ffd75e', null, { key: 'lvl', replace: true });
   }
+
 
   // ============================================================
   // 物品相关的 HTML 片段
