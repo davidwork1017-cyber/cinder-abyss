@@ -780,6 +780,23 @@ def run(o):
         paths.append(build_lod(key, tgt, Wsrc, WF, f, regs, bands, kinds, auto_src, mode, smp, spec, out, name, log))
         print('AI_HERO_LOD', key, log['decimate'][key], flush=True)
     write_provenance(out, spec, src, mode, log, auto_src is not None and (o.get('weights') or spec.get('weights', {}).get('glb')))
+    if o.get('ship'):
+        # 上线的那一份：高 / 低两档复制成 <ship>/hero.glb、hero_lo.glb（tools/asset-sources.json 的 chars 包打成 aihero_hi / aihero_lo），来源记录一起放
+        import shutil
+        sd = o['ship'] if os.path.isabs(o['ship']) else os.path.join(ROOT, o['ship'])
+        os.makedirs(sd, exist_ok=True)
+        for key, fn in (('hi', 'hero.glb'), ('lo', 'hero_lo.glb')):
+            shutil.copyfile(os.path.join(out, '%s_%s_%s.glb' % (name, mode, key)), os.path.join(sd, fn))
+        with open(os.path.join(out, 'provenance-%s.json' % mode), encoding='utf-8') as fh:
+            prov = json.load(fh)
+        prov['_comment'] = ('主角的 AI 生成外观（ai3d-hero，%s）的来源记录。源 GLB、概念图、UniRig 的权重 GLB 都不进仓库，只记 sha256（存放在私有的 cinder-ai-src）；'
+                            'art/ai/hero_rig.py 按 art/ai/hero/%s.json 生成 hero.glb（高 / 中画质）和 hero_lo.glb（低画质的减面版），pack-assets 打进 js/assets/chars.js（aihero_hi / aihero_lo）；'
+                            '没有源文件的机器上保留已提交的 GLB。' % (spec['name'], spec['name']))
+        prov['ids'] = ['chars/aihero_hi', 'chars/aihero_lo']
+        prov['outputs'] = {fn: sha256(os.path.join(sd, fn)) for fn in ('hero.glb', 'hero_lo.glb')}
+        with open(os.path.join(sd, 'provenance.json'), 'w', encoding='utf-8') as fh:
+            json.dump(prov, fh, ensure_ascii=False, indent=1)
+        log['ship'] = dict(dir=os.path.relpath(sd, ROOT), outputs=prov['outputs'])
     with open(os.path.join(out, 'build-%s.json' % mode), 'w', encoding='utf-8') as fh:
         json.dump(log, fh, ensure_ascii=False, indent=1, sort_keys=True)
     print('AI_HERO_OK', out, mode, flush=True)
@@ -818,6 +835,7 @@ def write_provenance(out, spec, src, mode, log, wsrc):
                            decimate=log.get('decimate'), weights=log.get('weights'), coat=log.get('coat'), fist=log.get('fist')),
         'outputs': {k: v for k, v in sorted(log.get('sha256', {}).items()) if ('_%s_' % mode) in k},
         'resemblance': spec.get('resemblance', ''),
+        'not_committed_note': '概念图 concept.png、源 GLB、UniRig 的权重 GLB 只在私有的 cinder-ai-src 里',
     }
     if wsrc:
         ri = js(os.path.join(os.path.dirname(os.path.join(src_root(), wsrc) if not os.path.isabs(wsrc) else wsrc), 'info.json')) or {}

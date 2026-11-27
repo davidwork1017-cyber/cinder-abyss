@@ -159,7 +159,51 @@ export function checkArt() {
       }
     }
   }
+  checkAiHero(budgets, bad);
   return { fails, rows, count: man.assets.length };
+}
+
+// AI 生成的主角（ai3d-hero）：assets/ai/hero/hero.glb（高 / 中）、hero_lo.glb（低）。和来源记录里的 sha256 一致；三角形在 hero 预算内，
+// 低档不比 Adventurer 重；材质 / 贴图数、高度；带蒙皮、骨骼是同一组 UE / UAL 名、每个顶点最多 4 根骨骼且权重和为 1；
+// js/assets/chars.js 里的 aihero_hi / aihero_lo 就是这两份文件（重新打包逐字节相同）
+function checkAiHero(budgets, bad) {
+  const dir = path.join(root, 'assets/ai/hero');
+  if (!fs.existsSync(path.join(dir, 'provenance.json'))) return;
+  const cat = budgets.categories.hero, prov = JSON.parse(fs.readFileSync(path.join(dir, 'provenance.json'), 'utf8'));
+  const charsSrc = fs.readFileSync(path.join(root, 'js/assets/chars.js'), 'utf8');
+  const chars = JSON.parse(charsSrc.slice(charsSrc.indexOf('= {') + 2, charsSrc.lastIndexOf(';')));
+  const adv = stats(readGlb(path.join(root, 'assets/quaternius-modular-men/Adventurer.glb')));
+  let bones0 = null;
+  for (const [fn, key] of [['hero.glb', 'aihero_hi'], ['hero_lo.glb', 'aihero_lo']]) {
+    const id = 'ai/hero/' + fn, f = path.join(dir, fn);
+    if (!fs.existsSync(f)) { bad(id, '文件不在'); continue; }
+    const buf = fs.readFileSync(f), sha = crypto.createHash('sha256').update(buf).digest('hex');
+    if (!prov.outputs || prov.outputs[fn] !== sha) bad(id, 'sha256 和 provenance.json 记的不一致（重新生成以后要一起更新来源记录）');
+    if (!chars.models || chars.models[key] !== buf.toString('base64')) bad(id, 'js/assets/chars.js 里的 ' + key + ' 不是这份文件（重新跑 node tools/pack-assets.mjs）');
+    const g = readGlb(buf), s = stats(g), h = s.max[1] - s.min[1];
+    if (s.tris > cat.tris) bad(id, '三角形 ' + s.tris + ' 超过 hero 预算 ' + cat.tris);
+    if (key === 'aihero_lo' && s.tris > adv.tris) bad(id, '低档 ' + s.tris + ' 个三角形，比 Adventurer（' + adv.tris + '）重');
+    if (s.materials > cat.materials) bad(id, '材质 ' + s.materials + ' 个，超过 ' + cat.materials);
+    if (s.textures > cat.textures) bad(id, '贴图 ' + s.textures + ' 张，超过 ' + cat.textures);
+    if (h < cat.h[0] || h > cat.h[1]) bad(id, '高度 ' + h.toFixed(3) + ' 不在 ' + cat.h.join('–'));
+    if (!s.bones.length) bad(id, '没有蒙皮');
+    const bs = s.bones.slice().sort().join(',');
+    if (bones0 === null) bones0 = bs;
+    else if (bs !== bones0) bad(id, '高 / 低两档的骨骼不是同一组');
+    for (const need of ['pelvis', 'spine_02', 'spine_03', 'neck_01', 'Head', 'upperarm_l', 'lowerarm_l', 'hand_l', 'middle_01_l', 'upperarm_r', 'lowerarm_r', 'hand_r', 'middle_01_r', 'thigh_l', 'calf_l', 'foot_l', 'thigh_r', 'calf_r', 'foot_r'])
+      if (s.bones.indexOf(need) < 0) bad(id, '缺骨骼 ' + need + '（world.js 的 playerAI 要用）');
+    for (const pr of g.json.meshes[0].primitives) {
+      const W = accessor(g, pr.attributes.WEIGHTS_0);
+      let over = 0, sum = 0;
+      for (const w of W) {
+        if (w.filter((x) => x > 0).length > 4) over++;
+        if (Math.abs(w.reduce((a, b) => a + b, 0) - 1) > 0.006) sum++;
+      }
+      if (over) bad(id, over + ' 个顶点超过 4 根骨骼');
+      if (sum) bad(id, sum + ' 个顶点权重和不是 1');
+      if (pr.attributes.COLOR_0 === undefined) bad(id, '没有 COLOR_0（一角一色）');
+    }
+  }
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
