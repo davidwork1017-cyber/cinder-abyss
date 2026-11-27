@@ -48,7 +48,8 @@
 | `ca/gear_mine`（绊雷：暗铁圆盘、往上张开的爪，中间一个灯窝） | 夜猎 / 炉匠的绊雷，`js/assets/kit-gear.js` | `ai/gear_mine/provenance.json` |
 | 主角（银紫短发、青绿围巾、敞开的靛紫短袖夹克带两片到膝的后摆、米色衬衣、藏青长裤、棕靴）：`ai/hero/hero.glb`（高 / 中画质，10032 个三角形）、`ai/hero/hero_lo.glb`（低画质，7632） | 主角默认外观，打进 `js/assets/chars.js`（`aihero_hi` / `aihero_lo`）；包缺了、解析失败或套用出错时退回 Adventurer | `ai/hero/provenance.json` |
 | 游魂（灰白的瘦削尸鬼：光头、深眼窝、肩上一块破布、腰间破布裙、赤脚）：`ai/enemy/husk.glb`（高 / 中画质，2400 个三角形）、`ai/enemy/husk_lo.glb`（低画质，2100） | 游魂默认外观，打进 `js/assets/chars.js`（`aihusk_hi` / `aihusk_lo`）；包缺了、解析失败或套用出错时退回 Zombie | `ai/enemy/provenance-husk.json` |
-| 烬骸仆从（米白骨架、眼窝发橙光、锁骨一道横梁、深色破腰布、空手）：`ai/enemy/thrall.glb`（高 / 中画质，2400）、`ai/enemy/thrall_lo.glb`（低画质，1800） | 烬骸仆从默认外观，剑和盾仍是程序化的，打进 `js/assets/chars.js`（`aithrall_hi` / `aithrall_lo`）；退路是 Skeleton | `ai/enemy/provenance-thrall.json` |
+| 烬骸仆从（米白骨架、眼窝发橙光、锁骨一道横梁、深色破腰布、空手）：`ai/enemy/thrall.glb`（高 / 中画质，2400）、`ai/enemy/thrall_lo.glb`（低画质，1800） | 烬骸仆从默认外观，打进 `js/assets/chars.js`（`aithrall_hi` / `aithrall_lo`）；退路是 Skeleton | `ai/enemy/provenance-thrall.json` |
+| `ca/aithrall_sword`、`ca/aithrall_shield`（各带 `_lo`）：烬骸仆从的豁口短剑（骨头握把、青铜护手）和小圆盾（黑铁盾面、骨质包边、皮扣） | 烬骸仆从手里（高 / 中画质 hi、低画质 lo），`js/assets/kit-aithrall.js`，index.html 同步引入；刃上一道光随元素变色，盾心是魂火誓印；骸弓那一种照旧是脚本件 | `ai/thrall_sword/provenance.json`、`ai/thrall_shield/provenance.json` |
 
 - **生成流程**：ComfyUI 0.43.0，只用内置节点。Z-Image Turbo 文生图，TRELLIS.2 图生 3D，另外用到 BiRefNet、DINOv3、MoGe-2。巨像、主角、游魂和烬骸仆从的蒙皮用 UniRig（只算权重，骨架是我们自己拟合的骨架）。提示词、种子、每个组件的版本都在各自的来源记录里。
 - **处理**：
@@ -57,7 +58,7 @@
   - 巨像：`art/ai/golem_rig.py`（`gen='golem_ai'`）把源模型对到巨像骨架上，减面到首领预算以内（高 7845、低 3837 个三角形），四肢和关节用 UniRig 的权重，头、烟囱、肩甲这些整块的地方按几何区域改成刚性，反照率贴图 512 带在 GLB 里，按游戏镜头的灰度调亮。
   - 主角：`art/ai/hero_rig.py`（拟合在 `art/ai/hero_fit.py`）把 A 字站姿的源模型对到 53 根的标准人形骨架（UE / UAL 骨骼名），先做几处脚本修形（头放大 1.15、护膝压平），权重用 UniRig 算的再按区域改（头和头发、手掌、四指三节、拇指、护腕、后摆各有固定的规则），拳头烘进绑定姿态，减面到 `art/budgets.json` 的 `hero` 以内（高 10032、低 7632，低画质不比 Adventurer 的 8450 重）。颜色按角从反照率里取，再按定点改色把头发、围巾、衬衣、长裤调回游戏里主角的配色；脸上的暗条改回肤色，另贴两只小眼睛和细眉。导出时同色的角并成一个顶点，颜色存 8 位，没有贴图。`--ship` 把选定的一份复制到 `ai/hero/`。
   - 游魂、烬骸仆从：同一套 `hero_rig.py`，配置在 `art/ai/enemy/`（`g01.json`、`t06.json`）。骨骼集合换成现网模型的那一组（游魂 41 根、仆从 12 根，标准名，父子关系也一样），所以程序化关节和动作照旧；权重用 UniRig 的，手和锁骨按区域改；仆从的头缩到 0.88；游魂整体去饱和、往冷紫调，和米白的仆从分开。高画质 2400 个三角形，低画质不比原来的模型重（游魂 2100 对 Zombie 2116，仆从 1800 对 Skeleton 1810）。
-  - 武器：`art/ai/weapon.py`（`gen='ai'`、外观 `fc`）逐面取色、发光区拆成单独的一层壳（按稀有度着色），不带贴图，见 `docs/art-pipeline.md`「AI 生成的武器」。
+  - 武器：`art/ai/weapon.py`（`gen='ai'`、外观 `fc`）逐面取色、发光区拆成单独的一层壳（按稀有度着色），不带贴图，见 `docs/art-pipeline.md`「AI 生成的武器」。烬骸仆从的剑和盾走同一条流程（`zone='aithrall'`），源模型上没有发光的部分，刃中线和盾心按位置补一层发光壳；低画质不比原来的脚本件重（剑 164、盾 339 个三角形，原来约 220 和 470）。
   - 布景件、巨像和武器由 `npm run build:art` 调用，主角和两种小怪用 `hero_rig.py` 单独生成；源文件不在的机器上保留已提交的生成物。
 - **许可证**：生成时用到的每个组件都读过许可证原文：
   - ComfyUI：GPL-3.0，只是工具，输出不受约束；

@@ -21554,6 +21554,33 @@
   function thrallBowRig() {
     return thrallMake(true);
   }
+  // AI 生成的剑和盾（ai3d-enemies，kit-aithrall 包，index.html 同步引入）：几何体都在包里才用，缺一件就照旧建脚本件。
+  // 武器坐标（长轴 +y、刃宽 / 盾面横向 +x、厚度 / 盾面朝向 +z，原点在握把 / 盾心）换算到仆从骨架的绑定坐标：
+  //   剑：手（hR），和脚本件一样握把沿 +z、刃面竖着（刃宽沿 +y）；盾：前臂外侧（faL），盾面朝 +x
+  let athSt = 0;
+  const ATH_KEYS = ['ca/aithrall_sword', 'ca/aithrall_sword_lo', 'ca/aithrall_shield', 'ca/aithrall_shield_lo'];
+  function athOn() {
+    if (!athSt) {
+      athSt = 2;
+      if (!window.CA_OLD_ENEMY && G.assets && G.assets.known && G.assets.known('kit-aithrall')) {
+        G.assets.need(['kit-aithrall']);
+        if (ATH_KEYS.every((k) => G.assets.geo(k))) athSt = 1;
+      }
+    }
+    return athSt === 1;
+  }
+  W.athState = () => (athSt === 1 ? 'on' : athSt === 2 ? 'fallback' : 'unused');
+  function athGear(b, WX, WY, WZ) {
+    const lo = qualId === 'low' ? '_lo' : '';
+    const sw = aiwSplit('ca/aithrall_sword' + lo, (x, y, z, o) => { o[0] = WX + z; o[1] = WY + x; o[2] = WZ + 0.02 + y; }, true);
+    b.at('hR');
+    for (const nm of ['metal', 'gold', 'leather']) if (sw[nm]) b.surf(SURF[nm], true).p(sw[nm], null, 0, 0, 0);
+    if (sw.glow) b.x(sw.glow, 1, 0, 0, 0); // 刃上那道光随元素变色（W.minionElem），和脚本件血槽里的光一样
+    const sh = aiwSplit('ca/aithrall_shield' + lo, (x, y, z, o) => { o[0] = 0.375 + z; o[1] = 1.03 + y; o[2] = -x; }, true);
+    b.at('faL');
+    for (const nm of ['metal', 'gold', 'leather']) if (sh[nm]) b.surf(SURF[nm], true).p(sh[nm], null, 0, 0, 0);
+    if (sh.glow) b.g(sh.glow, 1.3, 0, 0, 0); // 盾心：魂火誓印
+  }
   function thrallMake(bow) {
     return rigOf(bow ? 'thrallBow' : 'thrall', () => cTry('thrall', (cs) => {
       const BONE = 0xece3cc, BONE_D = 0xa69c86, IRON = 0x7a828e, IRON_D = 0x3d434d, BRONZE = 0xbb8e4c, BRONZE_D = 0x6f5329;
@@ -21640,7 +21667,9 @@
       b.surf(SURF.leather).p(gCyl(0.038, 0.04, 0.04, 8), LEATHER_D, -0.3, 1.075, -0.02);
 
       b.tag('gear'); // 剑和盾 / 弓和箭袋：换成 C 模型时留下
-      if (!bow) {
+      if (!bow && athOn()) {
+        athGear(b, -0.31, 0.85, 0.03);
+      } else if (!bow) {
         // --- 豁口剑：握把沿 +z，刃面竖着；血槽里一道光（随元素变色，见 W.minionElem） ---
         const WX = -0.31, WY = 0.85, WZ = 0.03;
         b.at('hR').surf(SURF.leather).p(gCyl(0.021, 0.023, 0.2, 6), LEATHER_D, WX, WY, WZ + 0.02, HALF_PI);

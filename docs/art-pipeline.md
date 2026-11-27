@@ -248,3 +248,5 @@ npm run build:art && git status --short assets/ca js/assets   # 没有输出 = �
 - 只做掉落的：双匕（包里是交叉熔在一起的一对）、提灯（手里是 kit-gear 的自产件）、魂幡（幡布要随关节摆），手里照旧是脚本件；提灯的低画质掉落也照旧用脚本件（`loScripted`）；
 - 掉落模型按脚本件掉落模型的握把高度和大小摆，两档启动时都建好；建完以后放掉包里解码出来的源几何体；
 - 包要在建主角骨架之前就到，所以 `index.html` 同步引入；包里缺哪一种，那一种照旧用脚本件。
+
+烬骸仆从的剑和盾（ai3d-enemies）也走这条流程：`ca/aithrall_sword`、`ca/aithrall_shield`（各带 `_lo`），打进单独的 `kit-aithrall` 包，不搭 `kit-aiwpn`。`world.js` 的 `athGear` 把剑烘进仆从的右手（握把沿 +z、刃面竖着，和原来的脚本件一样），盾烘进左前臂外侧（盾面朝 +x）；高 / 中画质用 hi，低画质用 lo。源模型没有发光的部分，发光壳按位置补：刃中线一道（`b.x`，随元素变色），盾心一块（`b.g`，魂火青）。四件不全或 `window.CA_OLD_ENEMY = true` 时照旧建脚本件。

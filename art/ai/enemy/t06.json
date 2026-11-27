@@ -57,7 +57,7 @@
    "chars/aithrall_lo"
   ],
   "provenance": "provenance-thrall.json",
-  "comment": "烬骸仆从的 AI 生成外观（ai3d-enemies，t06）的来源记录。源 GLB、概念图、UniRig 的权重 GLB 都不进仓库，只记 sha256（存放在私有的 cinder-ai-src）；art/ai/hero_rig.py 按 art/ai/enemy/t06.json 生成 thrall.glb（高 / 中画质）和 thrall_lo.glb（低画质的减面版），骨骼集合同现网 Skeleton（12 根，标准名），pack-assets 打进 js/assets/chars.js（aithrall_hi / aithrall_lo）；剑和盾仍是程序化的；没有源文件的机器上保留已提交的 GLB。"
+  "comment": "烬骸仆从的 AI 生成外观（ai3d-enemies，t06）的来源记录。源 GLB、概念图、UniRig 的权重 GLB 都不进仓库，只记 sha256（存放在私有的 cinder-ai-src）；art/ai/hero_rig.py 按 art/ai/enemy/t06.json 生成 thrall.glb（高 / 中画质）和 thrall_lo.glb（低画质的减面版），骨骼集合同现网 Skeleton（12 根，标准名），pack-assets 打进 js/assets/chars.js（aithrall_hi / aithrall_lo）；剑和盾另见 ai/thrall_sword、ai/thrall_shield；没有源文件的机器上保留已提交的 GLB。"
  },
  "resemblance": "a generic stylised skeleton warrior: cream bones, glowing orange eye sockets, collarbone bar, dark ragged loincloth, empty hands. The prompt names no game or IP; no match seen to a known game character design, colours or emblems."
 }
