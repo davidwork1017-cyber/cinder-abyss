@@ -1037,7 +1037,93 @@ async function timedMain() {
 }
 
 let MUSIC_PRE = null; // 启动那一步记下的「第一次按键之前」的音频状态
+const START_STEP = '启动：页面无报错，首次运行弹出开场卡片（游戏暂停），回车关闭';
+
+// ------------------------------------------------------------------ 分块 / 分片（test/README.md「分片」）
+// test:func 按原来的顺序分成 7 块。每块是连续的一串步骤，开头自己开浏览器；块和块之间的依赖只有两处，都写在下面：
+// - title 要启动那一步记下的 MUSIC_PRE：同一次没跑 main 块时，prep 照启动那一步的做法（同一个种子、同一种窗口、第一次按键之前）重记一次；
+// - ui-t2 接着 ui-t1 的触屏浏览器：单独开头时按「背包（触屏）」那一步的种子开浏览器、做同一份布局用的角色，再按整套跑时的名字播种（uiLayoutSteps）。
+// 整套跑（不带 --shard）= 7 块依次跑，步骤、顺序、种子和分块之前一样。--shard i/n 只跑 SHARDS[n][i - 1] 里的块（按这里的先后）。
+// next：同一次里紧接着跑的下一块（ui-t1 后面不是 ui-t2 时自己关掉触屏浏览器，同一时刻只开一个浏览器）
+const FUNC_BLOCKS = [
+  { id: 'main', run: () => mainBody() }, // 启动 → rift（405 步，一个页面从头走到尾；确定性 / 画质一致那几步的哈希依赖前面的步骤，所以整块不拆）
+  { id: 'title', run: () => titleSteps(), prep: musicPrePrep }, // 标题画面、暂停菜单、音效 / 音乐、主线
+  { id: 'touch', run: () => touchSteps() }, // 触屏（不含界面布局）
+  { id: 'ui-t1', run: (next) => uiTouchSteps(0, 2, next === 'ui-t2') }, // 界面布局：背包、仓库（触屏）
+  { id: 'ui-t2', run: () => uiTouchSteps(2, UI_PANEL_ORDER.length) }, // 界面布局：地图 … 天赋（触屏）
+  { id: 'ui-desk', run: () => uiDeskSteps() }, // 界面布局：桌面、桌面样式、天赋盘触屏默认视口、桌面浮窗
+  {
+    id: 'tail',
+    run: async () => {
+      await storySteps();
+      await slotSteps();
+      await classSteps();
+      await d2bSteps(); // 职业 D2b-1（class-d2b1）
+      await d2b2Steps(); // 职业 D2b-2（class-d2b2）
+      await imbueSteps(); // 装填 / 散钉 / 反冲弹 / 绊雷（imbue 批）
+      await lootWarmStep(); // 掉落模型都在启动预热里建好（列车 2）
+    },
+  },
+];
+// 固定分法：按 2026-11-26 整套跑（池里 4 个令牌全满）各块的步骤耗时之和配平（分钟）：
+// main 22.3 · title 7.7 · touch 12.3 · ui-t1 8.0 · ui-t2 22.4 · ui-desk 9.0 · tail 4.6（合计 86.3）
+const SHARDS = {
+  2: [['main', 'title', 'touch'], ['ui-t1', 'ui-t2', 'ui-desk', 'tail']], // 42.3 / 44.0
+  3: [['main', 'title'], ['touch', 'ui-t1', 'ui-desk'], ['ui-t2', 'tail']], // 30.0 / 29.3 / 27.0
+  4: [['main'], ['title', 'touch'], ['ui-t2'], ['ui-t1', 'ui-desk', 'tail']], // 22.3 / 20.0 / 22.4 / 21.6
+};
+const SHARD = (() => {
+  const i = process.argv.indexOf('--shard');
+  if (i < 0) return null;
+  const m = /^(\d+)\/(\d+)$/.exec(process.argv[i + 1] || '');
+  const n = m && +m[2], k = m && +m[1];
+  if (!m || !SHARDS[n] || k < 1 || k > n) {
+    console.log('--shard 要写成 i/n（n = ' + Object.keys(SHARDS).join(' / ') + '，1 ≤ i ≤ n）：' + (process.argv[i + 1] || ''));
+    process.exit(2);
+  }
+  return { k, n, blocks: SHARDS[n][k - 1] };
+})();
+// 自检：每种分法里每块正好出现一次
+for (const n in SHARDS) {
+  const all = SHARDS[n].flat();
+  if (all.length !== FUNC_BLOCKS.length || FUNC_BLOCKS.some((b) => !all.includes(b.id))) throw new Error('SHARDS[' + n + '] 没有把每块正好分一次：' + all.join(' '));
+}
 async function main() {
+  curStep = 'func:准备';
+  const ids = SHARD ? SHARD.blocks : FUNC_BLOCKS.map((b) => b.id);
+  const todo = FUNC_BLOCKS.filter((b) => ids.includes(b.id));
+  for (let i = 0; i < todo.length; i++) {
+    const b = todo[i];
+    if (SHARD) console.log('== 块 ' + b.id);
+    if (SHARD && b.prep) await b.prep(ids);
+    await b.run(todo[i + 1] && todo[i + 1].id);
+  }
+  if (SHARD) console.log('== 块 完');
+}
+// title 块的准备：这一次没跑 main 块时，按启动那一步的做法重记 MUSIC_PRE（同一个种子、1440×900、省渲染照旧，进区后第一次按键之前），
+// 然后关掉这个浏览器。不算一步；出错只打一行 note，MUSIC_PRE 留空，音乐那一步照常判失败
+async function musicPrePrep(ids) {
+  if (ids.includes('main')) return;
+  curStep = '分片准备（MUSIC_PRE）';
+  let r = null;
+  try {
+    r = await launch({ width: 1440, height: 900, seed: SEEDED ? seedKey(START_STEP) : null });
+    ({ browser, page, errors } = r);
+    await install();
+    await ev(() => G.debug.hold(false));
+    await frames(3);
+    await frames(2);
+    MUSIC_PRE = await ev(() => ({ ctx: !!(G.audio && G.audio.ctx()), music: G.music ? G.music.state() : null }));
+    if (errors.length) throw new Error('页面报错：' + errors.join(' | ').slice(0, 300));
+  } catch (e) {
+    MUSIC_PRE = null;
+    console.log('note 分片准备（MUSIC_PRE）出错：' + String(e && e.message ? e.message : e).split('\n')[0].slice(0, 200));
+  }
+  if (r) await r.browser.close().catch(() => {});
+  browser = page = errors = null;
+}
+
+async function mainBody() {
   curStep = 'func:准备';
   // ------------------------------------------------------------------ 自产素材（只用 Node，不起浏览器）
   await step('素材：自产布景件（assets/ca/manifest.json 里的每个 GLB）符合预算、命名、原点 / 单位规矩，打进包的就是这一份（tools/check-art.mjs）', async () => {
@@ -1061,7 +1147,7 @@ async function main() {
   });
 
   // ------------------------------------------------------------------ 启动
-  await step('启动：页面无报错，首次运行弹出开场卡片（游戏暂停），回车关闭', async () => {
+  await step(START_STEP, async () => {
     ({ browser, page, errors } = await launch({ width: 1440, height: 900 }));
     await install();
     await ev(() => G.debug.hold(false));
@@ -23354,15 +23440,7 @@ async function main() {
     const avg = (k) => (r.stats.reduce((a, s) => a + s[k], 0) / r.stats.length).toFixed(0);
     return '20 个种子：面积 ' + avg('area') + ' m²、关键路径 ' + avg('len') + ' m、怪 ' + avg('mobs') + '；进区怪 ' + r.enter.map((e) => e.n + '（布局 + 光栅化 ' + e.ms + 'ms）').join(' / ');
   });
-
-  await titleSteps();
-  await storySteps();
-  await slotSteps();
-  await classSteps();
-  await d2bSteps(); // 职业 D2b-1（class-d2b1）
-  await d2b2Steps(); // 职业 D2b-2（class-d2b2）
-  await imbueSteps(); // 装填 / 散钉 / 反冲弹 / 绊雷（imbue 批）
-  await lootWarmStep(); // 掉落模型都在启动预热里建好（列车 2）
+  // 后面的块（title … tail）由 main() 接着跑，见 FUNC_BLOCKS
 }
 
 // ------------------------------------------------------------------ 职业（class-d2）
@@ -27630,8 +27708,7 @@ async function titleSteps() {
     const n = await ev(() => G.questStep());
     return '主线 n ' + n;
   });
-
-  await touchSteps();
+  // 接下来的 touch 块（touchSteps）由 main() 接着跑，见 FUNC_BLOCKS
 }
 
 // ------------------------------------------------------------------ 触屏（mobile M1，设计稿 game-workspace/notes/mobile-design §5）
@@ -29660,8 +29737,7 @@ async function touchSteps() {
     await ev(() => G.ui.close());
     return out.map((r) => r.size).join(' / ');
   });
-
-  await uiSteps();
+  // 接下来的界面布局（uiSteps）：整套跑时由 main() 按 ui-t1 / ui-t2 / ui-desk 三块接着跑；--touch 时在这之后跑，见文件末尾
 }
 // 界面布局那一组（各面板的触屏 / 桌面布局、桌面样式、天赋页）：触屏组末尾跑；node test/smoke.mjs --ui 单独跑这一组
 async function uiSteps() {
@@ -29669,9 +29745,18 @@ async function uiSteps() {
   // 闲着的那个 GPU 进程照样空转（SwiftShader 下一个浏览器的 GPU 进程不管页面在不在动都吃 3 个核左右，冻结页面也不降），机器满载时拖慢别人。
   // 种子：每一步开始时 step() 给「当前的 page」播种，以前那个 page 是上一步的（另一个浏览器）；这里在换到这一步的浏览器之后，
   // 按以前实际落到它身上的那个名字再播一次（触屏步骤用上一个面板桌面那一步的名字，桌面步骤用同一面板触屏那一步的名字），每个浏览器拿到的随机序列和以前一样
-  const PANELS = ['bag', 'stash', 'map', 'help', 'settings', 'char', 'skills', 'trader', 'title', 'tree'];
-  for (let i = 0; i < PANELS.length; i++) await uiLayoutSteps(PANELS[i], 'touch', i ? uiStepName(PANELS[i - 1], 'desk') : null);
-  await uiLayoutClose('touch');
+  await uiTouchSteps(0, UI_PANEL_ORDER.length);
+  await uiDeskSteps();
+}
+const UI_PANEL_ORDER = ['bag', 'stash', 'map', 'help', 'settings', 'char', 'skills', 'trader', 'title', 'tree'];
+// 触屏布局的第 a … b - 1 个面板（UI_PANEL_ORDER）。keep：下一块接着用这个触屏浏览器（ui-t1 后面紧跟 ui-t2），不关
+async function uiTouchSteps(a, b, keep) {
+  const PANELS = UI_PANEL_ORDER;
+  for (let i = a; i < b; i++) await uiLayoutSteps(PANELS[i], 'touch', i ? uiStepName(PANELS[i - 1], 'desk') : null);
+  if (!keep) await uiLayoutClose('touch');
+}
+// 桌面布局、桌面样式，以及界面布局那一组最后自己开浏览器的几步
+async function uiDeskSteps() {
   const desk = (p) => uiLayoutSteps(p, 'desk', p === 'bag' ? null : uiStepName(p, 'touch'));
   await desk('bag');
   await uiDeskStyleStep();
@@ -29926,6 +30011,18 @@ function treeFitCheck() {
     if (px < 10.95) out.push('名字 ' + t.textContent + ' ' + px.toFixed(1) + ' px');
   }
   return out.slice(0, 4);
+}
+// CINDER_FP=1：界面布局每个面板开头打一行 fp（存档 JSON、localStorage 的哈希，13 位以上的数字即时间戳换成 T；现在的种子名的哈希）。
+// 用来比分片开头的状态和整套跑时是不是一样（test/README.md「分片」）
+function uiStateFp() {
+  const h = (str) => {
+    let x = 2166136261;
+    for (let i = 0; i < str.length; i++) x = Math.imul(x ^ str.charCodeAt(i), 16777619);
+    return (x >>> 0).toString(16);
+  };
+  const mask = (t) => String(t).replace(/\d{12,}/g, 'T');
+  const ls = Object.keys(localStorage).sort().map((k) => k + '=' + mask(localStorage.getItem(k))).join('\n');
+  return 'save ' + h(mask(JSON.stringify(G.save))) + ' ls ' + h(ls) + ' seed ' + h(window.__testRand ? window.__testRand.key() : '');
 }
 // 布局检查用的角色：30 级、学会全部技能、背包 29 件、身上有戒指和胸甲、仓库 18 件
 async function uiFixture() {
@@ -30384,13 +30481,18 @@ async function uiLayoutSteps(panel, mode, key) {
       const fresh = !uiPages[mode];
       if (!uiPages[mode]) {
         if (browser && !Object.values(uiPages).some((u) => u.browser === browser)) await browser.close().catch(() => {}); // 前面步骤留下的浏览器（布局步骤自己的两个留着，三个面板共用）
-        ({ browser, page, errors } = await launch(mode === 'touch' ? { width: 844, height: 340, mobile: { scale: 2 }, dpr: null } : { width: 1366, height: 768, dpr: null }));
+        // 这个浏览器整套跑时总是在第一个面板（背包）那一步开的、用它的名字播种；分片时可能从后面的面板开头（ui-t2），照样用背包那一步的名字，
+        // 布局用的角色（uiFixture 掷的物品）就和整套跑时一样
+        const seed0 = panel !== UI_PANEL_ORDER[0] && SEEDED ? { seed: seedKey(uiStepName(UI_PANEL_ORDER[0], mode)) } : {};
+        ({ browser, page, errors } = await launch(Object.assign(mode === 'touch' ? { width: 844, height: 340, mobile: { scale: 2 }, dpr: null } : { width: 1366, height: 768, dpr: null }, seed0)));
         const fx = await uiFixture();
         if (mode === 'touch') touch = await touchKit();
         uiPages[mode] = { browser, page, errors, fx };
       }
       await uiUse(mode);
-      if (key && !fresh) await reseed(key);
+      // 整套跑时只有第一个面板会新开浏览器（key 为空）；分片时从后面的面板新开的，开完照样按整套跑时的名字播种
+      if (key && (!fresh || panel !== UI_PANEL_ORDER[0])) await reseed(key);
+      if (process.env.CINDER_FP) console.log('fp ' + panel + '/' + mode + ' ' + (await ev(uiStateFp)));
       const fx = uiPages[mode].fx;
       const bad = [];
       let nStates = 0;
@@ -30505,7 +30607,7 @@ async function uiLayoutSteps(panel, mode, key) {
 
 // 跑哪几份：默认两份都跑（先 func 后 timed，各用一个新浏览器）；--func / --timed 只跑一份。
 // 只跑 func，或在 cc-slot 的池里跑（CC_SLOT_HELD=pool:…，或手动设 CC_POOL=1）时，每行的耗时和 ms 数字标成不可比
-const PARTS = process.argv.includes('--func') ? ['func'] : process.argv.includes('--timed') ? ['timed'] : process.argv.includes('--touch') ? ['touch'] : process.argv.includes('--ui') ? ['ui'] : ['func', 'timed'];
+const PARTS = SHARD || process.argv.includes('--func') ? ['func'] : process.argv.includes('--timed') ? ['timed'] : process.argv.includes('--touch') ? ['touch'] : process.argv.includes('--ui') ? ['ui'] : ['func', 'timed'];
 const POOL = !!process.env.CC_POOL || /^pool:/.test(process.env.CC_SLOT_HELD || '');
 const sum = (p, f) => (f ? '失败 ' + f + ' 项，' : '') + '通过 ' + p + ' 项';
 (async () => {
@@ -30517,20 +30619,20 @@ const sum = (p, f) => (f ? '失败 ' + f + ' 项，' : '') + '通过 ' + p + ' �
   for (const part of PARTS) {
     NC_TAG = POOL || (part === 'func' && PARTS.length === 1) ? ' [pool, not comparable]' : '';
     cheap = (part === 'func' || part === 'touch' || part === 'ui') && !process.env.CINDER_FULL;
-    console.log('== test:' + part + ' · HEAD ' + head + ' · ' + new Date().toISOString() + ' · 槽位 ' + (process.env.CC_SLOT_HELD || '无') + (cheap ? ' · 省渲染 dpr ' + CHEAP_DPR + '（' + FULL_RES.length + ' 类步骤按 1）' : '') + (NC_TAG ? ' · 耗时数字不可比' + NC_TAG : '') + ' · Chrome 日志 ' + LOG_DIR.replace(/^.*\/(test-logs\/)/, '$1') + (part === 'timed' && POOL ? ' · 警告：计时步骤在池里跑，结果不作数' : ''));
+    console.log('== test:' + part + ' · HEAD ' + head + ' · ' + new Date().toISOString() + ' · 槽位 ' + (process.env.CC_SLOT_HELD || '无') + (SHARD && part === 'func' ? ' · 分片 ' + SHARD.k + '/' + SHARD.n + '（' + SHARD.blocks.join(' ') + '）' : '') + (cheap ? ' · 省渲染 dpr ' + CHEAP_DPR + '（' + FULL_RES.length + ' 类步骤按 1）' : '') + (NC_TAG ? ' · 耗时数字不可比' + NC_TAG : '') + ' · Chrome 日志 ' + LOG_DIR.replace(/^.*\/(test-logs\/)/, '$1') + (part === 'timed' && POOL ? ' · 警告：计时步骤在池里跑，结果不作数' : ''));
     // 外层 timeout 剩的时间不到正常耗时的两倍左右（池里 test:func 45–56 分钟）就先警告一行
     const tw = outerTimeoutWarning(part === 'func' ? 100 : part === 'touch' || part === 'ui' ? 30 : 15);
     if (tw) console.log(tw);
     const p0 = passed, f0 = failed;
     try {
-      await (part === 'func' ? main() : part === 'touch' ? touchSteps() : part === 'ui' ? uiSteps() : timedMain());
+      await (part === 'func' ? main() : part === 'touch' ? touchSteps().then(uiSteps) : part === 'ui' ? uiSteps() : timedMain());
     } catch (e) {
       failed++;
       console.log('FAIL 测试脚本自身出错 — ' + (e && e.stack ? e.stack : e));
     }
     if (browser) await browser.close().catch(() => {});
     browser = page = errors = null;
-    per.push('test:' + part + ' ' + sum(passed - p0, failed - f0));
+    per.push('test:' + part + (SHARD && part === 'func' ? ' 分片 ' + SHARD.k + '/' + SHARD.n : '') + ' ' + sum(passed - p0, failed - f0));
   }
   if (AUDIT) {
     const top = auditWaits.slice().sort((a, b) => b.ms / b.guard - a.ms / a.guard).slice(0, 12);
