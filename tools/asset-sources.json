@@ -33,7 +33,7 @@
     }
   },
   "packs": {
-    "chars": { "chars": { "aihero_hi": "ai/hero/hero.glb", "aihero_lo": "ai/hero/hero_lo.glb", "adventurer": "quaternius-modular-men/Adventurer.glb", "zombie": "quaternius-animated-zombie/Zombie.glb", "skeleton": "quaternius-animated-monster/Skeleton.glb", "spider": "quaternius-easy-enemy/Spider.glb", "ual": "ual/ual-clips.glb" } },
+    "chars": { "chars": { "aihero_hi": "ai/hero/hero.glb", "aihero_lo": "ai/hero/hero_lo.glb", "aihusk_hi": "ai/enemy/husk.glb", "aihusk_lo": "ai/enemy/husk_lo.glb", "aithrall_hi": "ai/enemy/thrall.glb", "aithrall_lo": "ai/enemy/thrall_lo.glb", "adventurer": "quaternius-modular-men/Adventurer.glb", "zombie": "quaternius-animated-zombie/Zombie.glb", "skeleton": "quaternius-animated-monster/Skeleton.glb", "spider": "quaternius-easy-enemy/Spider.glb", "ual": "ual/ual-clips.glb" } },
     "rock-dark": { "textures": ["dark_rock"] },
     "rock-grey": { "textures": ["Rock035"] },
     "ground": { "textures": ["g_decals"] },

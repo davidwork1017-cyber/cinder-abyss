@@ -12504,6 +12504,11 @@
     if (key === 'player' && !noAi && !window.CA_OLD_HERO) {
       const mk = qualId === 'low' ? 'aihero_lo' : 'aihero_hi';
       if (cModel(mk)) sp = Object.assign({}, CSPEC.playerAI, { model: mk, aiHero: true });
+    } else if (AI_ENEMY[key] && !noAi && !window.CA_OLD_ENEMY) {
+      // 游魂 / 烬骸仆从同样默认用 AI 生成的模型（ai3d-enemies：chars 包里的 aihusk_* / aithrall_*，低画质用低档）；
+      // 骨骼集合和现网模型一样（见 AI_ENEMY），程序化关节、动作照旧。包里没有或套用出错（cTry）退回 Quaternius 的模型
+      const mk = 'ai' + key + (qualId === 'low' ? '_lo' : '_hi');
+      if (cModel(mk)) sp = Object.assign({}, CSPEC[key], AI_ENEMY[key], { model: mk, aiHero: true });
     }
     const md = cModel(sp.model);
     if (!md) return null;
@@ -12524,9 +12529,9 @@
       try {
         return make(cs);
       } catch (e) {
-        if (window.console) console.warn('[角色] ' + key + ' 套用模型失败，改用' + (cs.aiHero ? ' Adventurer' : '程序化外观'), e);
+        if (window.console) console.warn('[角色] ' + key + ' 套用模型失败，改用' + (cs.aiHero ? '原来的模型' : '程序化外观'), e);
       }
-      // AI 主角套用失败：退回 Adventurer，再不行才用程序化外观
+      // AI 模型套用失败：退回原来的模型（主角 Adventurer，敌人 Quaternius），再不行才用程序化外观
       const c2 = cs.aiHero ? cSpec(key, true) : null;
       if (c2) {
         try {
@@ -14481,6 +14486,8 @@
   // 各家骨骼名 → 标准名
   const STD_MIXAMO_SIDE = { Shoulder: 'clavicle', Arm: 'upperarm', ForeArm: 'lowerarm', Hand: 'hand', UpLeg: 'thigh', Leg: 'calf', Foot: 'foot', ToeBase: 'ball', Toe_End: 'ball_leaf' };
   const STD_ALIAS = {
+    // 已经是标准名（AI 生成的模型，art/ai/hero_fit.py 的 rig_bones）
+    std: () => null,
     // Mixamo 骨骼名（Animated Zombie）
     mixamo: (n) => {
       const M = { Hips: 'pelvis', Spine: 'spine_01', Spine1: 'spine_02', Spine2: 'spine_03', Neck: 'neck_01', Head: 'Head', HeadTop_End: 'head_leaf' };
@@ -14826,6 +14833,50 @@
       },
       // Head 骨骼在身体中部：嘴（weapon / hand）挪到眼睛前下方的口器处，head 挪到眼睛上方
       sock: { weapon: ['head', 0, -0.02, 0.4], hand: ['head', 0, -0.02, 0.4], head: ['head', 0, 0.14, 0.22], chest: ['root', 0, 0.2, 0.05] },
+    },
+  };
+  // AI 生成的游魂 / 烬骸仆从（ai3d-enemies，art/ai/hero_rig.py 按 art/ai/enemy/*.json 生成）：盖在 CSPEC.husk / thrall 上，只改模型相关的几项。
+  // 骨骼已经是标准名（alias 'std' 不改名，只按 STD_PIVOT 取枢轴），骨骼集合和父子关系与现网的 Zombie（41 根）/ Skeleton（12 根）一致；
+  // 颜色用模型自己的逐顶点色（生成时已调过色），眼窝的元素火 / 魂火按这个模型的眼睛位置放
+  const AI_EYE = { husk: [0.05, 0.154, 0.121], thrall: [0.042, 0.109, 0.067] }; // 相对 Head 骨骼（米，已按身高缩放）：左眼，右眼 x 取反
+  const aiColor = (h, k) => (mat, prim, base, vc, y, out) => {
+    const c = vc || base;
+    out[0] = c[0]; out[1] = c[1]; out[2] = c[2];
+    return cShade(out, out, y, h, k);
+  };
+  const AI_ENEMY = {
+    husk: {
+      alias: 'std', yaw: 0,
+      color: aiColor(2.15, 0.18),
+      vglow: null,
+      extra: (b, pos) => {
+        const h = pos('Head'), e = (window.CA_AI_EYES && window.CA_AI_EYES.husk) || AI_EYE.husk;
+        b.at('head');
+        for (const s of [1, -1]) b.g(gOct(0.026), 1.25, h[0] + s * e[0], h[1] + e[1], h[2] + e[2], 0, 0, 0, 1, 0.7, 0.6);
+      },
+    },
+    thrall: {
+      alias: 'std',
+      scale: null, stretch: null,
+      // 没有手骨 / 脚骨（和现网 Skeleton 一样）：手腕在前臂延长线上（小臂 / 大臂 = 0.79，hero_fit 量的），脚踝离地 0.081 米
+      pivot: {
+        hL: (pos) => thSeg(pos, 'upperarm_l', 'lowerarm_l', 0.79), hR: (pos) => thSeg(pos, 'upperarm_r', 'lowerarm_r', 0.79),
+        ftL: (pos) => { const k = pos('calf_l'); return [k[0], 0.081, k[2]]; }, ftR: (pos) => { const k = pos('calf_r'); return [k[0], 0.081, k[2]]; },
+      },
+      split: (n, pos) => {
+        if (n === 'lowerarm_l') return thSplit(pos, 'upperarm_l', 'lowerarm_l', 'hL', 0.79);
+        if (n === 'lowerarm_r') return thSplit(pos, 'upperarm_r', 'lowerarm_r', 'hR', 0.79);
+        if (n === 'calf_l') return thSplit(pos, 'thigh_l', 'calf_l', 'ftL', 0.82, 0.081);
+        if (n === 'calf_r') return thSplit(pos, 'thigh_r', 'calf_r', 'ftR', 0.82, 0.081);
+        return null;
+      },
+      color: aiColor(1.62, 0.3),
+      extra: (b, pos) => {
+        const t = pos('spine_03'), n = pos('neck_01'), h = pos('Head'), e = (window.CA_AI_EYES && window.CA_AI_EYES.thrall) || AI_EYE.thrall;
+        b.at('chest').g(gSph(0.075, 7, 5), 1.4, t[0], t[1] + (n[1] - t[1]) * 0.55, t[2] + 0.01, 0, 0, 0, 1, 1.4, 0.9);
+        b.at('head');
+        for (const s of [1, -1]) b.g(gSph(0.026, 6, 4), 1.7, h[0] + s * e[0], h[1] + e[1], h[2] + e[2], 0, 0, 0, 1.1, 0.9, 0.6);
+      },
     },
   };
 
