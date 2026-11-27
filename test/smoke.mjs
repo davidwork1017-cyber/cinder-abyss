@@ -1885,6 +1885,7 @@ async function mainBody() {
 
     // 太远 / 背包已满
     const e = await ev(() => {
+      G.ui.feedClear(); // 前面步骤留下的拾取记录（比如 toast-zero 以后「药剂空了」也写在这里）不算进下面数的警告行
       const far = G.spawnLoot('item', G.rollItem(1, 0), 0, 0);
       far.x = 7.6;
       far.z = 0;
