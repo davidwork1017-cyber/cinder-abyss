@@ -63,6 +63,65 @@ function checkAi(a, bad) {
     }
   }
 }
+// ai3d-skills：AI 技能件（js/assets/skill-pieces.js，art/ai/pieces.py 生成）：每件的三角形数在 art/budgets.json 的 pieces 预算内，
+// 形状批里的件不超过槽位（slot），雷桩两段合计不超过 pylonTotal；逐面数组和面数对得上、数都是有限数、色阶在 0–1；
+// 每件都能对上 art/ai/pieces.json 列的来源记录（字段齐全、没有个人信息、目录里不放 PNG / 概念图），清单里的件和来源记录的输出一一对应
+const SHAPE_PIECES = ['crystal', 'icicle', 'ichip', 'cluster', 'pylon', 'pylonBase', 'turret', 'turretHead', 'turretLens', 'turretBarrel'];
+function checkPieces(bad) {
+  const B = rd('art/budgets.json').pieces || {};
+  const f = path.join(root, 'js/assets/skill-pieces.js');
+  if (!fs.existsSync(f)) return bad('skill-pieces', '缺 js/assets/skill-pieces.js');
+  const t = fs.readFileSync(f, 'utf8');
+  let D;
+  try {
+    D = JSON.parse(t.slice(t.indexOf('{'), t.lastIndexOf('}') + 1));
+  } catch (e) {
+    return bad('skill-pieces', 'js/assets/skill-pieces.js 解析不了：' + e.message);
+  }
+  const want = {};
+  for (const pr of rd('art/ai/pieces.json').provenance) {
+    const pf = path.join(root, pr);
+    if (!fs.existsSync(pf)) {
+      bad('skill-pieces', '缺来源记录 ' + pr);
+      continue;
+    }
+    const txt = fs.readFileSync(pf, 'utf8'), P = JSON.parse(txt);
+    const need = [['source.sha256', P.source && P.source.sha256], ['generation.prompt', P.generation && P.generation.prompt], ['generation.seed', P.generation && P.generation.seed], ['processing.outputs', P.processing && P.processing.outputs], ['licence_audit', P.licence_audit]];
+    for (const [k, v] of need) if (v === undefined || v === null || v === '') bad(P.id || pr, pr + ' 缺 ' + k);
+    if (!Array.isArray(P.components) || !P.components.length || P.components.some((c) => !c.name || !c.licence || !c.rev)) bad(P.id || pr, pr + '：components 要列出每个组件的名字、版本、许可证');
+    for (const re of PRIVATE) if (re.test(txt)) bad(P.id || pr, pr + ' 里有机器路径 / 用户名 / 邮箱一类的个人信息（' + re + '）');
+    for (const g of fs.readdirSync(path.dirname(pf), { recursive: true })) if (/concept|\.png$|\.glb$/i.test(String(g))) bad(P.id || pr, 'assets/ai/ 下不放概念图 / PNG / 源 GLB：' + g);
+    for (const o of (P.processing && P.processing.outputs) || []) {
+      want[o.key] = P.id;
+      if (o.split) want[o.split.below] = P.id;
+      if (o.presplit && o.presplit.key) want[o.presplit.key] = P.id;
+      if (o.presplit && o.presplit.upper_key) want[o.presplit.upper_key] = P.id;
+      if (o.presplit && o.presplit.parts) for (const r of o.presplit.parts) if (r.key) want[r.key] = P.id;
+    }
+  }
+  for (const k of Object.keys(want)) if (!D[k]) bad('skill-pieces', '来源记录里的输出 ' + k + ' 不在 js/assets/skill-pieces.js 里（重新跑 art/ai/pieces.py）');
+  const tri = {};
+  for (const [k, r] of Object.entries(D)) {
+    const id = 'piece/' + k;
+    if (!want[k]) bad(id, '没有来源记录（art/ai/pieces.json 列的来源记录里没有这个输出）');
+    else if (r.src !== want[k]) bad(id, 'src ' + r.src + ' 和来源记录 ' + want[k] + ' 不一致');
+    if (!Array.isArray(r.p) || r.p.length % 9 || r.p.some((x) => !Number.isFinite(x))) {
+      bad(id, 'p 要是每面 9 个有限数');
+      continue;
+    }
+    const n = r.p.length / 9, per = r.t || r.s || r.c;
+    tri[k] = n;
+    if (!per || per.length !== (r.c ? n * 3 : n)) bad(id, '逐面数组（t / s / c）的长度和面数 ' + n + ' 对不上');
+    else if (per.some((x) => !Number.isFinite(x) || x < 0 || x > (r.s ? 2 : 1))) bad(id, '逐面数组有越界的数');
+    if (B[k] === undefined) bad(id, 'art/budgets.json 的 pieces 里没有这一件的预算');
+    else if (n > B[k]) bad(id, n + ' 个三角形，超过预算 ' + B[k]);
+  }
+  for (const k of SHAPE_PIECES) if (tri[k] > (B.slot || 150)) bad('piece/' + k, '形状批的件不能超过槽位 ' + (B.slot || 150) + ' 个三角形（现在 ' + tri[k] + '）');
+  if ((tri.pylon || 0) + (tri.pylonBase || 0) > (B.pylonTotal || 150)) bad('piece/pylon', '雷桩两段合计 ' + ((tri.pylon || 0) + (tri.pylonBase || 0)) + ' 个三角形，超过 ' + (B.pylonTotal || 150));
+  if ((tri.turret || 0) + (tri.turretHead || 0) + (tri.turretLens || 0) + (tri.turretBarrel || 0) > (B.turretTotal || 400)) bad('piece/turret', '炮台各段合计超过 ' + (B.turretTotal || 400));
+  if (D.turret && !(D.turretBarrel && Array.isArray(D.turretBarrel.muzzle) && D.turretBarrel.muzzle.length === 3)) bad('piece/turretBarrel', '缺炮口位置 muzzle（游戏端从这里起射线）');
+  return tri;
+}
 function jpegWidth(buf) {
   let i = 2;
   while (i + 9 < buf.length && buf[i] === 0xff) {
@@ -255,6 +314,7 @@ export function checkArt() {
       }
     }
   }
+  checkPieces(bad);
   return { fails, rows, count: man.assets.length };
 }
 

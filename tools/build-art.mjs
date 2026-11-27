@@ -139,6 +139,15 @@ async function main() {
     fs.writeFileSync(path.join(outDir, 'palette.png'), first.bin.subarray(bv.byteOffset || 0, (bv.byteOffset || 0) + bv.byteLength));
   }
   console.log('Blender ' + (ms / 1000).toFixed(1) + ' s（' + groups.length + ' 个进程 × 烘焙线程 ' + threads + '），' + built.length + ' 件 → assets/ca/，清单 ' + assets.length + ' 件');
+  // ai3d-skills：全量构建时顺带出 AI 技能件（art/ai/pieces.py → js/assets/skill-pieces.js；源文件不在就保留已提交的）
+  if (!only) {
+    const r = spawnSync(blender, ['-b', '--factory-startup', '--python-exit-code', '1', '--python', path.join(root, 'art/ai/pieces.py')], { cwd: root, encoding: 'utf8' });
+    for (const l of (r.stdout || '').split('\n')) if (l.startsWith('CA_PIECE ')) console.log(l.length > 160 ? l.slice(0, 160) + '…' : l);
+    if (r.status !== 0) {
+      console.error('art/ai/pieces.py 失败：\n' + (r.stderr || '').slice(-2000));
+      process.exit(1);
+    }
+  }
   if (opt('no-pack') === null) {
     const r = spawnSync(process.execPath, [path.join(root, 'tools/pack-assets.mjs')], { cwd: root, stdio: 'inherit' });
     if (r.status !== 0) process.exit(r.status || 1);

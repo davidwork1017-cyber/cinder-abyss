@@ -171,8 +171,12 @@ CATALOG = [
     dict(id='ca/gear_lantern_t3', gen='hand_lantern', seed=223, cat='weapon', zone='gear', ship=True, replaces=None, args=dict(tier=2),
          bake=dict(ao=0.04, grad=0.01, wear=0.4, grime=0.25), finish=dict(dust=0.0), cues=dict(second=False, val=0.12, lichen=0)),
     # ---- 绊雷（imbue 批）：夜猎 / 炉匠埋在地上的雷。同样打进 kit-gear 包（第一次放绊雷时才要），没到之前画原来的暗色碎块 ----
-    dict(id='ca/gear_mine', gen='field_mine', seed=233, cat='prop', zone='gear', ship=True, replaces=None,
-         bake=dict(ao=0.3, grad=0.2, wear=0.45, grime=0.25), finish=dict(dust=0.0), cues=dict(second=False, val=0.14, lichen=0)),
+    # ai3d-skills：外形换成 AI 生成的爪式陷阱（deploy-mine-01，art/ai/importer.py 的 vc 外观：按面量化到调色板，不带贴图），占地和三角形数不超过原来的脚本件。
+    # 原来的脚本件（gen='field_mine'，art/ca/gen.py）要换回去就把下面注释的一行放回来、ai 这行拿掉：
+    # dict(id='ca/gear_mine', gen='field_mine', seed=233, cat='prop', zone='gear', ship=True, replaces=None,
+    #      bake=dict(ao=0.3, grad=0.2, wear=0.45, grime=0.25), finish=dict(dust=0.0), cues=dict(second=False, val=0.14, lichen=0)),
+    dict(id='ca/gear_mine', gen='ai', seed=233, cat='prop', zone='gear', ship=True, replaces=None, args=dict(prov='assets/ai/gear_mine/provenance.json', lod='hi', mode='vc'),
+         bake=dict(ao=0.1, grad=0.15, wear=0.35, grime=0.05), finish=dict(dust=0.0, cues=False)),
     # ---- 首领（boss-design）：带骨架、蒙皮和动作，assets/ca/boss/<kind>.glb；id = ca/boss_<kind>，zone 写 boss，home = 打进哪一区的首领包（js/assets/boss-<kind>.js）。
     # 生成器在 art/ca/boss/<kind>.py（造型 + 骨架 + 软接缝），动作表在 art/ca/boss/<kind>_clips.py ----
     # 熔渣巨像（ai3d-golem，用户 2026-11-26 批准）：外观换成 AI 生成的 golem-a-01（文生图 → 图生 3D，源文件不进仓库），art/ai/golem_rig.py 对到同一副骨架、

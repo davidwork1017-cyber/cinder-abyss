@@ -267,6 +267,8 @@
 <!-- 特效贴图库（tools/gen-vfx-textures.mjs 程序化生成，打成 base64）：同步引入，js/vfx.js 解码成纹理、提供共用的特效着色器 -->
 <script src="js/assets/vfx.js"></script>
 <script src="js/assets.js"></script>
+<!-- AI 生成的技能件（冰晶、冰凌、冰碴、冰簇、雷桩、冰棱；art/ai/pieces.py 生成的小网格，没有贴图）：同步引入，js/vfx.js / js/world.js 建几何体时读；缺了就用原来的几何体 -->
+<script src="js/assets/skill-pieces.js"></script>
 <script src="js/vfx.js"></script>
 <script src="js/items.js"></script>
 <script src="js/world.js"></script>
