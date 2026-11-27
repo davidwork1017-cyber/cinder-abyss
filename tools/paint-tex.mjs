@@ -10,7 +10,7 @@
 //   p_slab   第 2 区路面（tex-rest，顶替 monastery_stone_floor）：错缝铺的切石板，有的再分小块、崩角、裂开，缝里积着砂砾。
 //   p_grit   第 2 区粗糙地面（tex-rest，顶替 rocky_trail）：成片的细砂和碎石、零星崩下来的碎石板、很淡的水渍。
 //   p_srock  第 2 区虚空地面和岩石 / 布景的三向投影（tex-rest，顶替这一区用的 Rock035）：切比雪夫胞的方正岩块 + 横向岩层。
-// 每张 512² 的 albedo / normal / arh（R 遮蔽 G 粗糙度 B 高度，和 prep-textures.mjs 的格式一样），低档用的 256² lo（albedo / arh，2×2 盒式缩小；
+// 每张 512² 的 albedo / normal / arh（R 遮蔽 G 粗糙度 B 高度，和其它地面贴图的格式一样），低档用的 256² lo（albedo / arh，2×2 盒式缩小；
 // 低档不传法线贴图，游戏里用平的法线）。
 const N = 512;
 
