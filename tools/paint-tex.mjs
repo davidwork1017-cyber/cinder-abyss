@@ -484,39 +484,47 @@ const TEX = {
     seed: 1103,
     nrm: 1.1,
     fn(u0, v0, S) {
-      const clM = sstep(0.55, 0.66, fbm(u0, v0, 3, 3, S + 1));
-      const calm = sstep(0.5, 0.62, fbm(u0, v0, 2, 3, S + 3)) * (1 - clM);
-      // 岩台：4 层一个周期，台沿横向起伏得厉害；每层一档色调，台沿上侧一条软的亮带、下侧软的压暗（台阶，不是线）
-      const R = 4, vv = v0 * R + 0.9 * (fbm(u0, v0, 3, 3, S + 4) - 0.5) + 0.12 * (fbm(u0, v0, 11, 2, S + 5) - 0.5);
-      const layer = Math.floor(vv), fr = vv - layer;
-      const lid = hashI(md(layer, R), 3, S + 6);
-      const dL = Math.min(fr, 1 - fr) * (N / R); // 到台沿的距离（像素）
-      // 台沿的缝只在一部分地方有（断续），细
-      const wL = 1.6 * sstep(0.42, 0.6, fbm(u0, v0, 5, 2, S + 7)) * (1 - calm) * (0.5 + 0.7 * fbm(u0, v0, 20, 1, S + 8));
+      const calm = sstep(0.55, 0.67, fbm(u0, v0, 2, 3, S + 3));
+      // 岩台：3 层一个周期（5.5 m 一张 → 约 1.8 m 一层）。台沿是折线（每层 7 段、线性插值，不是波浪），
+      // 沿线再有一点低频起伏；台沿下面一条暗的炭紫色（下一层的台脚），台沿上一条很窄的亮边
+      const R = 3, SEG = 7;
+      const edgeV = (k) => {
+        const kk = md(k, R), x = md(u0, 1) * SEG, i0 = Math.floor(x), f = x - i0;
+        const a = hashI(kk * 16 + md(i0, SEG), 3, S + 20), b = hashI(kk * 16 + md(i0 + 1, SEG), 3, S + 20);
+        return (k + 0.32 * (a + (b - a) * f - 0.5) + 0.08 * (fbm(u0, v0, 6, 2, S + 21) - 0.5)) / R;
+      };
+      const k0 = Math.floor(v0 * R);
+      let lo_ = edgeV(k0 - 1), hi_ = edgeV(k0), layer = k0 - 1;
+      for (let k = k0 - 1; k <= k0 + 1; k++) {
+        const e0 = edgeV(k), e1 = edgeV(k + 1);
+        if (v0 >= e0 && v0 < e1) { lo_ = e0; hi_ = e1; layer = k; break; }
+      }
+      const fr = (v0 - lo_) / Math.max(1e-4, hi_ - lo_);
+      const lid = hashI(md(layer, R), 5, S + 6);
+      const dL = Math.min(v0 - lo_, hi_ - v0) * N; // 到台沿的距离（像素）
+      // 台沿的缝：断续，宽窄不一
+      const wL = 1.8 * sstep(0.36, 0.54, fbm(u0, v0, 5, 2, S + 7)) * (0.55 + 0.7 * fbm(u0, v0, 18, 1, S + 8));
       const cL = line(dL, wL);
-      // 岩板：横向拉长的大胞（横 2、纵 5 个一个周期），缝少、断得多
-      const [u, v] = warp(u0, v0, 5, 0.05, S + 9);
-      const A = worleyA(u, v, 2, 5, S + 10, 0.9);
+      // 长的断裂缝：横向拉长的大胞（横 2、纵 4 个一个周期），断续，游戏镜头下是几道看得见的长缝
+      const [u, v] = warp(u0, v0, 4, 0.05, S + 9);
+      const A = worleyA(u, v, 2, 4, S + 10, 0.9);
       const eA = (A[1] - A[0]) * (N / 2) * 0.5;
-      const wA = 1.4 * sstep(0.46, 0.62, fbm(u0, v0, 6, 2, S + 11)) * (1 - calm) * (0.5 + 0.7 * fbm(u0, v0, 22, 1, S + 12));
+      const wA = 1.6 * sstep(0.44, 0.6, fbm(u0, v0, 5, 2, S + 11)) * (1 - 0.6 * calm) * (0.5 + 0.7 * fbm(u0, v0, 16, 1, S + 12));
       const cA = line(eA, wA);
-      // 细裂：只在很少几簇里，连成短线（不留孤立的暗点）
-      const [u2, v2] = warp(u0, v0, 10, 0.03, S + 13);
-      const B = worley(u2, v2, 9, S + 14, 0.9);
-      const cB = line(edgePx(B[1] - B[0], 9), 0.9 * clM * sstep(0.45, 0.6, fbm(u0, v0, 5, 2, S + 15)));
-      const crack = Math.max(cL, cA * 0.9, cB * 0.6);
+      const crack = Math.max(cL, cA * 0.9);
       const lo = fbm(u0, v0, 3, 3, S + 16);
-      const lip = 1 - sstep(0, 0.18, fr), toe = sstep(0.8, 1, fr);
-      let t = 0.92 + (lid - 0.5) * 0.12 + (A[2] - 0.5) * 0.04 + (lo - 0.5) * 0.2 + 0.05 * lip - 0.05 * toe + 0.02 * calm;
-      t = 0.8 + 0.34 * poster(clamp01((t - 0.72) / 0.42), 4, 0.42);
-      t *= 1 - 0.42 * crack;
-      // 台面高（0.74）：覆盖层的腐壳按高度混合，只积在缝里和低处，不从台面上冒出一颗颗暗点；缝照样低于 0.42（熔岩光沿缝走）
-      const h = clamp01(0.74 + 0.06 * (0.5 - fr) - 0.58 * cL - 0.54 * cA - 0.34 * cB + 0.04 * (lo - 0.5));
-      return { c: [t * 0.5 * 1.01, t * 0.5, t * 0.5 * 1.02], h, ao: 1 - 0.35 * crack - 0.06 * toe, rough: 1 };
+      const lip = 1 - sstep(0, 0.07, fr), toe = sstep(0.62, 0.97, fr);
+      let t = 0.94 + (lid - 0.5) * 0.14 + (A[2] - 0.5) * 0.05 + (lo - 0.5) * 0.16 + 0.06 * lip - 0.2 * toe;
+      t = 0.74 + 0.4 * poster(clamp01((t - 0.66) / 0.46), 4, 0.42);
+      t *= 1 - 0.45 * crack;
+      // 台面高（0.74，覆盖层只积在缝里和台脚）；台脚低一点；缝都低于 0.42（熔岩光沿缝走）
+      const h = clamp01(0.74 - 0.12 * toe + 0.03 * lip - 0.58 * cL - 0.54 * cA + 0.04 * (lo - 0.5));
+      const pur = 0.02 + 0.03 * toe;
+      return { c: [t * 0.5 * (1 + pur * 0.5), t * 0.5, t * 0.5 * (1 + pur)], h, ao: 1 - 0.35 * crack - 0.12 * toe, rough: 1 };
     },
   },
-  // 积灰的熔渣壳（种子 1201，路边的粗糙地面；原来是同一种石板压暗一档）：一块块龟裂的薄壳（小胞、缝暗），
-  // 软边的成片积灰（亮一点、平），零星的小块熔渣。
+  // 积灰的熔渣壳（种子 1201，路边的粗糙地面；原来是同一种石板压暗一档）：一块块龟裂的薄壳（小胞、缝暗、每块深浅略有不同），
+  // 软边的成片积灰（亮一点、平）；没有一颗颗的熔渣点（游戏镜头下读成骰子点）。
   p_cinder: {
     seed: 1201,
     nrm: 1.3,
@@ -527,15 +535,12 @@ const TEX = {
       const cr = line(edgePx(A[1] - A[0], 6), w);
       const ash = sstep(0.5, 0.68, fbm(u0, v0, 3, 3, S + 5));
       const lo = fbm(u0, v0, 2, 3, S + 6);
-      let t = 0.86 + (A[2] - 0.5) * 0.08 + (lo - 0.5) * 0.2;
+      let t = 0.86 + (A[2] - 0.5) * 0.12 + (lo - 0.5) * 0.2;
       t = 0.78 + 0.34 * poster(clamp01((t - 0.65) / 0.45), 3, 0.35);
-      t *= 1 - 0.5 * cr * (1 - ash);
-      const [f1, , id] = worley(u0, v0, 18, S + 7, 0.8);
-      const sl = id > 0.88 ? (1 - sstep(0.16, 0.26, f1)) * (1 - ash) : 0;
-      t = t * (1 - sl) + 0.72 * sl;
+      t *= 1 - 0.55 * cr * (1 - ash);
       t = t * (1 - 0.6 * ash) + 1.04 * 0.6 * ash;
-      const h = clamp01(0.5 + 0.06 * (A[2] - 0.5) - 0.3 * cr * (1 - ash) + 0.12 * ash + 0.2 * sl);
-      return { c: [t * 0.5, t * 0.5, t * 0.5 * 1.02], h, ao: 1 - 0.35 * cr * (1 - ash) - 0.1 * sl, rough: 1 };
+      const h = clamp01(0.5 + 0.06 * (A[2] - 0.5) - 0.3 * cr * (1 - ash) + 0.12 * ash);
+      return { c: [t * 0.5, t * 0.5, t * 0.5 * 1.02], h, ao: 1 - 0.35 * cr * (1 - ash), rough: 1 };
     },
   },
   // 柱状节理的暗岩（种子 1307，顶替 dark_rock：墙外的岩顶和岩石 / 布景的三向投影）：近似六边形的岩柱截面

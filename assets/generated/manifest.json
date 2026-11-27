@@ -113,33 +113,33 @@
    },
    "maps": {
     "albedo": {
-     "pix": "0ece7c9cb91372e95399dfdd67db6054ce62f8e6402a660565c8871660853477",
-     "jpg": "fd5cd22c8d91d0eb56917f999f44483d87de7a8070aa59f13f5077845533db78",
-     "bytes": 8659
+     "pix": "22f4f910f033b943062473770238949a15a73468cb85370d3289a52ef0ab7104",
+     "jpg": "5e5c453a08238a9c86f5f33fe44fb0b866fc192529415ba125f3876e6c120b35",
+     "bytes": 13022
     },
     "normal": {
-     "pix": "668e1b1d6405e55c4eb6c01899cde8b919d0e26447bc595fa7bde675db918982",
-     "jpg": "9200a2b3f6c19efd4181cdec8eae24483f8b01f97f314c2273e5c873914fa198",
-     "bytes": 7555
+     "pix": "c1eaa8d54b8e9937d192b2564453e7d383999f1481f59489b36e6ed17dd5b852",
+     "jpg": "05ea73273b9883aed8210dabc13aa9359714deba863781062b9f185d3738baa5",
+     "bytes": 13330
     },
     "arh": {
-     "pix": "fd90cabfc13d0b94b22991490eb23f1e2c25d62283a2571560f9743d0d426722",
-     "jpg": "9ca6ef5dff63e57a4d876001d52820284f1923b72dfb3a860f09c4741a1cb80b",
-     "bytes": 8826
+     "pix": "3e039c44ced7cbb90d88996a25f97fc53a0bdebb716fba4e114e090dd11d0781",
+     "jpg": "5aa61405e60eac5af0f4d474bf33e041fb33b72f2258668b297a5ad394625a7e",
+     "bytes": 14804
     }
    },
    "lo": {
     "px": 256,
     "maps": {
      "albedo": {
-      "pix": "35f089ffb4fc7535b32a8552f0dfe69fbaa92736e6291989bd1998da9328b036",
-      "jpg": "6f0cfc0e44ccc418db5e2dfb954703304d267008542e5416d7d5e35e0924e49a",
-      "bytes": 3674
+      "pix": "66591583beb8728f255860f260c0292ef35d73d009f03ab5d00ceb7220249cf2",
+      "jpg": "db98892b35ec5d97872bf17b17b4db87d26b4872c3bebeaf448e80e82cffdb50",
+      "bytes": 5514
      },
      "arh": {
-      "pix": "6dedded4df5432e04174053448104737e6cf124ad7d6d1b6b8d7632289f05cd8",
-      "jpg": "1523561dcad6e137563746997af25ff0155e7fddb810d5e044e7ec435325ded5",
-      "bytes": 3765
+      "pix": "0a4c6643aae7efd4a10b89e596534ff04d40529a5ac89bc85fa1b0e6d72c3d21",
+      "jpg": "b5a7f9aeeb432867160957e1a17c9a150cd319533aa14e5fcee2e1977cecadcb",
+      "bytes": 5936
      }
     }
    }
@@ -195,33 +195,33 @@
    },
    "maps": {
     "albedo": {
-     "pix": "db06479af41a6bd7863ee1ccccf98d014cd4bb3b18878e8a1d4e73cc2a812aba",
-     "jpg": "bfe88c1d131f46cdb8139b0e184f8cd5979cf7c46d7e333d78a2347066b29e58",
-     "bytes": 14129
+     "pix": "d9df2eaa48141ba30782230af90981c252090d872e136d4afff2d45b5b22f763",
+     "jpg": "24afa13d759bb18b0ff3a3d3e9f590d18ff229ad952dcdf04c47f3e4ade41c89",
+     "bytes": 13518
     },
     "normal": {
-     "pix": "5bd502eab7d48ccc86bb0722506267c1b6c558b18df8446cf4f1b20cae770e57",
-     "jpg": "648c10e45ee45d69b6bca2c091bc68e653162eedf96111c7060692766c0df238",
-     "bytes": 13624
+     "pix": "583736d4a9c8f2624d7be78b69ae6e7bd19f0baf3ec33c2bc52ceee097e5b363",
+     "jpg": "17d7ef286740b60fb2f9a474b9397b845bc8d599877d39909e56d1989476be58",
+     "bytes": 11775
     },
     "arh": {
-     "pix": "d2784e3a0887932945ad7faff98cfa40d06a737c945749501bb478ec1c9c99f6",
-     "jpg": "6604851b8cf4f6807c2494c1d9d83465a81bcc8e978eba8db136778a106d2c96",
-     "bytes": 14323
+     "pix": "3a9d047e954d7fac3b2e56756bafd5cbd4ca64c53b6a9006e87a6ceedda2f13d",
+     "jpg": "ddfd96d3b0cc023b4a6a58dcaac0024e09046ffba7b070ee4897bdf0377381d6",
+     "bytes": 13412
     }
    },
    "lo": {
     "px": 256,
     "maps": {
      "albedo": {
-      "pix": "4777234e52148ab314714e4faddd6a679906c4cdd2dcea977f2de4dc351a1715",
-      "jpg": "ca11f7afc39e8646913e28a6a9a0911c10d355191932a7f23fc8733f6e302b8f",
-      "bytes": 6113
+      "pix": "bd5e61998d8e4cdd9a221166881af186d2a4ecfb9ef8591cf4e40e878f3cb595",
+      "jpg": "47059cf4e503764f4d6509522c562ed9b1c8658e62227ee24abd72bf2bcd3424",
+      "bytes": 5824
      },
      "arh": {
-      "pix": "e00b26b6da7e97a86e077c6e951d91d62c21fdd5f0adc541aa50ef084b75a739",
-      "jpg": "b2b08bad8c325b4a2ba0644231eebe74766626e7040d1150b88096ab5096f577",
-      "bytes": 5810
+      "pix": "fdcebbab4c44bd79b6aa552a614c6a28c10c8c19de5a943d87fd5d61aa150512",
+      "jpg": "86365bd310f855cf822be33a6bf2795ad3b9f3833e34028414825e4a507ce2f0",
+      "bytes": 5467
      }
     }
    }
