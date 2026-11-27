@@ -5948,17 +5948,29 @@
       }
       encHud.bar.classList.toggle('on', on);
     }
-    // 触屏：旁白卡和事件条都在顶上一排下面那一格（+56，首领条在时 +112）。旁白卡放着时事件条挪到它下面 8 px（旁白卡两到五行，高度不定，按画面里量的算；
-    // 旋转横屏按转过的画面算），目标句不被盖住；旁白卡收起后回到原位
-    let push = '';
-    const nr = nc.root;
-    if (on && touchOn() && nr && nc.cur && nr.classList.contains('show') && !nr.classList.contains('held')) {
-      const r = G.rectToFrame ? G.rectToFrame(nr.getBoundingClientRect()) : nr.getBoundingClientRect();
-      if (r.bottom > 0) push = Math.round(r.bottom + 8) + 'px';
-    }
-    if (push !== encHud.push) {
-      encHud.push = push;
-      encHud.bar.style.top = push;
+    // 触屏：事件条、首领条、旁白卡、提示卡都在顶上一排下面那一格（+56）。哪个亮着，事件条就挪到它们最低的下边再往下 8 px
+    // （首领条带名字和破绽条、旁白卡两到五行、提示卡高低不定：按画面里量的算，旋转横屏按转过的画面算），目标句不被盖住；都收起后回到原位。
+    // 量的是几个固定的框，最多 250 ms 量一次
+    if (on && touchOn()) {
+      if (now - (encHud.pushAt || 0) >= 250) {
+        encHud.pushAt = now;
+        let low = 0;
+        const nr = nc.root, coach = document.getElementById('coach');
+        const blk = [nr && nc.cur && nr.classList.contains('show') && !nr.classList.contains('held') ? nr : null, hud.boss.on ? hud.boss.box : null, coach && coach.classList.contains('on') && getComputedStyle(coach).visibility !== 'hidden' ? coach : null];
+        for (const e of blk) {
+          if (!e) continue;
+          const r = G.rectToFrame ? G.rectToFrame(e.getBoundingClientRect()) : e.getBoundingClientRect();
+          if (r.bottom > low) low = r.bottom;
+        }
+        const push = low > 0 ? Math.round(low + 8) + 'px' : '';
+        if (push !== encHud.push) {
+          encHud.push = push;
+          encHud.bar.style.top = push;
+        }
+      }
+    } else if (encHud.push) {
+      encHud.push = '';
+      encHud.bar.style.top = '';
     }
     // 出现时、来了新的一句时亮一下
     const nat = N ? N.at : encHud.nat;
