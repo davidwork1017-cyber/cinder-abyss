@@ -6441,7 +6441,7 @@
   function menuCredits() {
     return (
       '<div class="m-credits">' + CREDITS.map((c) => '<div class="m-cr"><b>' + c[0] + '</b><span>' + c[1] + ' · CC0</span></div>').join('') + '</div>' +
-      '<p class="m-note">以上素材均以 CC0 授权公开，在此致谢。渲染用 three.js r128（MIT 许可）。其余美术、音效与玩法均为原创。</p>'
+      '<p class="m-note">以上素材均以 CC0 授权公开，在此致谢。渲染用 three.js r186（MIT 许可）。部分场景模型由 AI 根据我们的文字描述生成，经脚本处理后使用。其余美术、音效与玩法均为原创。</p>'
     );
   }
   const MENU_VIEW = {

@@ -14,6 +14,7 @@ import bpy  # noqa: E402
 from mathutils import Vector  # noqa: E402
 
 from ca import core, gen, rig  # noqa: E402
+from ai import importer  # noqa: E402  AI 生成模型的导入（gen='ai'，见 art/ai/importer.py）
 import ca.boss.golem  # noqa: E402,F401
 import ca.boss.lord  # noqa: E402,F401
 import ca.boss.behemoth  # noqa: E402,F401
@@ -34,12 +35,13 @@ def make(item, seed=None, name=None):
     seed = item['seed'] if seed is None else seed
     name = name or item['id'].replace('/', '_')
     k = core.Kit(seed, name, remap=item.get('remap'))  # remap：调色板行换名（同一个生成器给别的区换材质）
-    getattr(gen, item['gen'])(k, **item.get('args', {}))
+    fn = importer.ai if item['gen'] == 'ai' else getattr(gen, item['gen'])  # gen='ai'：从 AI 生成的源 GLB 导入（art/ai/importer.py）
+    fn(k, **item.get('args', {}))
     if item.get('fit'):
         k.fit(**item['fit'])  # 清单里的 fit：包围盒对齐被顶替的旧件（r / top / bottom）
     k.finish(cue_args=item.get('cues'), **item.get('finish', {}))  # cues：材质线索参数（val / second / lichen，缺省见 docs/art-style.md）；finish：收尾参数（dust / dust_row）
     tris = sum(len(f.verts) - 2 for f in k.bm.faces)
-    ob = core.to_object(k, name)
+    ob = importer.to_object(k, name) if getattr(k, 'ai_albedo', False) else core.to_object(k, name)  # albedo 模式保留源 UV（材质 ai_albedo）
     k.bm.free()
     if DRY:
         return ob, tris, 0.0
@@ -137,8 +139,23 @@ def build(o):
                 rig.export_glb(ob, arm, path, info['meta'])
             extra = dict(bones=info['bones'], clips=sorted(info['meta']), unused_bones=info['missing'], home=item.get('home'))
         else:
-            ob, tris, dt = make(item)
             path = os.path.join(out, item['zone'], item['id'].split('/', 1)[1] + '.glb')
+            if item['gen'] == 'ai':
+                # AI 件：源 GLB 不在仓库里（CA_AI_INBOX）。没有源文件的机器上保留已经提交的 GLB 和贴图（全量构建照样逐字节一致）；源文件和 provenance 的 sha256 对不上就报错
+                stt = importer.source_state(item['args'])
+                extra = dict(ai=dict(prov=item['args']['prov'], lod=item['args'].get('lod', 'hi'), mode=item['args'].get('mode', 'albedo')))
+                if stt == 'mismatch':
+                    raise RuntimeError(item['id'] + '：源 GLB 的 sha256 和 provenance 里记的不一样（' + importer.source_path(item['args']) + '）')
+                if stt == 'missing':
+                    if not os.path.exists(path):
+                        raise RuntimeError(item['id'] + '：没有源 GLB（设 CA_AI_INBOX），仓库里也没有生成物 ' + path)
+                    print('CA_AI_KEEP %s（没有源 GLB，保留已提交的生成物）' % item['id'], flush=True)
+                    st = dict(id=item['id'], file=os.path.relpath(path, out), tris=-1, bake_s=0.0, total_s=0.0, gen=item['gen'], seed=item['seed'], args=item.get('args', {}),
+                              bake=item.get('bake', {}), cat=item['cat'], zone=item['zone'], ship=item['ship'], replaces=item.get('replaces'), blender=bpy.app.version_string, kept=True, **extra)
+                    stats.append(st)
+                    print('CA_ASSET ' + json.dumps(st, ensure_ascii=False), flush=True)
+                    continue
+            ob, tris, dt = make(item)
             if not DRY:
                 core.export_glb(ob, path)
         st = dict(id=item['id'], file=os.path.relpath(path, out), tris=tris, bake_s=round(dt, 3), total_s=round(time.perf_counter() - t0, 3),

@@ -58,6 +58,8 @@ async function catalogIds() {
   return JSON.parse(l.slice(7));
 }
 
+const aiProv = (p) => JSON.parse(fs.readFileSync(path.join(root, p), 'utf8'));
+
 export function manifestEntry(st) {
   const file = path.join(outDir, st.file);
   const buf = fs.readFileSync(file);
@@ -84,8 +86,12 @@ export function manifestEntry(st) {
       ? { script: 'art/ai/golem_rig.py', fit: 'art/ai/golem_fit.py', clips: 'art/ca/boss/golem_clips.py', gen: st.gen, catalog: 'art/catalog.py', seed: st.seed, args: st.args, provenance: 'assets/ca/boss/golem.provenance.json' }
       : st.cat === 'boss'
       ? { script: 'art/ca/boss/' + st.gen + '.py', clips: 'art/ca/boss/' + st.gen + '_clips.py', gen: st.gen, catalog: 'art/catalog.py', seed: st.seed, args: st.args, bake: st.bake }
-      : { script: 'art/ca/gen.py', gen: st.gen, catalog: 'art/catalog.py', seed: st.seed, args: st.args, bake: st.bake },
+      : st.gen === 'ai'
+        ? { script: 'art/ai/importer.py', gen: st.gen, catalog: 'art/catalog.py', seed: st.seed, args: st.args, bake: st.bake, provenance: st.ai.prov, sourceSha256: aiProv(st.ai.prov).source.sha256 }
+        : { script: 'art/ca/gen.py', gen: st.gen, catalog: 'art/catalog.py', seed: st.seed, args: st.args, bake: st.bake },
     ...(st.cat === 'boss' ? { bones: st.bones, clips: st.clips, home: st.home } : {}),
+    // AI 件（gen='ai'，art/ai/importer.py）：哪一档（hi / lo）、外观（albedo 带贴图 / vc 调色板顶点色）、贴图 id（albedo 才有，tools/asset-sources.json 的 textures 里）
+    ...(st.gen === 'ai' ? { lod: st.ai.lod, mode: st.ai.mode, ...(st.ai.mode === 'albedo' ? { tex: aiProv(st.ai.prov).processing.tex.id } : {}) } : {}),
     sha256: crypto.createHash('sha256').update(buf).digest('hex'),
   };
 }

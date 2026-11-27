@@ -177,7 +177,7 @@ function rawAccessor(g, i) {
   return { arr: out, n, normalized: !!a.normalized, type: a.componentType };
 }
 export function bakeGeo(g) {
-  const j = g.json, P = [], N = [], C = [], GL = [];
+  const j = g.json, P = [], N = [], C = [], GL = [], U = [];
   const sc = j.scenes[j.scene || 0];
   const walk = (ni) => {
     const nd = j.nodes[ni];
@@ -227,13 +227,36 @@ export function bakeGeo(g) {
             bb *= vc.arr[i * vc.n + 2] * vcK;
           }
           C.push(r, gg, bb);
+          U.push(uv ? uv.arr[i * 2] : 0, uv ? uv.arr[i * 2 + 1] : 0); // AI 件（材质 ai_albedo）要带 UV 采样自己的反照率贴图；调色板件的包里不写
           GL.push(vc && vc.n === 4 ? Math.max(0, 1 - vc.arr[i * 4 + 3] * vcK) : 0);
         }
       }
     for (const c of nd.children || []) walk(c);
   };
   for (const ni of sc.nodes) walk(ni);
-  return { count: P.length / 3, pos: Float32Array.from(P), nor: Float32Array.from(N), col: Float32Array.from(C), glow: GL.some((k) => k > 0.01) ? Float32Array.from(GL) : null };
+  return { count: P.length / 3, pos: Float32Array.from(P), nor: Float32Array.from(N), col: Float32Array.from(C), glow: GL.some((k) => k > 0.01) ? Float32Array.from(GL) : null, uv: Float32Array.from(U) };
+}
+
+// ---------- AI 件（ai3d-pilot，外观 albedo）的紧凑包：bakeGeo 的结果按 (位置, UV, 颜色) 焊接成带索引的网格 ----------
+// 游戏端用平直着色（材质 flatShading，法线在着色器里按面算），所以不存法线；颜色只是烘好的 AO（同一个顶点的各个角相同）。
+// 输出 { n: 索引数, p: 顶点位置 Float32 × 3, u: UV Float32 × 2, c: 颜色 Float32 × 3, i: 索引 Uint16 / Uint32 }，顺序 = 第一次出现的顺序（固定）
+export function packAi(g) {
+  const b = bakeGeo(g), map = new Map(), P = [], U = [], C = [], I = [];
+  const f = new Float32Array(1), u32 = new Uint32Array(f.buffer), bits = (x) => ((f[0] = x), u32[0]);
+  for (let k = 0; k < b.count; k++) {
+    const key = [b.pos[k * 3], b.pos[k * 3 + 1], b.pos[k * 3 + 2], b.uv[k * 2], b.uv[k * 2 + 1], b.col[k * 3], b.col[k * 3 + 1], b.col[k * 3 + 2]].map(bits).join(',');
+    let v = map.get(key);
+    if (v === undefined) {
+      v = P.length / 3;
+      map.set(key, v);
+      P.push(b.pos[k * 3], b.pos[k * 3 + 1], b.pos[k * 3 + 2]);
+      U.push(b.uv[k * 2], b.uv[k * 2 + 1]);
+      C.push(b.col[k * 3], b.col[k * 3 + 1], b.col[k * 3 + 2]);
+    }
+    I.push(v);
+  }
+  const verts = P.length / 3;
+  return { n: I.length, verts, p: Float32Array.from(P), u: Float32Array.from(U), c: Float32Array.from(C), i: verts < 65536 ? Uint16Array.from(I) : Uint32Array.from(I) };
 }
 
 // ---------- 首领包（boss-golem）：带蒙皮和动作的首领 GLB → 游戏直接用的数组（和布景件的预烘焙一样，游戏端不解析 GLB、不解码调色板） ----------

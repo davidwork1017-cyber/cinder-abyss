@@ -898,22 +898,23 @@
       },
     },
     frost: {
-      packs: ['zone-frost', 'rock-grey', 'ground'], // models-drop：摆放表里的 CC0 模型在这一区一个都摆不出来（多种子实测 0 个），不再加载 models 包
+      packs: ['zone-frost', 'ground'], // tex-t3：冰面 / 雪地 / 岩石换成脚本画的贴图（p_ice / p_snow / p_frock，tools/gen-paint-textures.mjs，在 zone-frost 包里），不再要照片的 rock-grey 包（雷鸣遗迹、坠星裂谷还在用）。models-drop：摆放表里的 CC0 模型在这一区一个都摆不出来（多种子实测 0 个），不再加载 models 包
       mats: [
         // zones-frost：冻土岛，冷青灰（不按 def.path 推），贴图起伏压低；粗糙地面是带雪的冻泥，略亮略暖一点，把大片的冰面打散
-        { tex: 'Ice002', tile: 7.5, con: 0.34, nrm: 0.5, rough: 0.7, k: 0.36, sat: 0.7, col: 0x55707c },
-        { tex: 'Snow013', tile: 4.5, con: 0.7, nrm: 1.2, rough: 1, k: 0.38, sat: 0.6, col: 0x5e6c78 },
-        { tex: 'Rock035', tile: 6.5, con: 1.0, nrm: 1.0, rough: 1, k: 1.0 },
+        // tex-t3：三套都换成脚本画的平铺贴图（大块冰板 + 几道压裂缝、风吹的积雪、层状岩；低频，没有照片那种细碎的裂网）
+        { tex: 'p_ice', tile: 7.5, con: 1.0, nrm: 0.5, rough: 0.7, k: 0.25, sat: 0.8, col: 0x4c6e8e }, // tex-t3：k 0.36 → 0.25（画的贴图对比低，同样的 k 显得亮；压回 25–35% 档里，角色、怪和地面拉开）；画的冰面没有照片那种高光纹，颜色换成更蓝的冰色（0x55707c → 0x4c6e8e、sat 0.7 → 0.8），冰下的深浅起伏放满（con 0.34 → 1），读得出是冰
+        { tex: 'p_snow', tile: 4.5, con: 0.9, nrm: 1.2, rough: 1, k: 0.26, sat: 0.45, col: 0x5e6c78 }, // tex-t3：k 0.38 → 0.26、sat 0.6 → 0.45（蓝的冰面旁边，雪地别显得发褐）
+        { tex: 'p_frock', tile: 6.5, con: 1.0, nrm: 1.0, rough: 1, k: 1.0 },
       ],
       lava: null,
-      rock: { tex: 'Rock035', tile: 2.8, nrm: 1.1, cap: 0x6a7a8a, capAll: 0.3 }, // phase 3：雪盖 0xb4c8d6 / 0.6 → 0x8296aa / 0.45；zones-frost：再压一档（水边的石头是这一区的「岩壁」）
+      rock: { tex: 'p_frock', tile: 2.8, nrm: 1.1, cap: 0x6a7a8a, capAll: 0.3 }, // tex-t3：Rock035 → p_frock。phase 3：雪盖 0xb4c8d6 / 0.6 → 0x8296aa / 0.45；zones-frost：再压一档（水边的石头是这一区的「岩壁」）
       grade: { sat: 1.12, con: 1.1, lift: 0x04081a, gain: 0xf4faff, vig: 0.22, sh: 0x5a70c0, hi: 0xfff0e0, tk: 0.1, shS: 0.85 },
       bloom: { th: 0.97, k: 0.16, r: 0.32 }, // 卡通：泛光只留给最亮的特效核心，不再给整片画面罩一层雾
       patch: 0.15, // zones-polish：岛上的粗糙地面斑块像泥印子，0.55 → 0.15
       // vf-ground：冻土上一片片霜壳（略亮略冷），岸边和石头脚下结得厚；路外撒霜点、结晶和碎石
-      layer: { tex: 'g_cover_frost', tile: 6, con: 0.6, rough: 0.8, k: 0.37, sat: 0.5, col: 0x6e8490, path: 0.7, pT: 0.6, edge: 0.9, jag: 1.6, blend: 0.08, edgeW: 0.6, mv: 0.14, mh: 0.1, scorch: 0.5, sT: 0.62, ao2: 0.22 }, // scorch 在这一区是成片的积雪（粗糙地面那一套是雪）
+      layer: { tex: 'g_cover_frost', tile: 6, con: 0.6, rough: 0.8, k: 0.26, sat: 0.5, col: 0x6e8490, /* tex-t3：k 0.37 → 0.26，霜壳跟着冰面压暗 */ path: 0.7, pT: 0.6, edge: 0.9, jag: 1.6, blend: 0.08, edgeW: 0.6, mv: 0.14, mh: 0.1, scorch: 0.5, sT: 0.62, ao2: 0.22 }, // scorch 在这一区是成片的积雪（粗糙地面那一套是雪）
       deco: { cover: 0x8aa0ac, floor: 0.8, wild: 1, ao: 0.8, aoR: 0.9, scorch: 0, clusters: 0.6, kinds: [14, 13, 7, 8, 4], tint: 0x56646e },
-      blots: { k: 0.35, r: 0.7, op: 0.28, tex: 'crack' }, // zones-polish：冻土上的细冰裂，不是暗块。zones-frost：岛上的污斑少一半多、小一圈（zones-ash 加的旋钮）
+      blots: { k: 0.35, r: 0.58, op: 0.18, show: 0.5, tex: 'crack' }, // tex-t3：画的冰面干净了，根须一样的暗裂纹块显得扎眼：只画一半、小一圈、淡三分之一（r 0.7 → 0.58，op 0.28 → 0.18；k 不动，随机数的取用次数不变）。zones-polish：冻土上的细冰裂，不是暗块。zones-frost：岛上的污斑少一半多、小一圈（zones-ash 加的旋钮）
       sigil: { k: 0.4 }, // zones-frost：冰湖上的法阵颜色压到 4 成（加色混合，等于淡一半多），不那么像界面
       mist: null, // zones-frost：路外整片是水（dress 画），贴地薄雾在水面上是一块块的亮斑，去掉（高 / 低画质也就一致了）
       prop: { tint: 0x8aa0b0, sat: 0.2 },
@@ -7560,6 +7561,57 @@
     return out;
   }
   // 灯：栈道两头的立灯（灯柱在 frostDeck 里），灯罩是不受光的亮块 + 地上一小片冷光
+  // ai3d-pilot：路标石——风化的石柱立在碎石和积雪的基座上，第一件 AI 生成的布景件（ca/frost_waystone，art/ai/importer.py；来源见 assets/ai/frost_waystone/provenance.json）。
+  // 纯外观：不进布局、没有碰撞（布局的 cuts 会改可走区域），立在岛边可走区域外面一点的浅水里（和水边的石头一样），只挑背向镜头的岸（外法线朝 -z），
+  // 不挡可走的地面、预警圈和主角。避开门口、栈道、骨柱 / 头骨 / 脊骨和立灯，彼此隔开 14 m 以上，一区 3–6 块，随机朝向。
+  // 随机数用自己的一路（布局的 vseed 派生，不取 Math.random），前后的布景摆放一个不挪；岸边的采样不带抖动（抖动要取 Math.random）。
+  // 一个实例化网格：反照率贴图（512，zone-frost 包的 frost_waystone）× 烘好的 AO 顶点色，平直着色；高 / 中画质同一档几何体，低画质不显示（visible = false：+0 次 draw，
+  // 实例照样建好，布景指纹和高档一样；低档的贴图整套不解码）
+  function frostStones(zone, ctx) {
+    const g = G.assets && G.assets.geo('ca/frost_waystone'), TEX = 'frost_waystone'; // 贴图 id 和包里记的一致（g.userData.tex）
+    if (!g || g.userData.tex !== TEX || !G.assets.tex(TEX)) return null;
+    const rnd = mulberry32(((zone.vseed >>> 0) ^ 0x3a7d51c9) >>> 0), sd = ctx.sd;
+    const doors = zone.links.map((L) => L.door), avoid = [];
+    for (const f of zone.feats) {
+      if (f.kind === 'pillar' || f.kind === 'skull' || f.kind === 'lamp') avoid.push([f.x, f.z, f.kind === 'skull' ? 6 : 3.5]);
+      else if (f.kind === 'spine') for (const q of f.pts) avoid.push([q[0], q[1], 3]);
+    }
+    const cand = [];
+    ctx.edgeSamples(2.4, 0, (x, z, kind, nx, nz) => {
+      if (nz > -0.4) return; // 只要背向镜头的岸
+      const o = 0.5, px = x + nx * o, pz = z + nz * o; // 基座（半径约 0.6 m）压在岸线上
+      if (doors.some((d) => Math.hypot(d.x - px, d.z - pz) < 4.5)) return;
+      if (avoid.some((a) => Math.hypot(a[0] - px, a[1] - pz) < a[2])) return;
+      if (W.walkable(px + nx * 1.4, pz + nz * 1.4, -1.2)) return; // 外面紧挨着别的可走区域（栈道 / 窄水道对岸）：不放
+      const d = sd(px, pz);
+      if (d > -0.3 || d < -0.9) return;
+      cand.push(px, pz);
+    }, { kinds: [MAT.VOID, MAT.WATER] });
+    const n = cand.length / 2, order = [];
+    for (let i = 0; i < n; i++) order.push(i);
+    for (let i = n - 1; i > 0; i--) {
+      const j = Math.floor(rnd() * (i + 1)), t = order[i];
+      order[i] = order[j];
+      order[j] = t;
+    }
+    const list = [];
+    for (const i of order) {
+      if (list.length >= 60) break; // 最多 6 块
+      const x = cand[i * 2], z = cand[i * 2 + 1];
+      let ok = true;
+      for (let k = 0; k < list.length; k += 10) if (Math.hypot(list[k] - x, list[k + 2] - z) < 14) ok = false;
+      if (!ok) continue;
+      const s = 0.92 + 0.22 * rnd();
+      list.push(x, -0.1, z, (rnd() - 0.5) * 0.08, rnd() * TAU, (rnd() - 0.5) * 0.08, s, s * (0.95 + 0.1 * rnd()), s, 1);
+    }
+    if (!list.length) return null;
+    // 反照率是 sRGB 编码的：和贴花层一样不标 SRGBColorSpace（标了会用硬件 sRGB 格式、在线性空间里过滤），按原始数据过滤、采样后在着色器里解码（DECODE_VIDEO_TEXTURE）
+    const m = ctx.makeToonMat({ map: zoneTexture(TEX, 'albedo', { wrap: false }), vertexColors: true, flat: true });
+    m.defines = { DECODE_VIDEO_TEXTURE: '' };
+    const im = ctx.instanced(g, ctx.own(m), list, true, null);
+    if (im) im.visible = !ctx.low;
+    return im;
+  }
   function frostLamps(zone, ctx) {
     const B = [], Gl = [];
     for (const f of zone.feats) {
@@ -7589,6 +7641,7 @@
       st.thin = frostThin(zone, ctx);
       st.shore = frostShore(zone, ctx);
       st.lamps = frostLamps(zone, ctx);
+      st.stones = frostStones(zone, ctx); // ai3d-pilot：路标石（AI 生成的布景件），放在最后、用自己的种子：前面的布景一个不挪
       // 首领场地的法阵压暗：zones-integrate 起是 ZONE_GFX.frost.sigil 旋钮
       frostLive = { zone, st, cracked: {}, tid: -1, t: 0 };
       return st;
@@ -7598,6 +7651,7 @@
       if (low !== st.low) {
         st.low = low;
         if (st.shore.reeds) st.shore.reeds.visible = !low;
+        if (st.stones) st.stones.visible = !low; // ai3d-pilot：路标石低画质不显示（摆放照旧，布景指纹各档一致）
         if (st.water && st.water.U) st.water.U.uMotion.value = low ? 0 : 1;
       }
       // 薄冰的预警：平时裂纹淡淡地呼吸；站上去裂纹越来越亮、闪得越来越快；裂开后发白、圆盘变暗（露出下面的水），复原前慢慢退回去

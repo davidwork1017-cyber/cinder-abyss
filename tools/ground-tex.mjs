@@ -89,15 +89,15 @@ const COVERS = {
     const a = 0.6 + 0.1 * (lo - 0.5) + 0.1 * (mid - 0.5) + 0.07 * (gr - 0.5) + 0.16 * fl - 0.3 * ch;
     return { a: [a * 0.99, a * 0.99, a], h, ao: 0.88 + 0.12 * mid, r: 0.97 };
   },
-  // 霜壳：冻住的一层白霜，大块的明暗起伏 + 很淡的裂纹（Worley 的块边，只提亮一点）+ 细的结晶噪声和零星的亮点；不要成「铺地砖」的网格
+  // 霜壳：冻住的一层白霜，大块的软明暗（两档、边缘软）+ 斜着的很淡的风纹。tex-t3：去掉原来的 Worley 块边（游戏里读成一张均匀的网）、
+  // 像素级的结晶噪声和单像素亮点（镜头一动就闪），和 p_ice / p_snow 一样只画大形
   frost(u, v) {
-    const lo = fbm(u, v, 4, 4, 13), w = worley(u, v, 6, 3, 0.9), e = w[1] - w[0];
-    const ridge = sstep(0.08, 0.0, e) * (0.4 + 0.6 * fbm(u, v, 12, 2, 15));
-    const fine = fbm(u, v, 64, 3, 17), crys = fbm(u, v, 140, 2, 19);
-    const spark = hashI(Math.floor(u * 512), Math.floor(v * 512), 99) > 0.988 ? 1 : 0;
-    const h = 0.45 + 0.2 * lo + 0.06 * ridge + 0.08 * (fine - 0.5);
-    const a = 0.64 + 0.12 * (lo - 0.5) + 0.07 * ridge + 0.1 * (fine - 0.5) + 0.06 * (crys - 0.5) + 0.16 * spark;
-    return { a: [a * 0.97, a, a * 1.03], h, ao: 0.85 + 0.15 * lo, r: 0.6 + 0.2 * (1 - ridge) };
+    const lo = fbm(u, v, 4, 4, 13), mid = fbm(u, v, 9, 2, 15);
+    const band = sstep(0.42, 0.5, lo) * 0.5 + sstep(0.56, 0.64, lo) * 0.5;
+    const wind = sstep(0.55, 0.75, fbm(u + v, 2 * (v - u), 3, 2, 17)) * (0.5 + 0.5 * mid);
+    const h = 0.45 + 0.2 * lo + 0.05 * (mid - 0.5) + 0.03 * wind;
+    const a = 0.6 + 0.1 * band + 0.04 * (lo - 0.5) + 0.05 * (mid - 0.5) + 0.035 * wind;
+    return { a: [a * 0.97, a, a * 1.03], h, ao: 0.85 + 0.15 * lo, r: 0.7 - 0.1 * wind };
   },
   // 砂砾：密的小卵石（每颗明暗不一）+ 石缝里的细砂
   storm(u, v) {

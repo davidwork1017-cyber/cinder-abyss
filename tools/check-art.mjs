@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { readGlb, stats, isIdentity, bakedMean, bakeGeo, packBoss, bossEntry, accessor, bossRows } from './glb.mjs';
+import { readGlb, stats, isIdentity, bakedMean, bakeGeo, packAi, packBoss, bossEntry, accessor, bossRows } from './glb.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const rd = (p) => JSON.parse(fs.readFileSync(path.join(root, p), 'utf8'));
@@ -26,6 +26,51 @@ function jpegSize(b) {
     i += 2 + len;
   }
   return null;
+}
+
+// AI 生成的件（gen='ai'，ai3d-pilot）：来源记录 assets/ai/<slug>/provenance.json 齐全（提示词、种子、组件和许可证、源文件 sha256、处理参数）、
+// 和清单记的源文件 sha256 一致；仓库里不放概念图、不写机器路径 / 用户名；albedo 外观的贴图登记在 tools/asset-sources.json（ai 类）、文件在、边长不超预算
+const PRIVATE = [/[A-Za-z]:\\/, /\/home\//, /\/Users\//, /\\Users\\/, /@[a-z0-9-]+\.[a-z]{2,}/i];
+function checkAi(a, bad) {
+  const id = a.id, budgets = rd('art/budgets.json'), cat = budgets.categories[a.category] || {};
+  const pf = a.source.provenance && path.join(root, a.source.provenance);
+  if (!pf || !fs.existsSync(pf)) return bad(id, 'AI 件缺来源记录 ' + (a.source.provenance || '(清单没写 provenance)'));
+  const txt = fs.readFileSync(pf, 'utf8');
+  let P;
+  try {
+    P = JSON.parse(txt);
+  } catch (e) {
+    return bad(id, a.source.provenance + ' 不是合法 JSON');
+  }
+  const need = [['source.sha256', P.source && P.source.sha256], ['generation.prompt', P.generation && P.generation.prompt], ['generation.seed', P.generation && P.generation.seed], ['processing', P.processing], ['licence_audit', P.licence_audit]];
+  for (const [k, v] of need) if (v === undefined || v === null || v === '') bad(id, a.source.provenance + ' 缺 ' + k);
+  if (!Array.isArray(P.components) || !P.components.length || P.components.some((c) => !c.name || !c.licence || !c.rev)) bad(id, a.source.provenance + '：components 要列出每个组件的名字、版本、许可证');
+  if (!/^[0-9a-f]{64}$/.test((P.source && P.source.sha256) || '')) bad(id, a.source.provenance + '：source.sha256 不是 64 位十六进制');
+  else if (P.source.sha256 !== a.source.sourceSha256) bad(id, '清单记的源文件 sha256 和 ' + a.source.provenance + ' 不一致（重新 npm run build:art）');
+  for (const re of PRIVATE) if (re.test(txt)) bad(id, a.source.provenance + ' 里有机器路径 / 用户名 / 邮箱一类的个人信息（' + re + '）');
+  const dir = path.dirname(pf);
+  for (const f of fs.readdirSync(dir, { recursive: true })) if (/concept|\.png$/i.test(String(f))) bad(id, 'assets/ai/ 下不放概念图 / PNG：' + f);
+  if (a.mode === 'albedo') {
+    const src = rd('tools/asset-sources.json'), t = src.textures[a.tex];
+    if (!t) return bad(id, '反照率贴图 ' + a.tex + ' 不在 tools/asset-sources.json 的 textures 里');
+    if (t.class !== 'ai' || JSON.stringify(t.kinds) !== '["albedo"]') bad(id, '贴图 ' + a.tex + ' 应为 ai 类、只有 albedo 一张');
+    if (!Object.values(src.packs).some((p) => (p.textures || []).includes(a.tex))) bad(id, '贴图 ' + a.tex + ' 没有打进任何包');
+    const f = path.join(root, 'assets', t.src, a.tex, 'albedo.jpg');
+    if (!fs.existsSync(f)) bad(id, '缺反照率贴图 ' + path.relative(root, f));
+    else {
+      const b = fs.readFileSync(f), w = b[0] === 0xff ? jpegWidth(b) : 0;
+      if (!(w > 0 && w <= (cat.texPx || 512))) bad(id, '反照率贴图边长 ' + w + '，上限 ' + (cat.texPx || 512));
+    }
+  }
+}
+function jpegWidth(buf) {
+  let i = 2;
+  while (i + 9 < buf.length && buf[i] === 0xff) {
+    const m = buf[i + 1], len = buf.readUInt16BE(i + 2);
+    if (m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc) return Math.max(buf.readUInt16BE(i + 5), buf.readUInt16BE(i + 7));
+    i += 2 + len;
+  }
+  return 0;
 }
 
 export function checkArt() {
@@ -97,14 +142,20 @@ export function checkArt() {
       bad(id, '算不出烘焙后的平均颜色：' + e.message);
     }
     rows.push({ id, cat: a.category, tris: s.tris, budget: cat.tris, h, r, mats: s.materials, tex: s.textures, ship: a.ship, lum });
-    // 预算
-    if (s.tris > cat.tris) bad(id, '三角形 ' + s.tris + ' 超过 ' + a.category + ' 预算 ' + cat.tris);
+    // 预算（AI 件 lod=lo 按 lodTris）
+    const triCap = a.lod === 'lo' && cat.lodTris ? cat.lodTris : cat.tris;
+    if (s.tris > triCap) bad(id, '三角形 ' + s.tris + ' 超过 ' + a.category + (a.lod === 'lo' ? ' 低画质档' : '') + ' 预算 ' + triCap);
     if (s.materials > cat.materials) bad(id, '材质 ' + s.materials + ' 个，上限 ' + cat.materials);
     if (s.textures > cat.textures || s.images > cat.textures) bad(id, '贴图 ' + Math.max(s.textures, s.images) + ' 张，上限 ' + cat.textures);
     // 只用共享调色板：材质名固定、图集和 assets/ca/palette.png 同一份字节
-    // 例外（ai3d-golem）：类别里写了 albedo 的（首领），可以换成一张自己的反照率贴图（JPEG、边长不超过 albedo.maxPx、材质名 albedo.material）
+    // 例外：AI 布景件的 albedo 外观（ai3d-pilot）材质 ai_albedo、GLB 里不带图（见下面的 checkAi）；
+    // 类别里写了 albedo 的首领（ai3d-golem）可以带一张自己的反照率贴图（JPEG、边长不超过 albedo.maxPx、材质名 albedo.material）
+    const aiAlbedo = a.source && a.source.gen === 'ai' && a.mode === 'albedo';
     const alb = cat.albedo, ownTex = !!(alb && (g.json.materials || []).some((m) => m.name === alb.material));
-    for (const m of g.json.materials || []) if (m.name !== (ownTex ? alb.material : budgets.material)) bad(id, '材质名 ' + m.name + '，应为共享的 ' + budgets.material + (alb ? ' 或 ' + alb.material : ''));
+    const wantMat = aiAlbedo ? 'ai_albedo' : ownTex ? alb.material : budgets.material;
+    for (const m of g.json.materials || []) if (m.name !== wantMat) bad(id, '材质名 ' + m.name + '，应为' + (aiAlbedo ? ' ai_albedo（AI 件的反照率外观）' : '共享的 ' + budgets.material + (alb ? ' 或 ' + alb.material : '')));
+    if (aiAlbedo && (g.json.images || []).length) bad(id, 'AI 件的 albedo 外观 GLB 里不该带图（贴图走 tools/asset-sources.json 的 textures）');
+    if (a.source && a.source.gen === 'ai') checkAi(a, bad);
     for (const im of g.json.images || []) {
       const bv = g.json.bufferViews[im.bufferView];
       const bytes = bv ? g.bin.subarray(bv.byteOffset || 0, (bv.byteOffset || 0) + bv.byteLength) : null;
@@ -179,9 +230,16 @@ export function checkArt() {
       if (!pk || !pk[id]) bad(id, 'ship 的件不在 js/assets/kit-' + a.zone + '.js 里（重新跑 node tools/pack-assets.mjs）');
       else {
         // 包里是从这份 GLB 预烘焙的几何体：sha 和清单一致，重新烘焙一遍逐字节相同
-        const e = pk[id], b = bakeGeo(g), b64 = (f) => (f ? Buffer.from(f.buffer, f.byteOffset, f.byteLength).toString('base64') : undefined);
+        const e = pk[id], b64 = (f) => (f ? Buffer.from(f.buffer, f.byteOffset, f.byteLength).toString('base64') : undefined);
         if (e.sha !== a.sha256) bad(id, 'js/assets/kit-' + a.zone + '.js 里的这件不是从当前 GLB 烘焙的（重新打包）');
-        else if (e.n !== b.count || e.p !== b64(b.pos) || e.nn !== b64(b.nor) || e.c !== b64(b.col) || e.g !== b64(b.glow)) bad(id, 'js/assets/kit-' + a.zone + '.js 里的几何体和重新烘焙的不一致（重新打包）');
+        else if (aiAlbedo) {
+          // AI 件的紧凑包（packAi）：重新打一遍逐字节相同、贴图 id 和清单一致
+          const q = packAi(g);
+          if (e.n !== q.n || e.p !== b64(q.p) || e.u !== b64(q.u) || e.c !== b64(q.c) || e.i !== b64(q.i) || e.t !== a.tex) bad(id, 'js/assets/kit-' + a.zone + '.js 里的 AI 件和重新打包的不一致（重新打包）');
+        } else {
+          const b = bakeGeo(g);
+          if (e.n !== b.count || e.p !== b64(b.pos) || e.nn !== b64(b.nor) || e.c !== b64(b.col) || e.g !== b64(b.glow) || e.u !== undefined || e.t !== undefined) bad(id, 'js/assets/kit-' + a.zone + '.js 里的几何体和重新烘焙的不一致（重新打包）');
+        }
       }
     }
   }

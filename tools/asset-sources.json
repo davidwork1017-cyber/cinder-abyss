@@ -7,19 +7,21 @@
     "rocky_trail": { "src": "polyhaven", "page": "https://polyhaven.com/a/rocky_trail" },
     "slate_floor": { "src": "polyhaven", "page": "https://polyhaven.com/a/slate_floor" },
     "moon_01": { "src": "polyhaven", "page": "https://polyhaven.com/a/moon_01" },
-    "Ice002": { "src": "ambientcg", "page": "https://ambientcg.com/a/Ice002" },
-    "Snow013": { "src": "ambientcg", "page": "https://ambientcg.com/a/Snow013" },
     "Rock035": { "src": "ambientcg", "page": "https://ambientcg.com/a/Rock035" },
     "Lava001": { "src": "ambientcg", "page": "https://ambientcg.com/a/Lava001", "rFrom": "Emission" },
     "p_mud": { "src": "generated", "page": "tools/gen-paint-textures.mjs（程序化生成）", "class": "tile", "lo": true, "loKinds": ["albedo", "arh"] },
     "p_burn": { "src": "generated", "page": "tools/gen-paint-textures.mjs（程序化生成）", "class": "tile", "lo": true, "loKinds": ["albedo", "arh"] },
     "p_rock": { "src": "generated", "page": "tools/gen-paint-textures.mjs（程序化生成）", "class": "tile", "lo": true, "loKinds": ["albedo", "arh"] },
+    "p_ice": { "src": "generated", "page": "tools/gen-paint-textures.mjs（程序化生成）", "class": "tile", "lo": true, "loKinds": ["albedo", "arh"] },
+    "p_snow": { "src": "generated", "page": "tools/gen-paint-textures.mjs（程序化生成）", "class": "tile", "lo": true, "loKinds": ["albedo", "arh"] },
+    "p_frock": { "src": "generated", "page": "tools/gen-paint-textures.mjs（程序化生成）", "class": "tile", "lo": true, "loKinds": ["albedo", "arh"] },
     "g_decals": { "src": "generated", "page": "tools/gen-ground-textures.mjs（程序化生成）", "class": "decals", "kinds": ["albedo", "arh"], "skipLow": true },
     "g_cover_ash": { "src": "generated", "page": "tools/gen-ground-textures.mjs（程序化生成）", "class": "cover", "kinds": ["albedo", "arh"] },
     "g_cover_frost": { "src": "generated", "page": "tools/gen-ground-textures.mjs（程序化生成）", "class": "cover", "kinds": ["albedo", "arh"] },
     "g_cover_storm": { "src": "generated", "page": "tools/gen-ground-textures.mjs（程序化生成）", "class": "cover", "kinds": ["albedo", "arh"] },
     "g_cover_abyss": { "src": "generated", "page": "tools/gen-ground-textures.mjs（程序化生成）", "class": "cover", "kinds": ["albedo", "arh"] },
-    "g_cover_rift": { "src": "generated", "page": "tools/gen-ground-textures.mjs（程序化生成）", "class": "cover", "kinds": ["albedo", "arh"] }
+    "g_cover_rift": { "src": "generated", "page": "tools/gen-ground-textures.mjs（程序化生成）", "class": "cover", "kinds": ["albedo", "arh"] },
+    "frost_waystone": { "src": "ai", "page": "assets/ai/frost_waystone/provenance.json（AI 生成的布景件，art/ai/importer.py 处理）", "class": "ai", "kinds": ["albedo"], "skipLow": true }
   },
   "sources": {
     "ual": {
@@ -44,7 +46,7 @@
     "boss-warden": { "boss": "warden" },
     "zone-ash": { "textures": ["p_mud", "p_burn", "p_rock", "g_cover_ash"], "with": ["kit-ash"] },
     "kit-frost": { "kit": "frost" },
-    "zone-frost": { "textures": ["Ice002", "Snow013", "g_cover_frost"], "with": ["kit-frost"] },
+    "zone-frost": { "textures": ["p_ice", "p_snow", "p_frock", "g_cover_frost", "frost_waystone"], "with": ["kit-frost"] },
     "kit-storm": { "kit": "storm" },
     "zone-storm": { "textures": ["monastery_stone_floor", "rocky_trail", "g_cover_storm"], "with": ["kit-storm"] },
     "kit-abyss": { "kit": "abyss" },
