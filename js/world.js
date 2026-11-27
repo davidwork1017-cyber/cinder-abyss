@@ -13666,6 +13666,28 @@
     for (const t of AIW_TYPES) if (aiwHas[t]) for (const sfx of ['', '_lo']) G.assets.dropGeo('ca/aiwpn_' + t + sfx);
     for (const sfx of ['', '_lo']) G.assets.dropGeo('ca/aiwpn_gatling_barrel' + sfx);
   }
+  // 掉落的弓补一根弦：两个弓梢（长轴两端 3% 里的顶点的平均位置）之间一根细方棍，米白色，和脚本件的弦一样
+  function aiwBowString(g) {
+    const P = g.attributes.position.array;
+    let y0 = 1e9, y1 = -1e9;
+    for (let i = 1; i < P.length; i += 3) {
+      if (P[i] < y0) y0 = P[i];
+      if (P[i] > y1) y1 = P[i];
+    }
+    const tip = (top) => {
+      let x = 0, z = 0, n = 0;
+      for (let i = 0; i < P.length; i += 3) if (top ? P[i + 1] > y1 - 0.03 * (y1 - y0) : P[i + 1] < y0 + 0.03 * (y1 - y0)) { x += P[i]; z += P[i + 2]; n++; }
+      return new T.Vector3(x / n, top ? y1 : y0, z / n);
+    };
+    const a = tip(false), b = tip(true), d = b.clone().sub(a), len = d.length();
+    const s = new T.BoxGeometry(0.008, len, 0.008).toNonIndexed();
+    s.applyMatrix4(new T.Matrix4().compose(a.clone().add(b).multiplyScalar(0.5), new T.Quaternion().setFromUnitVectors(new T.Vector3(0, 1, 0), d.normalize()), new T.Vector3(1, 1, 1)));
+    s.deleteAttribute('uv');
+    const c = new T.Color(0xe8e0c8).convertSRGBToLinear(), n = s.attributes.position.count, C = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) { C[i * 3] = c.r; C[i * 3 + 1] = c.g; C[i * 3 + 2] = c.b; }
+    s.setAttribute('color', new T.BufferAttribute(C, 3));
+    return s;
+  }
   // 掉落模型（LOOT_MODEL 的格式：[本体, 发光]）
   function aiwLoot(t, lo) {
     const F = AIW_FIT[t].loot, sfx = lo ? '_lo' : '';
@@ -13695,6 +13717,7 @@
       g.setAttribute('color', new T.BufferAttribute(C, 3));
       return g;
     };
+    if (AIW_FIT[t].bow) bodies.push(aiwBowString(cat(bodies))); // 弓：弦在导入时删掉了（手里另有弦的关节），掉落模型补一根
     return [cat(bodies), cat(glows)];
   }
 
