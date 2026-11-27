@@ -150,7 +150,8 @@
    "fill_area": 0.002,
    "frac": 0.5,
    "shell": 0.003,
-   "shell_grow": 1
+   "shell_grow": 1,
+   "cut_body": true
   },
   "colors": {
    "k": 7
@@ -175,6 +176,7 @@
    "dark_from": 0.64,
    "dark_v": 0.45,
    "dark_s": 0.3
-  }
+  },
+  "lods_note": "lo（手里 + 低画质掉落）按原来脚本件掉落模型的三角形数封顶（机炮 424：本体 250 + 发光 24 + 枪管 90 = 364）；hi 给高 / 中画质的掉落"
  }
 }

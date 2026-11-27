@@ -250,7 +250,7 @@ def build(k, prov, lod='hi', part=None):
     bvh = BVHTree.FromPolygons(srcP, [[v.index for v in faces[i].verts] for i in keep])
     target = spec['lods'][lod] if not part else spec['parts_lods'][part][lod]
     if G.get('cut_body') and glow.any():
-        # 发光的是一整块（长杖的晶体）：本体里不留这块，只剩发光壳（壳往外长一圈，盖住本体上的洞口）
+        # 本体里不留发光区，只剩发光壳（壳往外长一圈，盖住本体上的洞口）。不切的话，几百面时减面后的本体会顶穿薄壳（光槽 / 符带被盖掉一截）
         bc = bm.copy()
         bc.faces.ensure_lookup_table()
         bmesh.ops.delete(bc, geom=[bc.faces[i] for i in range(n) if glow[i]], context='FACES')
