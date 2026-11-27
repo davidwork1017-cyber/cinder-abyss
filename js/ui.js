@@ -5848,7 +5848,7 @@
   // ============================================================
   // 异兆（D4）：计时条（守隙 / 缚匣 / 试锋 / 落烬）、祈坛增益小签、拾烬客面板、背包里的烛芯
   // ============================================================
-  const encHud = { bar: null, fill: null, name: null, txt: null, buff: null, key: '', bkey: '', note: null, told: {}, on: false, notes: [] };
+  const encHud = { bar: null, fill: null, name: null, txt: null, buff: null, key: '', bkey: '', note: null, told: {}, on: false, notes: [], push: '' };
   function initEncHud() {
     const b = document.createElement('div');
     b.id = 'enc-bar';
@@ -5936,6 +5936,18 @@
         else encHud.bar.style.removeProperty('--c');
       }
       encHud.bar.classList.toggle('on', on);
+    }
+    // 触屏：旁白卡和事件条都在顶上一排下面那一格（+56，首领条在时 +112）。旁白卡放着时事件条挪到它下面 8 px（旁白卡两到五行，高度不定，按画面里量的算；
+    // 旋转横屏按转过的画面算），目标句不被盖住；旁白卡收起后回到原位
+    let push = '';
+    const nr = nc.root;
+    if (on && touchOn() && nr && nc.cur && nr.classList.contains('show') && !nr.classList.contains('held')) {
+      const r = G.rectToFrame ? G.rectToFrame(nr.getBoundingClientRect()) : nr.getBoundingClientRect();
+      if (r.bottom > 0) push = Math.round(r.bottom + 8) + 'px';
+    }
+    if (push !== encHud.push) {
+      encHud.push = push;
+      encHud.bar.style.top = push;
     }
     // 出现时、来了新的一句时亮一下
     const nat = N ? N.at : encHud.nat;
