@@ -391,7 +391,7 @@ class Sampler:
 GRID = [(i / 4, j / 4, (4 - i - j) / 4) for i in range(5) for j in range(5 - i)]
 
 
-def grade(lin, g):
+def grade(lin, g, y=None):
     lin = np.asarray(lin, dtype=np.float64)
     if g.get('tint'):
         lin = lin * np.array(g['tint'])
@@ -404,6 +404,8 @@ def grade(lin, g):
         lin = s2l(a * sv / (1 + (a - 1) * sv))
     # 按颜色定点改色（remap）：离 src（sRGB 0–255）近的颜色往 dst 拉，权重 = smoothstep(1 − 距离 / r)，线性空间里按通道乘 (dst / src)^权重
     for rm in g.get('remap', []):
+        if 'y' in rm and (y is None or not (rm['y'][0] <= y <= rm['y'][1])):
+            continue  # 只在这一段高度里改（护膝和靴子同色，靠高度分开）
         sv = l2s(np.clip(lin, 0, 1)) * 255
         dd = float(np.linalg.norm(sv - np.array(rm['src'])))
         w = max(0.0, 1 - dd / rm.get('r', 40))
@@ -422,7 +424,7 @@ def corner_colours(Vd, Fd, smp, g):
         cols = np.array([smp.at(w[0] * P[0] + w[1] * P[1] + w[2] * P[2]) for w in GRID])
         for k in range(3):
             wk = Wg[:, k] / Wg[:, k].sum()
-            out[fi, k] = grade(wk @ cols, g)
+            out[fi, k] = grade(wk @ cols, g, P[k][1])
     return out
 
 
@@ -525,6 +527,71 @@ def bake_fist(Vd, VW, f, spec, log, key):
     return out, src
 
 
+# ---------------------------------------------------------------- face (eyes)
+def face_fix(Vd, Fd, cc, VW, spec, log, key):
+    """源贴图里的眼睛是一道横着的暗条（近看像闭着眼）：暗条那一片的角改成提亮的肤色，再贴两只小的深色眼睛和两道细眉（小片几何，全绑 Head）。
+    暗条按位置找：头部正面、spec.face.band 高度里亮度低于 dark 的角；找不到就按 spec.face 里写的位置。返回 [(顶点, 三角形, 线性颜色), ...]"""
+    fo = spec.get('face')
+    if not fo:
+        return []
+    Yw = np.array([0.2126, 0.7152, 0.0722])
+    head = np.array([sum(w for n, w in q if n in ('Head', 'head_leaf')) >= 128 for q in VW])
+    band = fo.get('band', [1.70, 1.80])
+    hb_ = head & (Vd[:, 1] > band[0]) & (Vd[:, 1] < band[1]) & (np.abs(Vd[:, 0]) < fo.get('zx', 0.05))
+    zmax = Vd[hb_, 2].max() if hb_.any() else 0  # 脸这一段的最前面（头发尖不算）
+    dark = fo.get('dark', 0.06)
+    skin = s2l(np.array(fo.get('skin', [226, 184, 166])) / 255)
+    pts = []
+    for fi, tri in enumerate(Fd):
+        for k in range(3):
+            v = int(tri[k])
+            p = Vd[v]
+            if head[v] and band[0] < p[1] < band[1] and p[2] > zmax - fo.get('depth', 0.09) and abs(p[0]) < fo.get('xmax', 0.07) and float(cc[fi, k] @ Yw) < dark:
+                pts.append((fi, k, p))
+    for fi, k, p in pts:
+        cc[fi, k] = skin
+    if not pts:
+        log.setdefault('face', {})[key] = dict(dark_corners=0)
+        return []
+    Q = np.array([p for _, _, p in pts])
+    yc = fo.get('eye_y', float(np.median(Q[(np.abs(Q[:, 0]) > 0.015) & (np.abs(Q[:, 0]) < 0.06), 1])) if ((np.abs(Q[:, 0]) > 0.015) & (np.abs(Q[:, 0]) < 0.06)).any() else float(np.median(Q[:, 1]))) + fo.get('eye_dy', 0.0)
+    out = []
+    bvh = BVHTree.FromPolygons([tuple(p) for p in Vd.tolist()], [tuple(t) for t in Fd.tolist()], all_triangles=True)
+    eyes = {}
+    # 两只眼左右对称：x 取两侧暗角 |x| 中位数的平均（只看离中线 0.015–0.06 的，脸侧的暗角不算）
+    ax = np.abs(Q[:, 0])
+    core = Q[(ax > 0.015) & (ax < 0.06)]
+    ex = fo.get('eye_x', float(np.mean([np.median(np.abs(core[sg * core[:, 0] > 0][:, 0])) for sg in (1, -1) if (sg * core[:, 0] > 0).any()])) if len(core) else 0.04)
+    for sg in (1, -1):
+        xc = sg * ex
+        eyes[sg] = xc
+
+        def disc(cx, cy, rx, ry, col, lift, n=8, tilt=0.0):
+            hit = bvh.ray_cast(Vector((cx, cy, zmax + 0.2)), Vector((0, 0, -1)))
+            if hit[0] is None:
+                return None
+            c = np.array(hit[0][:]) + np.array(hit[1][:]) * lift
+            nn = np.array(hit[1][:])
+            ux = np.array([1.0, 0, 0]) - nn * nn[0]
+            ux /= np.linalg.norm(ux)
+            uy = np.cross(nn, ux)
+            V = [c]
+            for i in range(n):
+                a = 2 * math.pi * i / n
+                V.append(c + ux * (rx * math.cos(a)) + uy * (ry * math.sin(a) + tilt * rx * math.cos(a)))
+            return [x.tolist() for x in V], [(0, 1 + i, 1 + (i + 1) % n) for i in range(n)], col
+
+        e = disc(xc, yc, fo.get('eye_r', [0.0085, 0.0095])[0], fo.get('eye_r', [0.0085, 0.0095])[1], s2l(np.array(fo.get('eye_col', [28, 24, 40])) / 255), 0.0025)
+        if e:
+            out.append(e)
+        br = disc(xc + sg * 0.002, yc + fo.get('brow_dy', 0.019), fo.get('brow_r', [0.017, 0.0032])[0], fo.get('brow_r', [0.017, 0.0032])[1],
+                  s2l(np.array(fo.get('brow_col', [94, 92, 120])) / 255), 0.0025, n=8, tilt=-sg * fo.get('brow_tilt', 0.12))
+        if br:
+            out.append(br)
+    log.setdefault('face', {})[key] = dict(dark_corners=len(pts), eye_y=round(yc, 4), eye_x={str(k): round(v, 4) for k, v in eyes.items()}, pieces=len(out))
+    return out
+
+
 # ---------------------------------------------------------------- build one LOD
 def build_lod(key, target, Wsrc, WF, f, regs, bands, kinds, auto_src, mode, smp, spec, out, name, log):
     Vd, Fd = decimate(Wsrc, WF, target, log, key)
@@ -584,30 +651,76 @@ def build_lod(key, target, Wsrc, WF, f, regs, bands, kinds, auto_src, mode, smp,
         VR.append(reg)
     log.setdefault('weights', {})[key] = st
     cc = corner_colours(Vd, Fd, smp, spec.get('colour', {}).get('grade', {}))
+    face_geo = face_fix(Vd, Fd, cc, VW, spec, log, key)
     # 拳头烘进绑定姿态（颜色已经按没卷的位置取好了）
     Vd, src = bake_fist(Vd, VW, f, spec, log, key)
-    # 顶点按（位置序号, 颜色）拆开：一角一色
+    # 顶点按（位置序号, 颜色）拆开：一角一色。pack.weld（0–255 的通道差）> 0 时，同一个位置上颜色差不超过它的角并成一个顶点
+    #（颜色取这一组的平均，量化到 8 位）：只在真正的色块边界上拆开，文件小得多；= 0 时每个不同的颜色都单独一个顶点（16 位颜色）
+    pk = spec.get('pack', {})
+    tol = pk.get('weld', 0)
     bi = {n: i for i, n in enumerate(hf.NAMES)}
-    keymap = {}
     P, J, Wt, C, I = [], [], [], [], []
-    for fi, tri in enumerate(Fd):
-        ids = []
-        for k in range(3):
-            v = int(tri[k])
-            c = tuple(int(round(x * 65535)) for x in cc[fi, k])
-            kk = (v, c)
-            if kk not in keymap:
-                keymap[kk] = len(P)
+    groups = {}
+    cidx = np.zeros((len(Fd), 3), dtype=np.int64)
+    if tol > 0:
+        corners = {}
+        for fi, tri in enumerate(Fd):
+            for k in range(3):
+                corners.setdefault(int(tri[k]), []).append((fi, k))
+        for v in sorted(corners):
+            cl = []  # [(和, 个数, 成员)]
+            for fi, k in corners[v]:
+                c8 = cc[fi, k] * 255
+                for g in cl:
+                    if np.max(np.abs(g[0] / g[1] - c8)) <= tol:
+                        g[0] += c8
+                        g[1] += 1
+                        g[2].append((fi, k))
+                        break
+                else:
+                    cl.append([c8.copy(), 1, [(fi, k)]])
+            for g in cl:
+                idx = len(P)
                 P.append(Vd[v])
                 q = VW[v]
                 J.append([bi[n] for n, _ in q] + [0] * (4 - len(q)))
                 Wt.append([x / 255 for _, x in q] + [0.0] * (4 - len(q)))
-                C.append([c[0] / 65535, c[1] / 65535, c[2] / 65535, 1.0])
-            ids.append(keymap[kk])
-        I.append(ids)
+                m = np.round(g[0] / g[1]) / 255
+                C.append([m[0], m[1], m[2], 1.0])
+                for fi, k in g[2]:
+                    cidx[fi, k] = idx
+        I = cidx.tolist()
+    else:
+        keymap = {}
+        for fi, tri in enumerate(Fd):
+            ids = []
+            for k in range(3):
+                v = int(tri[k])
+                c = tuple(int(round(x * 65535)) for x in cc[fi, k])
+                kk = (v, c)
+                if kk not in keymap:
+                    keymap[kk] = len(P)
+                    P.append(Vd[v])
+                    q = VW[v]
+                    J.append([bi[n] for n, _ in q] + [0] * (4 - len(q)))
+                    Wt.append([x / 255 for _, x in q] + [0.0] * (4 - len(q)))
+                    C.append([c[0] / 65535, c[1] / 65535, c[2] / 65535, 1.0])
+                ids.append(keymap[kk])
+            I.append(ids)
+    if face_geo:
+        # 眼睛 / 眉毛的小片（全绑 Head，一片一色）接在网格后面
+        hb = bi['Head']
+        for gp, gi, gc in face_geo:
+            base = len(P)
+            for q in gp:
+                P.append(np.array(q))
+                J.append([hb, 0, 0, 0])
+                Wt.append([1.0, 0.0, 0.0, 0.0])
+                C.append([gc[0], gc[1], gc[2], 1.0])
+            I.extend([[base + a, base + b, base + c] for a, b, c in gi])
     bones = [(n, p, tuple(float(x) for x in src[n])) for n, p in hf.BONES]
     path = os.path.join(out, '%s_%s_%s.glb' % (name, mode, key))
-    nbytes = glbw.write(path, [dict(P=np.array(P), I=np.array(I), J=np.array(J), W=np.array(Wt), C=np.array(C), mat='AIHero', base=[1, 1, 1, 1], name='ai_hero_body')], bones,
+    nbytes = glbw.write(path, [dict(P=np.array(P), I=np.array(I), J=np.array(J), W=np.array(Wt), C=np.array(C), c8=tol > 0, mat='AIHero', base=[1, 1, 1, 1], name='ai_hero_body')], bones,
                         name='ai_hero', extras=dict(source='cinder ai3d-hero lab', mode=mode, lod=key))
     cnt = {}
     for q in VW:

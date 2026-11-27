@@ -134,8 +134,12 @@ def write(path, prims, bones, name='ai_hero', extras=None):
         W = np.round(np.asarray(pr['W'], dtype=np.float64) * 255).astype(np.uint8)
         att['WEIGHTS_0'] = add(W, 5121, 'VEC4', 34962, normalized=True)
         if pr.get('C') is not None:
-            C = np.round(np.clip(np.asarray(pr['C'], dtype=np.float64), 0, 1) * 65535).astype(np.uint16)
-            att['COLOR_0'] = add(C, 5123, 'VEC4', 34962, normalized=True)
+            if pr.get('c8'):
+                C = np.round(np.clip(np.asarray(pr['C'], dtype=np.float64), 0, 1) * 255).astype(np.uint8)
+                att['COLOR_0'] = add(C, 5121, 'VEC4', 34962, normalized=True)
+            else:
+                C = np.round(np.clip(np.asarray(pr['C'], dtype=np.float64), 0, 1) * 65535).astype(np.uint16)
+                att['COLOR_0'] = add(C, 5123, 'VEC4', 34962, normalized=True)
         I = np.asarray(pr['I']).reshape(-1)
         gp = {'attributes': att, 'indices': add(I.astype(np.uint16 if len(P) < 65536 else np.uint32), 5123 if len(P) < 65536 else 5125, 'SCALAR', 34963), 'material': mat_of[pr['mat']], 'mode': 4}
         if pr.get('name'):
