@@ -5865,7 +5865,7 @@
   }
   // 事件条上的一句话（toast-zero：异兆不弹 toast，开始的目标、结果、祈坛增益、用法都写在这一条里）。
   // o：{ kind, txt, st: 'go' 开始（计时条前 ENC_GO_MS 毫秒先写目标句）| 'ok' / 'fail' 结果 | 'hint' 用法（once：同一种这次游戏只提示一次）, color }
-  const ENC_GO_MS = 2500, ENC_NOTE_MS = 2600, ENC_HINT_MS = 3200;
+  const ENC_GO_MS = 3000, ENC_NOTE_MS = 2800, ENC_HINT_MS = 3200; // 目标句和原来的 toast 差不多长（2.9 秒）
   function encNote(o) {
     if (o.once) {
       if (encHud.told[o.kind]) return;
@@ -5893,7 +5893,7 @@
     let N = encHud.note;
     if (N && now >= N.until) N = encHud.note = null;
     if (N && N.zone !== st.zone) N = encHud.note = null; // 换了区：上一区的那句不再显示
-    // 显示什么：正在跑的计时异兆（开头先写目标句）> 结果 / 增益 / 用法 > 残影 > 守隙张开
+    // 显示什么：正在跑的计时异兆（开头 3 秒先写目标句）> 结果 / 增益 / 用法 > 残影 > 守隙张开
     let kind = '', name = '', txt = '', k = 0, mode = '';
     if (run) {
       const D = G.ENCOUNTERS[run.kind], p = D.p;
