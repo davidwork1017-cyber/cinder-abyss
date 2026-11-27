@@ -8152,42 +8152,84 @@
       return null;
     };
     const loopTo = (S, H, q, T, g0, back2) => {
-      const wall = (B, e, y) => (e[0] ? [B.u + e[0] * B.hu, y] : [y, B.v + e[1] * B.hv]); // B 在 e 方向那面墙上、横向坐标 y 的点
-      const spanS = Math.max(0, S.hu - 1.5 - 1.2 - 0.3);
+      // 两个盒子之间的曼哈顿间隙已经超过走廊总长上限：不用试了
+      if (Math.max(0, Math.abs(S.u - T.u) - S.hu - T.hu) + Math.max(0, Math.abs(S.v - T.v) - S.hv - T.hv) > 50) return null;
       // 先试朝着 T 的那几面墙（出 S、进 T 都按 S → T 的方向排，加一点随机）
       const tu = T.u - S.u, tv = T.v - S.v, rank = (L) => L.map((x) => [x, x[0] * tu + x[1] * tv + rnd(-6, 6)]).sort((a, b) => b[1] - a[1]).map((x) => x[0]);
+      const MIN = 2.2 + 3; // 每段走廊（拐弯之间）至少这么长
+      const pick = (lo, hi) => (hi < lo ? null : lo + R() * (hi - lo));
+      // 在 [lo, hi] 里取，避开 bans 里每个点 ±7 m（T 那面墙上已有的门）
+      const pickAvoid = (lo, hi, bans) => {
+        let iv = hi >= lo ? [[lo, hi]] : [];
+        for (const b of bans) iv = iv.flatMap(([a, c]) => [[a, Math.min(c, b - 7)], [Math.max(a, b + 7), c]]).filter(([a, c]) => c >= a);
+        const tot = iv.reduce((m, [a, c]) => m + (c - a), 0);
+        if (!iv.length) return null;
+        let r = R() * tot;
+        for (const [a, c] of iv) {
+          if (r <= c - a) return a + r;
+          r -= c - a;
+        }
+        return iv[iv.length - 1][1];
+      };
       for (const e of rank(SDIRS.filter((x) => !(x[0] === -q[0] && x[1] === -q[1])))) {
+        // 以 e 为 X 轴、e 的左手方向为 Y 轴的坐标：先按区间算出合格的门位，再在区间里取，不靠瞎撒
+        const al = (u, v) => u * e[0] + v * e[1], la = (u, v) => u * -e[1] + v * e[0];
+        const fromE = (m, latv) => [e[0] * m - e[1] * latv, e[1] * m + e[0] * latv];
+        const Sx = al(S.u, S.v), Sy = la(S.u, S.v), Xs = Sx + alongH(S, e), spanS = Math.max(0, latH(S, e) - 1.5 - 1.2 - 0.3);
+        const Tx = al(T.u, T.v), Ty = la(T.u, T.v), hTe = alongH(T, e), hTp = latH(T, e);
         for (const f of rank(SDIRS.slice())) {
-          const spanT = Math.max(0, latH(T, f) - 1.5 - 1.2 - 2.2 - 0.6);
-          for (let t = 0; t < 8; t++) {
-            const ys = (e[0] ? S.v : S.u) + rnd(-spanS, spanS), yt = (f[0] ? T.v : T.u) + rnd(-spanT, spanT);
-            const ps = wall(S, e, ys), pt2 = wall(T, [-f[0], -f[1]], yt); // 进 T 的方向是 f：门在 T 的 -f 那面墙上
-            // 走法（局部轴对齐）：L（e ⊥ f，拐一个弯）、Z（e = f，先出去 m、横移、再进 T）、U（e = −f，出去绕过 T 的门再折回来）
-            const al = (P) => P[0] * e[0] + P[1] * e[1], la = (P) => P[0] * -e[1] + P[1] * e[0]; // 沿 e 的坐标、横向坐标
-            const fromE = (m, latv) => [e[0] * m - e[1] * latv, e[1] * m + e[0] * latv]; // (沿 e = m、横向 = latv) → 局部点
-            const A0 = al(ps), L0 = la(ps), A1 = al(pt2), L1 = la(pt2), dot = e[0] * f[0] + e[1] * f[1];
-            let pts = null;
-            if (dot === 0) {
-              const cn = e[0] ? [pt2[0], ps[1]] : [ps[0], pt2[1]];
-              const l1 = (cn[0] - ps[0]) * e[0] + (cn[1] - ps[1]) * e[1], l2 = (pt2[0] - cn[0]) * f[0] + (pt2[1] - cn[1]) * f[1];
-              if (l1 >= 2.2 + 3 && l2 >= 2.2 + 3) pts = [cn];
-            } else if (dot === 1) {
-              const D = A1 - A0;
-              if (Math.abs(L1 - L0) < 0.4 && D >= 3) pts = [];
-              else if (D >= 2 * (2.2 + 3)) { const m = A0 + rnd(2.2 + 3, D - 2.2 - 3); pts = [fromE(m, L0), fromE(m, L1)]; }
+          const fX = f[0] * e[0] + f[1] * e[1], fY = f[0] * -e[1] + f[1] * e[0];
+          const onWall = T.doors.filter((D) => D.n[0] === f[0] && D.n[1] === f[1]); // T 的 −f 那面墙上已有的门（门的 n 朝里 = f）
+          for (let t = 0; t < 2; t++) {
+            let ps = null, door = null, mid = null;
+            if (fX === 0) {
+              // L：出 S 沿 +X 走到 xt，拐弯沿 fY 走进 T（门在 T 的 −f 那面墙上，墙的 Y = Ty − fY·hTp）
+              const spT = Math.max(0, hTe - 1.5 - 1.2 - 2.2 - 0.6), Yw = Ty - fY * hTp;
+              const xt = pickAvoid(Math.max(Tx - spT, Xs + MIN), Tx + spT, onWall.map((D) => al(D.p[0], D.p[1])));
+              const ys = fY > 0 ? pick(Sy - spanS, Math.min(Sy + spanS, Yw - MIN)) : pick(Math.max(Sy - spanS, Yw + MIN), Sy + spanS);
+              if (xt === null || ys === null) break;
+              ps = [Xs, ys];
+              mid = [[xt, ys]];
+              door = [xt, Yw];
             } else {
-              const m = Math.max(A0, A1) + rnd(2.2 + 3, 2.2 + 6);
-              if (Math.abs(L1 - L0) >= 2 * 2.2 + 3.5) pts = [fromE(m, L0), fromE(m, L1)];
+              const spT = Math.max(0, hTp - 1.5 - 1.2 - 2.2 - 0.6), Xw = Tx - fX * hTe;
+              if (fX === 1) {
+                // 直的（两扇门横向对得上）或 Z（出去 m、横移、再进 T）
+                const D = Xw - Xs, lo = Math.max(Sy - spanS, Ty - spT), hi = Math.min(Sy + spanS, Ty + spT), bans = onWall.map((Dd) => la(Dd.p[0], Dd.p[1]));
+                const ySt = lo <= hi && D >= 3 && (t === 0 || D < 2 * MIN) ? pickAvoid(lo, hi, bans) : null;
+                if (ySt !== null) {
+                  const y = ySt;
+                  ps = [Xs, y];
+                  mid = [];
+                  door = [Xw, y];
+                } else if (D >= 2 * MIN) {
+                  const ys = pick(Sy - spanS, Sy + spanS), yt = pickAvoid(Ty - spT, Ty + spT, bans), m = pick(Xs + MIN, Xw - MIN);
+                  if (yt === null) break;
+                  ps = [Xs, ys];
+                  mid = [[m, ys], [m, yt]];
+                  door = [Xw, yt];
+                } else break;
+              } else {
+                // U：出去绕过 T 的门再折回来，两扇门横向至少错开 7.9 m
+                const ys = pick(Sy - spanS, Sy + spanS), lo1 = Ty - spT, hi1 = Math.min(Ty + spT, ys - (2 * 2.2 + 3.5)), lo2 = Math.max(Ty - spT, ys + (2 * 2.2 + 3.5)), hi2 = Ty + spT;
+                const w1 = Math.max(0, hi1 - lo1), w2 = Math.max(0, hi2 - lo2);
+                if (w1 + w2 <= 0 && !(hi1 >= lo1) && !(hi2 >= lo2)) break;
+                const bans = onWall.map((Dd) => la(Dd.p[0], Dd.p[1]));
+                const yt = hi1 >= lo1 && (hi2 < lo2 || R() * (w1 + w2) < w1) ? pickAvoid(lo1, hi1, bans) : hi2 >= lo2 ? pickAvoid(lo2, hi2, bans) : null;
+                if (yt === null) break;
+                const m = Math.max(Xs, Xw) + MIN + R() * 3;
+                ps = [Xs, ys];
+                mid = [[m, ys], [m, yt]];
+                door = [Xw, yt];
+              }
             }
-            if (!pts) continue;
-            // 直的：终点的横向坐标对齐到起点（差 0.4 m 以内），否则走廊是斜的，门口收窄的方向算歪、会掐断
-            const pe = pts.length ? pt2 : e[0] ? [pt2[0], ps[1]] : [ps[0], pt2[1]];
-            pts = [[ps[0] - e[0] * OV, ps[1] - e[1] * OV]].concat(pts, [[pe[0] + f[0] * OV, pe[1] + f[1] * OV]]);
+            const P0 = fromE(ps[0], ps[1]), PD = fromE(door[0], door[1]);
+            const pts = [[P0[0] - e[0] * OV, P0[1] - e[1] * OV]].concat(mid.map((c) => fromE(c[0], c[1])), [[PD[0] + f[0] * OV, PD[1] + f[1] * OV]]);
             const dT = pts[pts.length - 1], doorT = [dT[0] - f[0] * OV, dT[1] - f[1] * OV];
             if (T.doors.some((D) => Math.hypot(D.p[0] - doorT[0], D.p[1] - doorT[1]) < 7)) continue;
             let len = 0;
             for (let i = 0; i + 1 < pts.length; i++) len += Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]);
-            if (len > 40) continue;
+            if (len > 52) continue; // 回路走廊总长上限（够不够划算由下面两条比较决定）
             // 接到上一个大厅 T：绕小室（回路走廊 + 小室里 + 直走廊）要比 T → H 的关键路径走廊至少长 5 m（不是捷径）
             // 也不能太绕：从 T 的出口走回路到小室的进门，要比「走关键路径进 H、再从直走廊进小室」短，不然最近的走法还是从 H 进出（又成了回头路）
             if (back2) {
@@ -8236,8 +8278,10 @@
         if (pass === 0 && loops.some((x) => x.parent === H)) continue;
         if (!nextHall(H)) continue; // 最后一个大厅的下一个是场地：接不回去
         const dirs = SDIRS.filter((q) => !H.doors.some((D) => !D.side && ((D.n[0] === -q[0] && D.n[1] === -q[1]) || (D.out && D.out[0] === q[0] && D.out[1] === q[1])))); // 有关键路径门的墙不开（旁支的门可以同墙，门距 ≥ 7 m 另查）
+        // 小室开在朝着下一个大厅的那几面墙上（按方向排，前几次先试最朝着它的）
+        const NT = nextHall(H), qs = dirs.map((x) => [x, x[0] * (NT.u - H.u) + x[1] * (NT.v - H.v)]).sort((a, b) => b[1] - a[1]).map((x) => x[0]);
         for (let t = 0; t < 8 && dirs.length; t++) {
-          const q = dirs[Math.floor(R() * dirs.length)], half = loops.length === 0 ? 6 : rnd(5, 5.8), hw = 2.2;
+          const q = t < 4 ? qs[t % qs.length] : dirs[Math.floor(R() * dirs.length)], half = loops.length === 0 ? 6 : rnd(5, 5.8), hw = 2.2;
           const sA = dotP(H.u, H.v, q) + alongH(H, q), span = Math.max(0, latH(H, q) - 1.5 - 0.6 * 2 - hw - 1);
           const y = dotP(H.u, H.v, lat(q)) + rnd(-span, span), g = rnd(8, 11); // map-loops：12–13.5 → 8–11（小室近一点，回路走廊好摆）
           if (H.doors.some((D) => Math.hypot(D.p[0] - pt(q, sA, y)[0], D.p[1] - pt(q, sA, y)[1]) < 7)) continue;
