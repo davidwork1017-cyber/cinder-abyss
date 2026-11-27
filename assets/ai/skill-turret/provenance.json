@@ -1,13 +1,13 @@
 {
  "_comment": "AI 生成技能件的来源记录（ai3d-skills，docs/art-pipeline.md「AI 生成的技能件」）。processing 是 art/ai/pieces.py 的处理参数。源 GLB 不进仓库，只记 sha256；概念图不进仓库。",
  "id": "piece/skill-turret",
- "title": "熔光炮台（形状批的 turret：炮座和三条腿；turretHead：炮头和炮管；turretLens：余烬色的镜片和面板，开火时亮芯更热）",
+ "title": "熔光炮台（形状批的 turret：炮座和三条腿；turretHead：炮头；turretBarrel：余烬色的炮管，指着目标）",
  "source": {
-  "name": "deploy-turret-02",
+  "name": "deploy-turret-01",
   "file": "model.glb",
-  "sha256": "d96d9099ae4783b8e0b03415781a4f7a85cb3368e422de18fca9bde266faf30f",
-  "bytes": 1524308,
-  "faces": 19998,
+  "sha256": "d07d667ea895fc3fe0c4937da296262416664a2357c484650a38b4e9e16262f8",
+  "bytes": 1379940,
+  "faces": 20000,
   "kept": "不进仓库：用户上传的私有源仓库，构建时用环境变量 CA_AI_INBOX 指过去",
   "concept_image": "不进仓库"
  },
@@ -15,7 +15,7 @@
   "date": "2026-11-26",
   "prompt": "a small deployable ember turret about knee height, a hexagonal dark-iron base on three short legs, a squat rotating head with a lid, one short thick barrel with an ember-orange glowing lens, rivets, compact, stylized low-poly toon game prop, clean flat colour blocks, soft simple shading, matte, single object, upright, plain white background, no text, no logos, a separate glow inlay clearly readable as its own coloured band",
   "negative_prompt": null,
-  "seed": 1546,
+  "seed": 1543,
   "text_to_image": {
    "model": "Z-Image Turbo",
    "weights": [
@@ -138,21 +138,46 @@
    {
     "key": "turret",
     "presplit": {
-     "key": "turretLens",
-     "tris": 80,
-     "k": 1.6,
-     "min": 0.12,
-     "muzzle": 0.08,
+     "k": 1.4,
+     "min": 0.04,
      "voxel": 0.012,
      "min_island": 0.01,
-     "split_y": 0.56,
-     "upper_key": "turretHead",
-     "upper_tris": 150
+     "parts": [
+      {
+       "key": null,
+       "y_min": 0.62,
+       "ax_min": 0.78,
+       "z_min": -0.3
+      },
+      {
+       "key": null,
+       "y_min": 0.62,
+       "z_max": -0.4
+      },
+      {
+       "key": "turretBarrel",
+       "y_min": 0.62,
+       "z_min": 0.38,
+       "tris": 100,
+       "muzzle": 0.06
+      },
+      {
+       "key": "turretHead",
+       "y_min": 0.55,
+       "tris": 150,
+       "fill": true
+      },
+      {
+       "key": "turret",
+       "tris": 150,
+       "fill": true
+      }
+     ]
     },
     "fit": {
      "mode": "base",
      "axis": "y",
-     "h": 1.35,
+     "h": 1.25,
      "r": 0.5,
      "keep_aspect": true
     },
@@ -164,7 +189,7 @@
      0.35
     ],
     "light_w": 0.55,
-    "hot": 0.12,
+    "hot": 0.16,
     "dark": 0.22
    }
   ]

@@ -277,6 +277,8 @@ def _presplit(o, hb, hi_uv, px, P, fitlog, log, out, stats):
     vb.faces.ensure_lookup_table()
     warm = [warm_hi[bvh.find_nearest(f.calc_center_median())[2]] for f in vb.faces]
     print('CA_PIECE_VOX', o['key'], 'faces', len(vb.faces), 'islands', len(isl), 'dropped', len(drop), 'warm', sum(warm), flush=True)
+    if ps.get('parts'):
+        return _parts(o, ps, vb, warm, hb, hi_uv, px, P, fitlog, log, out, stats)
     # split_y：暗色那块再按高度拆成上下两块（各自一个形状、各自的预算：炮台的炮座 + 腿 / 炮头 + 炮管），面多一倍、棱更利落
     ymax = max(v.co.y for v in vb.verts)
     hi_part = [f.calc_center_median().y > ps['split_y'] * ymax for f in vb.faces] if ps.get('split_y') else [False] * len(vb.faces)
@@ -310,6 +312,65 @@ def _presplit(o, hb, hi_uv, px, P, fitlog, log, out, stats):
         print('CA_PIECE ' + json.dumps(dict(key=key, **stats[key]), ensure_ascii=False), flush=True)
         bpy.data.meshes.remove(lm)
         bpy.data.meshes.remove(mp)
+    vb.free()
+
+
+def _parts(o, ps, vb, warm, hb, hi_uv, px, P, fitlog, log, out, stats):
+    """presplit.parts：按规则把体素重建后的外表面分成几块，每块一个形状、各自的预算。规则按顺序匹配，第一个对上的算数：
+    y_min / y_max（占总高的比例）、z_min / z_max（占最前端 z 的比例，炮管朝 +z）、ax_min / ax_max（|x| 占最宽处的比例）、warm（反照率偏暖 / 不暖）；
+    key 为 null 的规则是删掉（炮头两侧的凸耳，免得读成耳朵）。fill：删过面的块补洞；muzzle：这一块最靠前的面中心记成炮口"""
+    vb.faces.ensure_lookup_table()
+    C = [f.calc_center_median() for f in vb.faces]
+    ymax = max(c.y for c in C)
+    zmax = max(c.z for c in C)
+    axm = max(abs(c.x) for c in C)
+    assign = []
+    for i, c in enumerate(C):
+        k = '__none'
+        for r in ps['parts']:
+            if c.y < r.get('y_min', -9) * ymax or c.y >= r.get('y_max', 9) * ymax:
+                continue
+            if c.z < r.get('z_min', -9) * zmax or c.z > r.get('z_max', 9) * zmax or abs(c.x) > r.get('ax_max', 9) * axm or abs(c.x) < r.get('ax_min', -1) * axm:
+                continue
+            if 'warm' in r and bool(r['warm']) != warm[i]:
+                continue
+            k = r['key']
+            break
+        assign.append(k)
+    for r in ps['parts']:
+        key = r['key']
+        if key is None:
+            continue
+        pb = vb.copy()
+        pb.faces.ensure_lookup_table()
+        bmesh.ops.delete(pb, geom=[pb.faces[i] for i in range(len(assign)) if assign[i] != key], context='FACES')
+        bmesh.ops.delete(pb, geom=[v for v in pb.verts if not v.link_faces], context='VERTS')
+        if r.get('fill'):
+            bmesh.ops.holes_fill(pb, edges=[e for e in pb.edges if e.is_boundary], sides=r.get('fill_sides', 300))
+            bmesh.ops.triangulate(pb, faces=list(pb.faces), quad_method='FIXED', ngon_method='EAR_CLIP')
+        mp = bpy.data.meshes.new('pc_part')
+        pb.to_mesh(mp)
+        nhi = len(pb.faces)
+        pb.free()
+        lm, dl = _decimate_to(mp, r['tris'], key)
+        low = np.array([[tuple(lm.vertices[i].co) for i in p.vertices] for p in lm.polygons if len(p.vertices) == 3], dtype=np.float64)
+        low = low[_areas(low) > 1e-9]
+        cols = _face_colors(low, hb, hi_uv, px)
+        rec = dict(p=[round(float(x), 4) for x in low.reshape(-1)], t=[float(x) for x in _bake_tone(low, cols, dict(o, **r.get('tone', {})))], src=P['id'])
+        if r.get('muzzle'):
+            ctr = low.mean(axis=1)
+            zm = ctr[:, 2].max()
+            rec['muzzle'] = [round(float(x), 4) for x in ctr[ctr[:, 2] > zm - r['muzzle']].mean(axis=0)]
+            rec['z0'] = round(float(low[:, :, 2].min()), 4)  # 炮管根部（最靠后的 z）：游戏端沿炮管拉长时根部不动
+            print('CA_PIECE_MUZZLE', key, rec['muzzle'], flush=True)
+        out[key] = rec
+        Pf = low.reshape(-1, 3)
+        stats[key] = dict(src=P['source']['name'], tris=len(low), target=r['tris'], bake='tone', fit=o['fit'], scale=fitlog, part=dict(rule={k: v for k, v in r.items() if k != 'tone'}, hi_faces=nhi, decimate=dl),
+                          lo=[round(float(x), 3) for x in Pf.min(axis=0)], hi=[round(float(x), 3) for x in Pf.max(axis=0)], clean=log)
+        print('CA_PIECE ' + json.dumps(dict(key=key, tris=len(low), hi_faces=nhi, lo=stats[key]['lo'], hi=stats[key]['hi']), ensure_ascii=False), flush=True)
+        bpy.data.meshes.remove(lm)
+        bpy.data.meshes.remove(mp)
+    print('CA_PIECE_PARTS', {k: assign.count(k) for k in set(assign)}, flush=True)
     vb.free()
 
 

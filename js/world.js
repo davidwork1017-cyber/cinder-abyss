@@ -28833,19 +28833,25 @@
   }
   const _tuQ = new T.Quaternion(), _tuE = new T.Euler(), _tuP = new T.Vector3(), _tuS = new T.Vector3(), _tuC = new T.Color();
   // 熔光炮台：三条短腿 + 矮六棱炮座 + 一根横着的炮管（形状批）、炮口一小团余烬光；有目标时沿炮管喷一道细射线
-  // ai3d-turret：AI 生成的炮台（形状批的 turret 炮座 + turretHead 炮头 + turretLens 镜片 / 面板，三个实例；原来的拼件是 9 个，低画质 7 个）。整座跟着 ang 转（炮管朝 +z），
-  // 射线从镜片的位置起（CA_SKILL_PIECES.turretLens.muzzle，炮台本地坐标）；退回合并几何体（没有槽位布局）时照旧画拼件
-  const TU_AI = window.CA_SKILL_PIECES && window.CA_SKILL_PIECES.turret && window.CA_SKILL_PIECES.turretHead && window.CA_SKILL_PIECES.turretLens && window.CA_SKILL_PIECES.turretLens.muzzle ? window.CA_SKILL_PIECES.turretLens.muzzle : null;
+  // ai3d-turret：AI 生成的炮台（形状批的 turret 炮座 + 腿、turretHead 炮头、turretBarrel 炮管，三个实例；原来的拼件是 9 个，低画质 7 个）。整座跟着 ang 转（炮管朝 +z）。
+  // 看图后（编排者）：炮管要一眼看出指向哪里 → 炮管单独一块、余烬色（和原来拼件的橙色炮管一样当方向提示），炮头两侧的凸耳和后面的长筒在导入时削掉；
+  // 身子是暗铁，靠受光的棱（亮芯量）和余烬色炮管跟地面拉开，不整体提亮。射线从炮管口起（CA_SKILL_PIECES.turretBarrel.muzzle，炮台本地坐标）；
+  // 退回合并几何体（没有槽位布局）时照旧画拼件
+  const SP_ = window.CA_SKILL_PIECES || {};
+  const TU_AI = SP_.turret && SP_.turretHead && SP_.turretBarrel && SP_.turretBarrel.muzzle ? SP_.turretBarrel.muzzle : null;
+  const TU_BK = 1.8; // 炮管沿炮管方向拉长的倍数（从炮管根部拉，根部不动）：游戏镜头 1.0× 下要读得出指向
   function drawTurretAI(h, dt, sc, sn, cs, lo, kl) {
-    const fire = h.on && h.len > 0;
+    const fire = h.on && h.len > 0, B = SP_.turretBarrel, z0 = B.z0;
     tuPose(h.x, 0, h.z, 0, h.ang, 0, sc, sc, sc);
-    _tuC.set(0x94806c).convertSRGBToLinear(); // 暖一点的铁色（灰度要比地面高一档才立得住，见 sheet 的灰度对照；射线仍是最亮的东西）
-    vsNow(VSH.turret, _tuC.r * kl, _tuC.g * kl, _tuC.b * kl, 0.1, 0.5, 0); // 低画质（没有后期、灯光平）压一档，和射线、地面拉开
-    vsNow(VSH.turretHead, _tuC.r * kl, _tuC.g * kl, _tuC.b * kl, 0.1, 0.5, 0);
-    _tuC.set(0xc0662a).convertSRGBToLinear(); // 余烬色的镜片 / 面板：平时亮芯很少，开火时热一点（射线仍是最亮的东西）
-    vsNow(VSH.turretLens, _tuC.r, _tuC.g, _tuC.b, fire ? 0.3 : 0.1, 0.4, 0);
-    // 炮口：镜片前一点（本地 +z 再往前 0.06 米）
-    const mz0 = (TU_AI[2] + 0.06) * sc, mx0 = TU_AI[0] * sc;
+    _tuC.set(0x7e7064).convertSRGBToLinear(); // 铁灰（比原来那版的沙色暗，靠受光的棱和余烬色炮管跟地面拉开）
+    vsNow(VSH.turret, _tuC.r, _tuC.g, _tuC.b, 0.4, 0.45, 0); // 亮芯量给受光的棱（色阶 1 的面）
+    vsNow(VSH.turretHead, _tuC.r, _tuC.g, _tuC.b, 0.4, 0.45, 0);
+    const back = -z0 * (TU_BK - 1) * sc; // 拉长以后把根部挪回原位
+    tuPose(h.x + sn * back, 0, h.z + cs * back, 0, h.ang, 0, sc, sc, sc * TU_BK);
+    _tuC.set(0xb0561e).convertSRGBToLinear(); // 余烬色的炮管：开火时亮芯更热（射线仍是最亮的东西）
+    vsNow(VSH.turretBarrel, _tuC.r * kl, _tuC.g * kl, _tuC.b * kl, fire ? 0.38 : 0.18, 0.4, 0);
+    // 炮口：拉长后的炮管口再往前 0.04 米
+    const mz0 = ((TU_AI[2] - z0) * TU_BK + z0 + 0.04) * sc, mx0 = TU_AI[0] * sc;
     return turretBeam(h, dt, sc, sn, cs, lo, kl, h.x + mx0 * cs + mz0 * sn, TU_AI[1] * sc, h.z - mx0 * sn + mz0 * cs);
   }
   function tuPose(x, y, z, rx, ry, rz, sx, sy, sz) {
