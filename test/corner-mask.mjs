@@ -315,10 +315,45 @@ export async function cornerHud(page, configs, o) {
       const co = document.getElementById('coach');
       co.querySelector('.co-body').innerHTML = '按住右下的<b>大按钮</b>施放「掷焰」，旁边的是武器普攻「疾咒」。会自动瞄准，从按钮拖出去可以手动瞄，拖回按钮上取消，松手就放出';
       co.className = 'on';
+      // pickup-feed：拾取记录满着（触屏 3 行：长名字、×N、一行警告），按拾取记录的样子直接摆进去（不走寿命，量完拿掉）
+      const fd = document.getElementById('feed');
+      fd.querySelectorAll('.fd').forEach((n) => n.remove());
+      const fit = G.ui.feedFit ? G.ui.feedFit() : 3; // 这个画面上最多几行（左边有按钮挡着时更少）
+      for (const [cls, c, html] of [
+        ['', '#ffd75e', '<span class="ibox"><i class="ico"></i></span><span class="fd-t">霜银的统御雷纹戒·寻宝者之愿</span><b></b><em class="fd-up">▲</em>'],
+        ['offcls noic', '#7fe0c0', '<span class="fd-t">自动分解 8 件 → 增幅尘 ×6、冠冕石 ×2、乱流石 ×1</span>'],
+        ['warn', '#ff8a6a', '<span class="fd-t">背包满了</span><b></b>'],
+      ].slice(0, fit)) {
+        const d = document.createElement('div');
+        d.className = 'fd __busy ' + cls;
+        d.style.setProperty('--c', c);
+        d.innerHTML = html;
+        fd.appendChild(d);
+      }
     }, [size, mirror, rot]);
     const tag = '（' + (size || 'm') + (mirror ? ' 左手' : '') + (rot ? ' 旋转' + rot : '') + '）';
     await check('HUD' + tag);
+    // 拾取记录不压血条 / 魔力条、区域名、主线追踪条、提示卡、首领条、小地图、技能键 / 翻滚 / 药瓶
+    await settle();
+    const ov = await ev(() => {
+      const F = (e) => (G.rectToFrame ? G.rectToFrame(e.getBoundingClientRect()) : e.getBoundingClientRect());
+      const shown = (e) => e.getClientRects().length && getComputedStyle(e).visibility !== 'hidden' && getComputedStyle(e).display !== 'none';
+      const fds = Array.from(document.querySelectorAll('#feed .fd.__busy')).filter(shown).map(F);
+      if (!fds.length) return ['拾取记录没摆出来'];
+      const hit = [];
+      const boxes = [];
+      for (const s of ['.t-bar', '.t-bars', '#zone-box', '#quest.on', '#coach.on', '#boss-box.on', '[data-tb]', '.flask', '#t-f.on', '#t-top']) for (const e of document.querySelectorAll(s)) if (shown(e)) boxes.push([s, F(e)]);
+      const mt = G.world.mmTouch;
+      if (mt) boxes.push(['小地图', { left: mt.x, top: mt.y, right: mt.x + 172 * (mt.k || 1), bottom: mt.y + 172 * (mt.k || 1) }]);
+      for (const f of fds)
+        for (const [s, b] of boxes)
+          if (b.right - b.left > 1 && b.bottom - b.top > 1 && f.left < b.right - 0.5 && f.right > b.left + 0.5 && f.top < b.bottom - 0.5 && f.bottom > b.top + 0.5)
+            hit.push(s + ' [' + [b.left, b.top, b.right, b.bottom].map(Math.round).join(',') + '] ∩ 拾取记录 [' + [f.left, f.top, f.right, f.bottom].map(Math.round).join(',') + ']');
+      return hit;
+    });
+    if (ov.length) bad.push('拾取记录' + tag + '：' + ov.slice(0, 3).join(' | '));
     await ev(() => {
+      document.querySelectorAll('#feed .fd.__busy').forEach((n) => n.remove());
       document.getElementById('boss-box').classList.remove('on');
       document.getElementById('t-f').classList.remove('on');
       document.getElementById('coach').className = '';

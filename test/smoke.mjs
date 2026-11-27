@@ -1793,6 +1793,7 @@ async function main() {
       far.z = 0;
       const r1 = G.pickup(far);
       const t1 = T.toasts();
+      const f1 = document.getElementById('feed').innerText;
       T.clearLoot();
       const keep = G.save.bag.slice();
       while (G.save.bag.length < G.BAG_SIZE) G.save.bag.push(G.rollItem(1, 0));
@@ -1801,15 +1802,18 @@ async function main() {
       G.debug.step(0.5);
       const full = G.state.loot.indexOf(near) >= 0 && G.save.bag.length === G.BAG_SIZE;
       const t2 = T.toasts();
+      const f2 = document.getElementById('feed').innerText;
+      const warn = document.querySelectorAll('#feed .fd.warn').length;
       G.save.bag = keep;
       T.clearLoot();
-      return { r1, t1, full, t2 };
+      return { r1, t1, f1, full, t2, f2, warn };
     });
-    assert(e.r1 === false && e.t1.includes('走近一点'), '距离过远时应提示走近一点');
-    assert(e.full && e.t2.includes('背包已满'), '背包已满时应保留掉落并提示');
+    // pickup-feed：拾取时的警告不弹 toast，写成拾取记录里的一行警告
+    assert(e.r1 === false && e.f1.includes('走近一点') && !e.t1.includes('走近一点'), '距离过远时应在拾取记录里提示走近一点（不弹 toast）：' + JSON.stringify(e));
+    assert(e.full && e.f2.includes('背包满了') && !e.t2.includes('背包') && e.warn === 2, '背包已满时应保留掉落，并在拾取记录里提示（不弹 toast）：' + JSON.stringify(e));
   });
 
-  await step('无铭技能宝石：首领首杀必掉（再打靠几率），精英 / 普通怪小几率；没有等级（名牌、提示、拾取记录都不写 Lv）；拾取进存档（记当时的成长下限），拾取记录写数量；能学的都学会了时化为 1 个随机通货；旧存档补默认值，畸形数据被修正', async () => {
+  await step('无铭技能宝石：首领首杀必掉（再打靠几率），精英 / 普通怪小几率；没有等级（名牌、提示、拾取记录都不写 Lv）；拾取进存档（记当时的成长下限），拾取记录写数量（不弹 toast）；能学的都学会了时化为 1 个随机通货；旧存档补默认值，畸形数据被修正', async () => {
     const r = await ev((KEY) => {
       const S = G.state, save = G.save, P = G.player;
       T.arena();
@@ -1851,6 +1855,7 @@ async function main() {
 
       // 拾取：走过去自动捡起，存进存档（记当时的成长下限：角色 8 级 → 6，旧版本读档照常是一颗 6 级的），提示与拾取记录里写数量
       save.blankGems = [];
+      G.ui.feedClear(); // 前面步骤留下的拾取记录（比如「背包满了」）不算
       const lv0 = save.level;
       save.level = 8;
       const curSum = () => G.CUR_IDS.reduce((a, id) => a + (save.cur[id] || 0), 0);
@@ -1863,7 +1868,7 @@ async function main() {
       };
       out.picked = pick();
       out.toast1 = T.toasts();
-      out.feed = document.getElementById('feed').innerText;
+      out.feed = document.getElementById('feed').innerText.replace(/\s+/g, ' ');
       out.picked2 = pick() && pick();
       out.gems = save.blankGems.join();
       out.stored = (JSON.parse(localStorage.getItem(KEY)).blankGems || []).join();
@@ -1876,7 +1881,7 @@ async function main() {
       out.usefulAll = G.blankUseful();
       const cur1 = curSum();
       out.uselessPicked = pick();
-      out.useless = { gems: save.blankGems.join(), cur: curSum() - cur1, toast: T.toasts(), feed: document.getElementById('feed').innerText };
+      out.useless = { gems: save.blankGems.join(), cur: curSum() - cur1, toast: T.toasts(), feed: document.getElementById('feed').innerText.replace(/\s+/g, ' '), want: '用不上的' + G.BLANK_GEM.short + ' → ' };
       out.curPick = cur1 - cur0;
       save.skills = sk0;
       save.level = lv0;
@@ -1911,14 +1916,14 @@ async function main() {
     assert(r.bossLucky === 1 && r.eliteLucky === 1 && r.mobLucky === 1, '几率掉落没有生效：' + JSON.stringify(r));
     assert(r.rates.elite > 0 && r.rates.elite <= 0.1 && r.rates.mob > 0 && r.rates.mob < 0.012 && r.rates.boss < 1, '掉落几率不对：' + JSON.stringify(r.rates));
     assert(r.picked && r.picked2 && r.gems === '6,6,6' && r.stored === '6,6,6' && r.curPick === 0, '拾取后应存进存档、记当时的成长下限（6）：' + JSON.stringify(r));
-    assert(r.toast1.includes('获得无铭技能宝石（共 1 颗') && !/Lv/.test(r.toast1) && r.feed.includes('无铭技能宝石') && r.feed.includes('共 1 颗') && !/Lv/.test(r.feed), '拾取提示 / 拾取记录应写数量、不写等级：' + r.toast1 + ' | ' + r.feed);
+    assert(!r.toast1.includes('无铭') && r.feed.includes('无铭技能宝石') && r.feed.includes('共 1 颗') && !/Lv/.test(r.feed), '拾取记录应写数量、不写等级，不弹 toast：' + r.toast1 + ' | ' + r.feed);
     assert(r.usefulMissing1 === true && r.usefulAll === false, 'blankUseful 判断不对：' + JSON.stringify(r));
-    assert(r.uselessPicked && r.useless.gems === '6,6,6' && r.useless.cur === 1 && /用不上的无铭技能宝石，化为 1 个\S+/.test(r.useless.toast) && r.useless.feed.includes('化为'), '用不上的无铭宝石应化为 1 个随机通货：' + JSON.stringify(r.useless));
+    assert(r.uselessPicked && r.useless.gems === '6,6,6' && r.useless.cur === 1 && !r.useless.toast.includes('用不上') && r.useless.feed.includes(r.useless.want), '用不上的无铭宝石应化为 1 个随机通货，拾取记录里写一行（不弹 toast）：' + JSON.stringify(r.useless));
     assert(r.old === '[]' && r.bad === '45,5,3,1' && r.bad2 === '[]' && r.back === '6,6,6' && r.fresh === '[]', '旧存档 / 畸形存档没有修好：' + JSON.stringify(r));
     return '首杀掉一颗（无等级），几率 ' + JSON.stringify(r.rates);
   });
 
-  await step('技能宝石没有等级（gem-nolvl）：已学技能的等级一律是成长下限（法术、召唤物、黑焰、刻式都按它）；存档里记的数只升不降（高于下限的旧值原样留着、读档往返不变，低于的抬到下限，升级时也只抬不压）；学会了的宝石再捡到：还有能学的就化成无铭宝石，否则化成 1 个随机通货；名牌 / 提示 / 拾取记录 / 技能卡都不写等级', async () => {
+  await step('技能宝石没有等级（gem-nolvl）：已学技能的等级一律是成长下限（法术、召唤物、黑焰、刻式都按它）；存档里记的数只升不降（高于下限的旧值原样留着、读档往返不变，低于的抬到下限，升级时也只抬不压）；学会了的宝石再捡到：还有能学的就化成无铭宝石，否则化成 1 个随机通货；名牌 / 拾取记录 / 技能卡都不写等级；拾取不弹 toast（pickup-feed）', async () => {
     const r = await ev((KEY) => {
       T.arena();
       const S = G.state, save = G.save, P = G.player, out = {};
@@ -1969,16 +1974,19 @@ async function main() {
         // 学会了的再捡到：还有没学会的（坠凌）→ 化成一颗无铭宝石
         save.blankGems = [];
         const c0 = curSum();
+        G.ui.feedClear();
         out.dup1 = { picked: pick('skill', { id: 'nova' }), gems: save.blankGems.join(), cur: curSum() - c0, toast: T.toasts(), feed: document.getElementById('feed').innerText };
         // 全都学会了 → 化成 1 个随机通货，无铭宝石不动
         save.skills.icefall = G.gemFloor();
         const c1 = curSum(), each = Object.assign({}, save.cur);
+        G.ui.feedClear();
         out.dup2 = { picked: pick('skill', { id: 'nova' }), gems: save.blankGems.join(), cur: curSum() - c1, toast: T.toasts(), feed: document.getElementById('feed').innerText };
         const got = G.CUR_IDS.find((id) => (save.cur[id] || 0) > (each[id] || 0));
         out.dup2.name = got ? G.CURRENCY[got].name : '';
         // 没学会的照常学会，存档里记下限
         delete save.skills.icefall;
-        out.learn = { picked: pick('skill', { id: 'icefall' }), lvl: save.skills.icefall, floor: G.gemFloor(), toast: T.toasts() };
+        G.ui.feedClear();
+        out.learn = { picked: pick('skill', { id: 'icefall' }), lvl: save.skills.icefall, floor: G.gemFloor(), toast: T.toasts(), feed: document.getElementById('feed').innerText.replace(/\s+/g, ' ') };
         // 技能页：宝石技能卡不写等级（武器技在上面单独一节，它的等级随武器，不算宝石）
         G.ui.open('skills');
         out.rows = Array.from(document.querySelectorAll('.sk-row')).map((n) => n.innerText).join(' || ');
@@ -2000,11 +2008,86 @@ async function main() {
     assert(r.stored === '30,30,40,15' && r.raw === '30,30,40,15', '存档里的数只升不降：高于下限的原样留着，低于的抬到下限：' + JSON.stringify(r));
     assert(r.up.level === 21 && r.up.floor === 16 && r.up.nova === 16 && r.up.ember === 30 && r.up.lvl === 16 && !r.up.toast.includes('技能宝石随之成长') && !/Lv 1[56]：/.test(r.up.toast), '升级：存的数只抬不压、不再提示宝石成长：' + JSON.stringify(r.up));
     assert(r.label === '技能宝石：坠凌' && r.data === '{"id":"icefall"}', '地上的技能宝石不该有等级：' + JSON.stringify(r));
-    assert(r.dup1.picked && r.dup1.gems === '16' && r.dup1.cur === 0 && r.dup1.toast.includes('已学会「霜环」，化为 1 颗无铭技能宝石（共 1 颗）') && r.dup1.feed.includes('化为无铭宝石'), '学会了的宝石（还有能学的）应化成无铭宝石：' + JSON.stringify(r.dup1));
-    assert(r.dup2.picked && r.dup2.gems === '16' && r.dup2.cur === 1 && r.dup2.name && r.dup2.toast.includes('已学会「霜环」，化为 1 个' + r.dup2.name) && r.dup2.feed.includes('化为' + r.dup2.name), '全都学会了：应化成 1 个随机通货：' + JSON.stringify(r.dup2));
-    assert(r.learn.picked && r.learn.lvl === r.learn.floor && r.learn.toast.includes('习得技能：坠凌') && !/坠凌 Lv/.test(r.learn.toast), '没学会的照常学会、记下限、提示不写等级：' + JSON.stringify(r.learn));
+    assert(r.dup1.picked && r.dup1.gems === '16' && r.dup1.cur === 0 && !r.dup1.toast.includes('霜环') && r.dup1.feed.includes('重复宝石 → 无铭宝石'), '学会了的宝石（还有能学的）应化成无铭宝石，拾取记录写「重复宝石 → 无铭宝石」（不弹 toast）：' + JSON.stringify(r.dup1));
+    assert(r.dup2.picked && r.dup2.gems === '16' && r.dup2.cur === 1 && r.dup2.name && !r.dup2.toast.includes('霜环') && r.dup2.feed.includes('重复宝石 → ' + r.dup2.name), '全都学会了：应化成 1 个随机通货，拾取记录写出是哪种（不弹 toast）：' + JSON.stringify(r.dup2));
+    assert(r.learn.picked && r.learn.lvl === r.learn.floor && !r.learn.toast.includes('坠凌') && r.learn.feed.includes('新技能 · 坠凌') && !/坠凌 Lv/.test(r.learn.feed), '没学会的照常学会、记下限，拾取记录不写等级（不弹 toast）：' + JSON.stringify(r.learn));
     assert(r.ncards > 10 && !/Lv\b|Lv /.test(r.cards + r.rows) && !r.cards.includes('升至') && r.rows, '技能卡 / 技能列表不该写等级：' + (r.cards + r.rows).slice(0, 300));
     return '下限 ' + r.floor + ' · 存的 ' + r.stored + ' · 重复 → 无铭 / 通货';
+  });
+
+  await step('拾取记录（pickup-feed）：拾取不弹 toast；一条一行、桌面最多 4 行；同种通货合计、没有 ▲ 的普通物品并成「普通物品 ×N」；重复的技能宝石写「重复宝石 → 无铭宝石 ×N」；行满了先挤掉通货，宝石留着', async () => {
+    const r = await ev(() => {
+      const S = G.state, save = G.save, P = G.player, out = {};
+      T.arena();
+      const keep = { bag: save.bag.slice(), blanks: save.blankGems.slice(), cur: Object.assign({}, save.cur), skills: Object.assign({}, save.skills), supports: save.supports.slice(), bar: save.bar.slice(), boots: save.equip.boots };
+      const put = (kind, data) => { const l = G.spawnLoot(kind, data, P.x, P.z); l.x = P.x; l.z = P.z; return l; };
+      const toasts = [];
+      const mo = new MutationObserver((ms) => { for (const m of ms) for (const n of m.addedNodes) if (n.nodeType === 1) toasts.push(n.textContent); });
+      mo.observe(document.getElementById('toasts'), { childList: true });
+      const lines = () => Array.from(document.querySelectorAll('#feed .fd')).map((n) => n.innerText.replace(/\s+/g, ' ').trim());
+      try {
+        save.bag.length = 0;
+        save.equip.boots = G.rollItem(10, 2, 'boots'); // 脚上穿着一双稀有的：捡到的普通鞋子不是 ▲
+        G.computeStats();
+        // 1）三件没有 ▲ 的普通物品 + 三个同种通货：两行
+        G.ui.feedClear();
+        const whites = [];
+        for (let i = 0; i < 60 && whites.length < 3; i++) {
+          const it = G.rollItem(1, 0, 'boots');
+          const v = G.ui.verdict(it);
+          if (!(v && v.badge === 'up')) whites.push(it);
+        }
+        for (const it of whites) G.pickup(put('item', it));
+        for (let i = 0; i < 3; i++) G.pickup(put('cur', 'dust'));
+        out.merge = { lines: lines(), want: ['普通物品 ×3', G.CURRENCY.dust.name + ' ×3'], whites: whites.length };
+        const fd = document.querySelector('#feed .fd');
+        out.style = { h: fd.getBoundingClientRect().height, font: getComputedStyle(fd).fontSize };
+        // 2）重复的技能宝石两颗：一行合计
+        G.ui.feedClear();
+        const have = Object.keys(save.skills).find((id) => save.skills[id] > 0 && !G.SKILLS[id].weaponOnly);
+        save.blankGems = [];
+        out.useful = G.blankUseful(); // 还有能学的技能：重复的化成无铭宝石（gem-nolvl）
+        G.pickup(put('skill', { id: have }));
+        G.pickup(put('skill', { id: have }));
+        out.dup = { lines: lines(), want: '重复宝石 → ' + G.BLANK_GEM.short + ' ×2', blanks: save.blankGems.length };
+        // 3）四颗新的辅助宝石占满四行，再来一个通货：通货不挤掉宝石；再来一颗新技能宝石：挤掉最早的那颗辅助宝石
+        G.ui.feedClear();
+        save.supports = [];
+        const sids = Object.keys(G.SUPPORTS).slice(0, 4);
+        for (const id of sids) G.pickup(put('support', id));
+        G.pickup(put('cur', 'augment'));
+        out.full = lines();
+        const fresh = G.blankTargets().find((id) => !save.skills[id]);
+        out.fresh = !!fresh;
+        if (fresh) G.pickup(put('skill', { id: fresh }));
+        out.full2 = lines();
+        out.names = sids.map((id) => '辅助宝石 · ' + G.SUPPORTS[id].name);
+        out.freshName = fresh ? '新技能 · ' + G.SKILLS[fresh].name : '';
+      } finally {
+        mo.disconnect();
+        save.bag = keep.bag;
+        save.blankGems = keep.blanks;
+        save.cur = keep.cur;
+        save.skills = keep.skills;
+        save.supports = keep.supports;
+        save.bar = keep.bar;
+        if (keep.boots) save.equip.boots = keep.boots;
+        else delete save.equip.boots;
+        G.ui.feedClear();
+        T.clearLoot();
+        G.computeStats();
+        G.persist();
+      }
+      out.toasts = toasts;
+      return out;
+    });
+    assert(r.merge.whites === 3 && JSON.stringify(r.merge.lines) === JSON.stringify(r.merge.want), '普通物品 / 同种通货应各并成一行：' + JSON.stringify(r.merge));
+    assert(r.style.h <= 26 && r.style.font === '13px', '桌面上一行应在 26 px 以内、13 px 字：' + JSON.stringify(r.style));
+    assert(r.useful && r.dup.blanks === 2 && JSON.stringify(r.dup.lines) === JSON.stringify([r.dup.want]), '重复的技能宝石应并成一行「重复宝石 → 无铭宝石 ×2」：' + JSON.stringify(r.dup));
+    assert(JSON.stringify(r.full) === JSON.stringify(r.names), '行满了时通货不应挤掉宝石：' + JSON.stringify(r.full));
+    assert(r.fresh && JSON.stringify(r.full2) === JSON.stringify(r.names.slice(1).concat([r.freshName])), '新技能宝石应挤掉最早的一行：' + JSON.stringify(r.full2) + ' / ' + r.freshName);
+    assert(!r.toasts.length, '拾取不应弹 toast：' + JSON.stringify(r.toasts));
+    return r.merge.lines.join('、') + '；' + r.dup.lines[0];
   });
 
   await step('掉落：升华石 / 乱流石 / 重铸石权重提高，琢刻石介于其间；首领首杀保底升华石和乱流石各一颗；分解稀有物品有几率给其一；辅助宝石掉率提高、首领掉三颗；重复的辅助宝石照旧化为增幅尘', async () => {
@@ -2082,7 +2165,7 @@ async function main() {
       const l = G.spawnLoot('support', 'multi', P.x, P.z);
       T.tp(l.x, l.z);
       G.debug.step(0.5);
-      out.dup = { picked: S.loot.indexOf(l) < 0, aug: save.cur.augment - aug0, n: save.supports.length, toast: T.toasts() };
+      out.dup = { picked: S.loot.indexOf(l) < 0, aug: save.cur.augment - aug0, n: save.supports.length, toast: T.toasts(), feed: document.getElementById('feed').innerText.replace(/\s+/g, ' '), want: '重复辅助宝石 → ' + G.CURRENCY.augment.name + ' ×1' };
       save.supports = sup0;
       T.clearLoot();
       G.persist();
@@ -2102,7 +2185,7 @@ async function main() {
     assert(!r.salvUnlucky.exalt && !r.salvUnlucky.chaos && !r.salvMagic.exalt && !r.salvMagic.chaos, '没中几率 / 魔法物品不应给：' + JSON.stringify(r));
     assert(r.salvRate > 0.12 && r.salvRate < 0.3, '分解稀有物品给升华石 / 乱流石的比例不对：' + r.salvRate);
     assert(r.supRate.mob > 0.027 && r.supRate.mob < 0.0525 && r.supRate.elite > 0.33 && r.supRate.elite < 0.6, '辅助宝石掉率应是普通 3.75%、精英 45%（辅助加到 33 种后 ×1.5，区间按原来的相对宽度）：' + JSON.stringify(r.supRate));
-    assert(r.dup.picked && r.dup.aug === 1 && r.dup.n === 1 && r.dup.toast.includes('增幅尘'), '重复的辅助宝石应化为 1 增幅尘：' + JSON.stringify(r.dup));
+    assert(r.dup.picked && r.dup.aug === 1 && r.dup.n === 1 && r.dup.feed.includes(r.dup.want) && !r.dup.toast.includes('重复'), '重复的辅助宝石应化为 1 增幅尘，拾取记录里写一行（不弹 toast）：' + JSON.stringify(r.dup));
     return '升华石 ' + (w.pExalt * 100).toFixed(1) + '%，琢刻石 ' + ((w.chisel / w.tot) * 100).toFixed(1) + '%，辅助宝石 普通 ' + (r.supRate.mob * 100).toFixed(1) + '% / 精英 ' + (r.supRate.elite * 100).toFixed(0) + '%';
   });
 
@@ -8267,12 +8350,18 @@ async function main() {
       let calls = 0;
       const sr0 = G.salvageResult;
       G.salvageResult = (it) => (calls++, sr0(it));
+      // pickup-feed：拾取记录最多 4 行，后面捡到的稀有 / 烬铸可能把这一行挤掉；这里看的是分解有没有并进上面那一行（没有另起一行）
+      const ocEl = document.querySelector('#feed .fd.offcls');
+      let ocNew = 0;
+      const ocMo = new MutationObserver((ms) => { for (const m of ms) for (const n of m.addedNodes) if (n.nodeType === 1 && n.classList.contains('offcls')) ocNew++; });
+      ocMo.observe(document.getElementById('feed'), { childList: true });
       G.debug.step(0.6);
+      ocMo.disconnect();
       G.salvageResult = sr0;
       out.auto = {
         loot: G.state.loot.length, calls, curUp: JSON.stringify(save.cur) !== cur1,
         keep: Object.keys(keepers).filter((k) => save.bag.includes(keepers[k])).join(), gone: gone.filter((it) => !save.bag.includes(it)).length,
-        uqOff: G.offClassItem(keepers.uq), feed: feed(), lines: document.querySelectorAll('#feed .fd.offcls').length,
+        uqOff: G.offClassItem(keepers.uq), feed: ocEl ? ocEl.textContent : '', ocNew,
       };
       // 3）自己丢下的：捡回来照常进背包（不分）
       const mine = W(2, 'hammer');
@@ -8301,7 +8390,7 @@ async function main() {
     assert(r.feed1.txt === r.feed1.want, '第一件的拾取记录不对：' + JSON.stringify(r.feed1));
     assert(r.feedN.txt === r.feedN.want && r.feedN.lines === 1, '几件应并成一行、按通货合计：' + JSON.stringify(r.feedN));
     assert(r.auto.loot === 0 && r.auto.keep === 'own,ownM,lock,uq' && r.rq === false && r.auto.gone === 3 && r.auto.calls === 3 && r.auto.curUp && r.auto.uqOff, '自动拾取：本职业 / 锁定 / 烬铸 / 渊契应进背包，别的职业的分掉：' + JSON.stringify(r.auto));
-    assert(r.auto.lines === 1 && r.auto.feed.startsWith('自动分解 8 件'), '自动拾取的分解应接着并进同一行：' + JSON.stringify(r.auto));
+    assert(r.auto.ocNew === 0 && r.auto.feed.startsWith('自动分解 8 件'), '自动拾取的分解应接着并进同一行：' + JSON.stringify(r.auto));
     assert(r.own.flag && r.own.back, '自己丢下的应照常捡回来：' + JSON.stringify(r.own));
     assert(r.trader, '拾烬客买的别的职业的武器应进背包');
     assert(r.full.off && r.full.own && r.full.n === r.full.max, '背包满了：别的职业的应照样分掉，本职业的留在地上：' + JSON.stringify(r.full));
