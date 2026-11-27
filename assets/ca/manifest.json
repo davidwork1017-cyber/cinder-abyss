@@ -1842,8 +1842,8 @@
    "file": "assets/ca/aiwpn/aiwpn_helm_lo.glb",
    "ship": true,
    "replaces": null,
-   "tris": 203,
-   "verts": 609,
+   "tris": 197,
+   "verts": 591,
    "materials": 1,
    "textures": 0,
    "bounds": {
@@ -1877,7 +1877,7 @@
    },
    "lod": "lo",
    "mode": "fc",
-   "sha256": "5ece97833d513f12d18ba64a2b3b58097a3b2679d2773f4710aefbc8a85b22da"
+   "sha256": "5d888ce3bec1e92c18ec5277c74b05cc70c28ae9b5606ee6cc806222587cf643"
   },
   {
    "id": "ca/aiwpn_huntbow",
