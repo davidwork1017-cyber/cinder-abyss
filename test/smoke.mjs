@@ -4337,14 +4337,14 @@ async function main() {
     assert(!r.blocked.cast && r.blocked.heat > 40 && r.blocked.heat < 100 && !r.blocked.ready, '热度没满时 R 不应施放：' + JSON.stringify(r.blocked));
     assert(r.heat.fire >= 8 && r.heat.after < r.heat.fire, '热度应开火上涨、停火回落：' + JSON.stringify(r.heat));
     assert(r.fullStays === 100, '满了的热度不应回落：' + r.fullStays);
-    assert(r.fire.ws === 'meltray' && r.fire.heat === 0 && r.fire.mana <= 0 && r.fire.cd === 0 && r.fire.uses >= 1, '热度满时 R 应放出熔光射线、清零、不扣魔力不进冷却：' + JSON.stringify(r.fire));
+    assert(r.fire.ws === 'meltray' && r.fire.heat === 0 && r.fire.mana <= 0 && r.fire.cd === 0 && r.fire.uses >= 1, '热度满时 R 应放出熔光炮台、清零、不扣魔力不进冷却：' + JSON.stringify(r.fire));
     const f = r.focus;
     assert(f.normal > 3 && f.crit > f.normal * 1.5 && f.hurt > 0, '专注应命中上涨、暴击更多、挨打下降：' + JSON.stringify(f));
     assert(f.blocked && f.buff === 'volley' && f.after === 0 && f.during === 0, '专注满了才能放、放完清零、增益期间不涨：' + JSON.stringify(f));
     return '热度 开火 ' + r.heat.fire + ' → 停火 ' + r.heat.after + ' · 专注 普通 ' + f.normal + ' / 暴击 ' + f.crit + ' / 挨打 −' + f.hurt;
   });
 
-  await step('枪械的 R：熔光射线按住蓄力、松手一发贯穿一条线、蓄力越久越痛、同时累积火与雷的异常值；焚天炎爆炸开一大圈并留下火场；乱射 3 秒自动打身边的敌人、翻滚也不断、照常走动', async () => {
+  await step('枪械的 R：熔光炮台一按就在身体两侧落下两座炮台、右键扫射不断，自动打最近的敌人（有集火目标时先打它，转向有上限、目标死了重新挑），射线贯穿一条线、同时累积火与雷的异常值，6 秒后收起、再放顶掉旧的；焚天炎爆炸开一大圈并留下火场；乱射 3 秒自动打身边的敌人、翻滚也不断、照常走动', async () => {
     const r = await ev((code) => {
       eval(code);
       const save = G.save, P = G.player, S = G.state, out = {};
@@ -4354,45 +4354,70 @@ async function main() {
         G.BUILDUP.th = 50; // 异常值慢一点，看得出两种都在涨
         T.lane();
         RW.arm(8);
-        const line = [T.mob('brute', 4, 0, { hp: 1e7 }), T.mob('brute', 8, 0.3, { hp: 1e7 }), T.mob('brute', 12, -0.3, { hp: 1e7 })];
+        // 面朝 +x：炮台落在 (−0.4, ∓1.6)。一排三个木桩对着左边那座（z = −1.6），上方另放一个 off
+        const line = [T.mob('brute', 4, -1.6, { hp: 1e7 }), T.mob('brute', 8, -1.6, { hp: 1e7 }), T.mob('brute', 12, -1.6, { hp: 1e7 })];
         const off = T.mob('brute', 5, 6, { hp: 1e7 });
+        const far = T.mob('brute', 0, 20, { hp: 1e7 }); // 14 米开外：不该挨打
+        const aimR = { x: P.x + 10, z: P.z };
+        // 先按住右键扫射（朝空地），转满之后热度灌满、按 R：机炮不停火
+        RW.hold(60 * 1.2, aimR);
         G.debug.gauge();
-        // 按住 R 蓄力 1.5 秒（期间不出伤害、准星先指着上方的 off，瞄准线跟着走），再转回直线、松手放出
+        const casts0 = S.stats.turretCasts || 0;
+        let rangedAfter = 0, spinMin = 1, heatAt = -1;
         G.input.tap[4] = 0.3;
-        G.input.keys.KeyR = true;
-        const t0 = S.time;
-        let castT = 0;
-        const shots0 = S.stats.beamShots || 0;
-        for (let i = 0; i < 60 * 1.9; i++) {
-          T.aim(i < 60 ? off.x : P.x + 10, i < 60 ? off.z : P.z);
+        for (let i = 0; i < 30; i++) {
+          T.aim(aimR.x, aimR.z);
+          G.input.mouse.b[2] = true;
           G.tick(1 / 60);
-          if (P.cast && P.cast.id === 'meltray') castT = S.time - t0;
+          if (i >= 15 && P.cast && P.cast.ranged) rangedAfter++;
+          if (heatAt < 0 && (S.stats.turretCasts || 0) > casts0) heatAt = P.gauge.heat; // 放出的那一帧清零（之后照常扫射，热度接着涨）
+          spinMin = Math.min(spinMin, P.gun.spin);
         }
-        out.charging = !!(P.cast && P.cast.id === 'meltray' && P.cast.data && !P.cast.data.shot);
-        out.preDmg = line.concat([off]).map((e) => Math.round(e.maxHp - e.hp)).reduce((x, y) => x + y, 0);
-        G.input.keys.KeyR = false;
-        for (let i = 0; i < 60 * 0.8; i++) {
-          T.aim(P.x + 10, P.z);
-          G.tick(1 / 60);
-          if (P.cast && P.cast.id === 'meltray') castT = S.time - t0;
-        }
+        G.input.mouse.b[2] = false;
+        const L0 = G.turretList();
+        out.cast = { n: L0.length, casts: (S.stats.turretCasts || 0) - casts0, heat: +heatAt.toFixed(2), heatNow: +P.gauge.heat.toFixed(1), rangedAfter, spinMin: +spinMin.toFixed(2), side: L0.map((t) => Math.sign(+(t.z - P.z).toFixed(2))).sort().join(','), near: L0.every((t) => Math.hypot(t.x - P.x, t.z - P.z) < 2.2) };
+        // 3 秒：没有集火目标 → 打最近的（一排木桩的头一个），射线贯穿整排
+        S.focusT = 0;
+        RW.run(60 * 2.5, aimR);
         out.line = line.map((e) => Math.round(e.maxHp - e.hp));
+        out.offPre = Math.round(off.maxHp - off.hp);
+        out.far = Math.round(far.maxHp - far.hp);
         out.bu = { fire: +(line[0].bu ? line[0].bu.fire : 0).toFixed(3), light: +(line[0].bu ? line[0].bu.light : 0).toFixed(3) };
-        out.offFull = Math.round(off.maxHp - off.hp);
-        out.castT = +castT.toFixed(2);
-        out.shots = (S.stats.beamShots || 0) - shots0;
-        out.kFull = S.stats.beamK;
-        // 轻点一下（不蓄力）：伤害只有蓄满的约 30%；准星指着 off 放
-        const hpA = line[0].hp, offA = off.hp;
+        // 集火目标换成 off：炮台转过去（不瞬间对准），之后打 off
+        S.focus = off;
+        S.focusT = 4;
+        G.tick(1 / 60);
+        G.tick(1 / 60);
+        const t0 = L0[0], want = Math.atan2(off.x - t0.x, off.z - t0.z);
+        out.turnGap = +Math.abs(Math.atan2(Math.sin(want - t0.ang), Math.cos(want - t0.ang))).toFixed(2);
+        const offA = off.hp;
+        RW.run(60 * 1.0, aimR);
+        out.tgtOff = L0.every((t) => t.tgt === off);
+        out.offHit = Math.round(offA - off.hp);
+        // 目标死了：重新挑（回到那排木桩）
+        off.hp = 1;
+        const l0A = line[0].hp;
+        RW.run(60 * 1.0, aimR);
+        out.reTarget = { offDead: !!off.dead, line0: Math.round(l0A - line[0].hp) };
+        // 6 秒到：收起，不再出伤害
+        RW.run(60 * 1.8, aimR);
+        out.after = G.turretList().length;
+        const l0B = line[0].hp;
+        RW.run(60 * 0.6, aimR);
+        out.afterDmg = Math.round(l0B - line[0].hp);
+        // 再放：炮台还在时再放一次，顶掉旧的（始终 2 座、计时从头来）
         G.debug.gauge();
         G.input.tap[4] = 0.3;
-        for (let i = 0; i < 60 * 1.0; i++) {
-          T.aim(off.x, off.z);
-          G.tick(1 / 60);
-        }
-        out.turn = Math.round(offA - off.hp);
-        out.lineTap = Math.round(hpA - line[0].hp);
-        out.kTap = S.stats.beamK;
+        RW.run(30, aimR);
+        RW.run(60 * 2, aimR);
+        G.debug.gauge();
+        G.input.tap[4] = 0.3;
+        RW.run(30, aimR);
+        const L1 = G.turretList();
+        out.recast = { n: L1.length, fresh: L1.every((t) => t.t > 5.2) };
+        // 重生 / 换区域：收起
+        G.respawn();
+        out.reset = G.turretList().length;
         // 焚天炎爆
         T.lane();
         RW.arm(9);
@@ -4441,18 +4466,21 @@ async function main() {
       }
       return out;
     }, rangedSetup);
-    assert(r.line.every((v) => v > 0), '熔光射线应贯穿直线上的所有敌人：' + r.line);
-    assert(r.bu.fire > 0 && r.bu.light > 0, '熔光射线应同时累积火与雷的异常值：' + JSON.stringify(r.bu));
-    assert(r.charging && r.preDmg === 0, '按住 R 时应在蓄力、还没出伤害：' + JSON.stringify(r));
-    assert(r.offFull === 0 && r.shots === 1 && r.kFull === 1 && r.castT > 1.7 && r.castT < 2.8, '松手应只放一发蓄满的射线、打在松手时准星的方向：' + JSON.stringify(r));
-    assert(r.turn > 0 && r.lineTap === 0 && Math.abs(r.kTap - 0.3) < 0.05, '轻点应立刻放出约 30% 伤害的射线、朝着准星：' + JSON.stringify(r));
+    assert(r.cast.n === 2 && r.cast.casts === 1 && r.cast.heat >= 0 && r.cast.heat < 0.5 && r.cast.heatNow > 0 && r.cast.side === '-1,1' && r.cast.near, '热度满时按 R 应在身体两侧各落一座炮台、热度清零（之后照常扫射、接着涨）：' + JSON.stringify(r.cast));
+    assert(r.cast.rangedAfter >= 14 && r.cast.spinMin === 1, '放炮台时右键扫射不该断、机炮转速不掉：' + JSON.stringify(r.cast));
+    assert(r.line.every((v) => v > 0) && r.offPre === 0 && r.far === 0, '炮台应打最近的敌人、射线贯穿那一排，不打别处的：' + JSON.stringify(r));
+    assert(r.bu.fire > 0 && r.bu.light > 0, '炮台的射线应同时累积火与雷的异常值：' + JSON.stringify(r.bu));
+    assert(r.turnGap > 0.5 && r.tgtOff && r.offHit > 0, '有集火目标时炮台应转过去打它（转向有上限、不瞬间对准）：' + JSON.stringify(r));
+    assert(r.reTarget.offDead && r.reTarget.line0 > 0, '目标死了炮台应重新挑：' + JSON.stringify(r.reTarget));
+    assert(r.after === 0 && r.afterDmg === 0, '6 秒后炮台应收起、不再出伤害：' + JSON.stringify(r));
+    assert(r.recast.n === 2 && r.recast.fresh && r.reset === 0, '再放应顶掉旧的（始终 2 座）、重生时收起：' + JSON.stringify(r));
     assert(r.nova.hit.every((v) => v > 0) && r.nova.far === 0 && r.nova.heat === 0 && r.nova.fields === 1 && r.nova.burn > 0, '焚天炎爆不对：' + JSON.stringify(r.nova));
     assert(r.wsU === 'wildfire' && r.wild.on && r.wild.heat === 0 && r.wild.during && !r.wild.end && r.wild.moved > 3, '乱射应开启、翻滚不断、照常走动、3 秒后结束：' + JSON.stringify(r.wild));
     assert(r.wild.hit.filter((v) => v > 0).length >= 2 && r.wild.shots >= 30 && r.wild.splash > 0 && r.wild.pair > 0, '乱射应自动打身边的敌人、弹片波及旁边的：' + JSON.stringify(r.wild));
-    return '射线 ' + r.line.join('/') + '（蓄满 ' + r.castT + 's，轻点 ' + r.turn + '）· 炎爆 ' + r.nova.hit.join('/') + ' + 火场 ' + r.nova.burn + ' · 乱射 ' + r.wild.shots + ' 发';
+    return '炮台 ' + r.line.join('/') + '（转向差 ' + r.turnGap + '，集火 ' + r.offHit + '）· 炎爆 ' + r.nova.hit.join('/') + ' + 火场 ' + r.nova.burn + ' · 乱射 ' + r.wild.shots + ' 发';
   });
 
-  await step('熔光射线按机炮普攻折算：蓄满一发打在一排木桩上，每个都吃到 ≥ 7 秒机炮普攻（不镶辅助、转满之后的秒伤），物品等级 10 和 40（带上附加伤害与攻速）都成立；技能卡上的数字和实际打出来的对得上', noRes(async () => {
+  await step('熔光炮台按机炮普攻折算：两座炮台打满 6 秒、都打在同一个木桩上，合计约等于机炮普攻扫射 basicSec 秒（不镶辅助、转满之后的秒伤），物品等级 10 和 40（带上附加伤害与攻速）都成立；技能卡上的「两座合计」和实际打出来的对得上', noRes(async () => {
     const r = await ev((code) => {
       eval(code);
       const save = G.save, P = G.player, S = G.state, out = [];
@@ -4495,21 +4523,18 @@ async function main() {
           G.input.mouse.b[2] = false;
           const basic = (hp3 - d.hp) / 3;
           RW.run(60);
-          // 射线：4 个木桩排成一条线（放在 13 米以内：16 米处的木桩实测几乎打不到，车道那头的射线会被截短），按住 R 1.85 秒（起手 0.3 + 蓄满 1.4）再松手
+          // 炮台：正前方 8 米一个木桩（两座炮台都打它），按一下 R、不开火，等两座炮台打满 6 秒收起
           T.lane();
           RW.arm(8, il);
           kit(il);
-          const line = [4, 7, 10, 13].map(stake);
+          const one = stake(8);
           G.debug.gauge();
           G.input.tap[4] = 0.3;
-          G.input.keys.KeyR = true;
-          for (let i = 0; i < 60 * 1.85; i++) { T.aim(P.x + 20, P.z); G.tick(1 / 60); }
-          G.input.keys.KeyR = false;
-          RW.run(50, { x: P.x + 20, z: P.z });
-          const dmg = line.map((e) => Math.round(1e9 - e.hp));
-          const avg = dmg.reduce((a, b) => a + b, 0) / dmg.length;
+          RW.run(60 * 6.6, { x: P.x + 20, z: P.z });
+          const dmg = [Math.round(1e9 - one.hp)];
+          const avg = dmg[0];
           const ctx = G.skillCtx('meltray');
-          out.push({ il, add: P.S.addFire, basic: Math.round(basic), beam: dmg, k: S.stats.beamK, secs: +(avg / basic).toFixed(2), card: Math.round(G.avgHit(ctx)), avg: Math.round(avg) });
+          out.push({ il, add: P.S.addFire, basic: Math.round(basic), beam: dmg, n: G.turretList().length, ticks: S.stats.turretTicks || 0, sec: G.SKILLS.meltray.basicSec, secs: +(avg / basic).toFixed(2), card: Math.round(G.avgHit(ctx)), avg: Math.round(avg) });
         }
       } finally {
         T.unfix();
@@ -4523,12 +4548,12 @@ async function main() {
     }, rangedSetup);
     for (const o of r) {
       assert(o.add === (o.il >= 40 ? 50 : 6), '测试设的附加伤害没保持住：' + JSON.stringify(o));
-      assert(o.k === 1 && o.beam.every((v) => v > 0), '射线应蓄满并打中整排木桩：' + JSON.stringify(o));
-      assert(o.secs >= 7 && o.secs <= 9.5, '蓄满一发应折合 7–9.5 秒机炮普攻（物品等级 ' + o.il + '）：' + JSON.stringify(o));
-      assert(Math.abs(o.card - o.avg) <= o.avg * 0.1, '技能卡上「蓄满一发」应和实际打出来的对得上：' + JSON.stringify(o));
+      assert(o.n === 0 && o.beam[0] > 0, '炮台应打中木桩、6 秒后收起：' + JSON.stringify(o));
+      assert(o.secs >= o.sec * 0.9 && o.secs <= o.sec * 1.15, '两座炮台合计应折合约 ' + o.sec + ' 秒机炮普攻（物品等级 ' + o.il + '）：' + JSON.stringify(o));
+      assert(Math.abs(o.card - o.avg) <= o.avg * 0.1, '技能卡上「两座合计」应和实际打出来的对得上：' + JSON.stringify(o));
     }
-    assert(r[1].basic > r[0].basic * 2 && Math.abs(r[1].secs - r[0].secs) <= 0.8, '武器升级后普攻和射线应一起涨：' + JSON.stringify(r));
-    return r.map((o) => '物品等级 ' + o.il + '：普攻 ' + o.basic + '/s · 射线 ' + o.avg + '（折合 ' + o.secs + ' 秒）').join(' · ');
+    assert(r[1].basic > r[0].basic * 2 && Math.abs(r[1].secs - r[0].secs) <= 0.8, '武器升级后普攻和炮台应一起涨：' + JSON.stringify(r));
+    return r.map((o) => '物品等级 ' + o.il + '：普攻 ' + o.basic + '/s · 炮台 ' + o.avg + '（折合 ' + o.secs + ' 秒）').join(' · ');
   }));
 
   await step('焚天炎爆按喷枪普攻折算：火浪加 8 秒火场打在木桩上 ≥ 4.5 秒喷枪普攻（不镶辅助、含余烬的秒伤），物品等级 10 和 40（带上附加伤害与攻速）都成立；技能卡上的整招伤害对得上', noRes(async () => {
@@ -13131,7 +13156,7 @@ async function main() {
   // 高 / 低画质、以及高画质下特效全部静音（W.fxMute 钉死在开）+ 爆燃上限压到 0（全部走超出上限的路）+ 火把只留 1 盏，
   // 局面哈希和 Math.random 次数逐位相同；画面随机数取的次数各遍不一样（说明特效确实多了 / 少了）。
   // 反面对照：开打前多取一次 Math.random，哈希就变（这一步测得出差别）
-  await step('确定性（fx-rng）：画质 高 / 低、特效静音 + 爆燃上限压到 0 + 火把只留 1 盏，同一个种子打机炮 + 铁水装填 / 链雷 / 三相天灾，局面和 Math.random 次数逐位相同；画面随机数不取 Math.random', async () => {
+  await step('确定性（fx-rng）：画质 高 / 低、特效静音 + 爆燃上限压到 0 + 火把只留 1 盏，同一个种子打机炮 + 铁水装填 / 链雷 / 三相天灾 / 机炮 + 熔光炮台，局面和 Math.random 次数逐位相同；画面随机数不取 Math.random', async () => {
     const KEY = 'cinder-abyss-save-v1';
     const save0 = await ev((KEY) => localStorage.getItem(KEY), KEY);
     const god0 = await ev(() => !!G.player.god);
@@ -13174,6 +13199,7 @@ async function main() {
         let calls = 0;
         Math.random = function () { calls++; return base.call(this); };
         const out = [];
+        let turrets = 0;
         const pack = () => [[6, 0], [6.9, 1.1], [6.9, -1.1], [7.9, 0.2], [8.4, -1.6]].map(([dx, dz]) => {
           const e = G.spawnMob('husk', P.x + dx, P.z + dz, 10, { awake: true });
           e.wasAwake = true;
@@ -13184,7 +13210,7 @@ async function main() {
         });
         const st = () => JSON.stringify({ p: [P.x, P.z, P.life, P.mana], e: S.enemies.map((e) => [e.x, e.z, e.hp, e.dead]), proj: S.projectiles.map((q) => [q.x, q.z]), calls });
         try {
-          for (const id of ['molten', 'arc', 'tristorm']) {
+          for (const id of ['molten', 'arc', 'tristorm', 'meltray']) {
             G.clearEnemies();
             P.cds = {};
             save.bar = [null, null, null, null];
@@ -13204,6 +13230,13 @@ async function main() {
               save.equip.weapon = G.rollItem(20, 0, 'weapon', 1);
               save.skills.arc = 20;
               save.bar[2] = 'arc';
+            } else if (id === 'meltray') {
+              // laser-beam：机炮按住右键扫射，第 5 帧热度灌满按 R 放熔光炮台（炮台的射线、落地、收起都只取画面随机数）
+              delete save.imbue;
+              const w = G.rollItem(20, 0, 'weapon', 8);
+              w.wbase = G.weaponBaseDmg(8, 20);
+              w.imp = null;
+              save.equip.weapon = G.refreshWeapon(w);
             } else {
               const U = Object.keys(G.UNIQUES).find((u) => G.UNIQUES[u].uskill === 'tristorm');
               save.equip.weapon = G.rollUnique(U, 20, 0.5);
@@ -13215,6 +13248,10 @@ async function main() {
               T.aim(e.x, e.z);
               P.mana = P.maxMana;
               if (id === 'molten') G.input.mouse.b[2] = i < 100;
+              else if (id === 'meltray') {
+                G.input.mouse.b[2] = true;
+                if (i === 5) { G.debug.gauge(); G.input.tap[4] = 0.25; }
+              }
               else if (id === 'arc') { if (i % 20 === 0 && i < 120) G.input.tap[2] = 0.25; }
               else if (i === 0) G.input.tap[4] = 0.25;
               G.tick(1 / 60);
@@ -13222,6 +13259,7 @@ async function main() {
             G.input.mouse.b[0] = false;
             G.input.mouse.b[2] = false;
             G.input.tap.fill(0);
+            if (id === 'meltray') turrets = G.turretList().length;
             out.push({ id, dmg: Math.round(es.reduce((a, e) => a + (e.maxHp - e.hp), 0)), st: st() });
           }
         } finally {
@@ -13236,7 +13274,7 @@ async function main() {
         const all = out.map((x) => x.st).join('|');
         let h = 2166136261;
         for (let i = 0; i < all.length; i++) h = Math.imul(h ^ all.charCodeAt(i), 16777619);
-        return { hash: (h >>> 0).toString(16), calls, vis: G.fxInfo().n - v0, dmg: out.map((x) => x.id + ' ' + x.dmg).join(' / '), torches, b1: W.b1Info().peak };
+        return { hash: (h >>> 0).toString(16), calls, turrets, vis: G.fxInfo().n - v0, dmg: out.map((x) => x.id + ' ' + x.dmg).join(' / '), torches, b1: W.b1Info().peak };
       }, o);
     const R = {};
     try {
@@ -13256,7 +13294,7 @@ async function main() {
     assert(H.hash === C.hash && H.calls === C.calls, '特效静音 / 爆燃上限 / 火把少了打出来不一样：' + JSON.stringify(R));
     assert(X.hash !== H.hash, '反面对照没有测出差别（多取一次 Math.random 哈希应该变）：' + JSON.stringify(R));
     assert(H.vis !== L.vis && H.vis !== C.vis && H.vis > 0, '画面随机数取的次数各遍应该不一样（特效多了 / 少了）：' + JSON.stringify(R));
-    assert(C.torches > 1 && /molten [1-9]/.test(H.dmg) && /arc [1-9]/.test(H.dmg) && /tristorm [1-9]/.test(H.dmg), '三场都应打中、区里应有不止 1 盏火把：' + JSON.stringify(R));
+    assert(C.torches > 1 && /molten [1-9]/.test(H.dmg) && /arc [1-9]/.test(H.dmg) && /tristorm [1-9]/.test(H.dmg) && /meltray [1-9]/.test(H.dmg) && H.turrets === 2, '四场都应打中（熔光炮台放出两座）、区里应有不止 1 盏火把：' + JSON.stringify(R));
     return '哈希 ' + H.hash + '，Math.random ' + H.calls + ' 次（三遍一样），伤害 ' + H.dmg + '；画面随机数 高 ' + H.vis + ' / 低 ' + L.vis + ' / 静音 ' + C.vis + '（火把 ' + C.torches + ' → 1）';
   });
 
@@ -22688,7 +22726,8 @@ async function main() {
     const P = r.pinned, K = P.kinds;
     assert(P.seed === 777 && P.gen === 'custom' && P.h1 === P.h2, '固定种子进区两次布局应一样：' + JSON.stringify(r));
     // zones-polish：霜骨沼泽加长到 ×1.6（岛 4 → 6–7、旁支 3 → 4–5、宝箱 2 → 3、怪群 10–14 → 16–24）；关键路径 = 起点 + 岛 + 场地 + 其间的连接 = 2 × 岛数 + 3
-    assert(K.start === 1 && K.arena === 1 && K.room >= 6 && K.room <= 7 && P.path === 2 * K.room + 3 && K.side >= 4 && K.side <= 5 && P.chests === 3 && P.packs >= 16 && P.packs <= 24, '固定种子的第 1 区布局应符合设计（岛 6–7、关键路径 = 2 × 岛数 + 3、旁支 4–5、宝箱 3、怪群 16–24）：' + JSON.stringify(P));
+    // map-loops：旁支 4–5 → 正好 4（只放普通怪群的第 5 个小岛去掉了；3 个垫脚岛走环路 + 1 个死路宝箱岛）
+    assert(K.start === 1 && K.arena === 1 && K.room >= 6 && K.room <= 7 && P.path === 2 * K.room + 3 && K.side === 4 && P.chests === 3 && P.packs >= 16 && P.packs <= 24, '固定种子的第 1 区布局应符合设计（岛 6–7、关键路径 = 2 × 岛数 + 3、旁支 4、宝箱 3、怪群 16–24）：' + JSON.stringify(P));
     // 不固定种子：每次进区都换布局（owner 决定 10），种子是新取的
     assert(r.unpinned === null && typeof r.seed0 === 'number' && r.seed0 !== 777 && r.seed1 !== r.seed0 && r.fresh && r.tp, 'zoneSeed(null) 后应恢复每次进区换布局，tpRoom 应落在房间里：' + JSON.stringify(r));
     return r.ids.join(' ');
@@ -22964,8 +23003,8 @@ async function main() {
     const r = await ev(() => {
       G.debug.hold(true);
       const W = G.world, out = { bad: [] };
-      // 20 个种子：校验通过、是新生成器（不是 legacy）、关键路径 6–7 个岛、4–5 个旁支 3 个宝箱、精英 ≤ 6（关键路径 ≤ 5，精英旁支正好 1 个）、
-      // 每个房间的怪物等级按 lvFor 折算、2 块薄冰、有浅水、场地 4 根柱子（size-frost：原来 3 个旁支 2 个宝箱、精英 ≤ 4）
+      // 20 个种子：校验通过、是新生成器（不是 legacy）、关键路径 6–7 个岛、4 个旁支 3 个宝箱、精英 ≤ 6（关键路径 ≤ 5，精英旁支正好 1 个）、
+      // 每个房间的怪物等级按 lvFor 折算、2 块薄冰、有浅水、场地 4 根柱子（size-frost：原来 3 个旁支 2 个宝箱、精英 ≤ 4；map-loops：旁支 4–5 → 4）
       for (let s = 1; s <= 20; s++) {
         const g = W.genLayout('frost', s * 7919 + 13), sp = g.spec;
         const why = g.ok ? [] : g.why.slice();
@@ -22973,7 +23012,7 @@ async function main() {
         else {
           const nI = sp.rooms.filter((rm) => rm.kind === 'room').length, nSide = sp.rooms.filter((rm) => rm.kind === 'side').length;
           if (nI < 6 || nI > 7) why.push('关键路径的岛不是 6–7 个');
-          if (nSide < 4 || nSide > 5) why.push('旁支不是 4–5 个');
+          if (nSide !== 4) why.push('旁支不是 4 个');
           if (sp.chests.length !== 3) why.push('宝箱不是 3 个');
           if (sp.packs.filter((p) => p.elite).length > 6) why.push('精英超过 6');
           if (sp.packs.filter((p) => p.elite && sp.rooms[p.room].kind !== 'side').length > 5) why.push('关键路径的精英超过 5');
@@ -23084,9 +23123,11 @@ async function main() {
       const lvFor = W.terrain.lvFor;
       // storm-lamps：灯位（feats 里的 lamp）。只在起点圆厅、关键路径大厅（≤ 2 盏）和场地（≤ 4 盏）的北边、房间中心以北 ≥ 1 m；在墙身中线上（可走区域外 0.4–0.6 m）、
       // 离门洞边 ≥ 1.5 m、离雷枢的柱子 / 雷线 ≥ 3 m、灯与灯 ≥ 4.5 m；整区摆出目标（2 × (大厅 + 1) + 4）的七成以上（200 个种子最少 78%）。
-      // 布局本身不动：去掉灯位以后的 spec 和加灯位之前（main 6104301）逐字相同，前 3 个种子按固定的指纹比
+      // 布局本身不动：去掉灯位以后的 spec 和加灯位之前逐字相同，前 3 个种子按固定的指纹比（map-loops 改了布局，指纹换成 7dd1adb 的）
       out.lamps = { n: 0, want: 0, bad: [], hash: [] };
-      const lampHash = ['674a4f70', '9291857e', 'aa902df2']; // main 6104301 在页面里 W.genLayout 的指纹（node 的 Math.atan2 末位会差，指纹不一样，别拿 node 算的填）
+      // map-loops 7dd1adb 在页面里 W.genLayout 的指纹（node 的 Math.atan2 末位会差，指纹不一样，别拿 node 算的填）。
+      // 布局为了环路有意改了（旁支小室、回路走廊、关键路径走廊 7.5–12.5 m），原来 main 6104301 的是 674a4f70 / 9291857e / aa902df2
+      const lampHash = ['5e8f68a0', 'e8454a15', 'bce4c87e'];
       for (let s = 1; s <= 20; s++) {
         const g = W.genLayout('storm', s * 7919 + 3), sp = g.spec;
         out.seeds++;
@@ -23354,6 +23395,40 @@ async function main() {
     assert(r.resp.bossHome, '首领没有复位回满：' + JSON.stringify(r.resp));
     const avg = (k) => (r.stats.reduce((a, s) => a + s[k], 0) / r.stats.length).toFixed(0);
     return '20 个种子：面积 ' + avg('area') + ' m²、关键路径 ' + avg('len') + ' m、怪 ' + avg('mobs') + '；进区怪 ' + r.enter.map((e) => e.n + '（布局 + 光栅化 ' + e.ms + 'ms）').join(' / ');
+  });
+
+  // map-loops：旁支不再全是死路。5 个区 × 20 个种子：每张图最多一条死路（只有一扇门的旁支，也是试锋的点位），它的回头路 ≤ 18 m
+  //（从死路最远的一格走到首领门、和走进去的最短路重合的长度，W.terrain.branchStats）；其余旁支都有两扇门（环路），而且里面有东西（宝箱 / 精英 / 怪群）
+  await step('区域布局 环路：5 个区 × 20 个种子，每张图最多 1 条死路、死路回头路 ≤ 18 m；其余旁支都是有两扇门的环路，环路旁支里都有宝箱 / 精英 / 怪群', async () => {
+    const r = await ev(() => {
+      const W = G.world, out = { bad: [], z: {} };
+      for (const def of G.ZONES) {
+        const st = (out.z[def.id] = { loops: 0, dead: 0, back: 0, n: 0 });
+        for (let s = 1; s <= 20; s++) {
+          const g = W.genLayout(def.id, s * 7919 + 13), sp = g.spec;
+          if (!g.ok || sp.legacy) {
+            out.bad.push(def.id + '#' + g.seed + '：没通过校验 ' + g.why.join('；'));
+            continue;
+          }
+          const b = W.terrain.branchStats(sp);
+          st.n++;
+          st.loops += b.loops;
+          st.dead += b.dead.length;
+          for (const d of b.dead) st.back = Math.max(st.back, d.back);
+          if (b.dead.length > 1) out.bad.push(def.id + '#' + g.seed + '：死路 ' + b.dead.length + ' 条');
+          for (const d of b.dead) if (!(d.back >= 0 && d.back <= 18)) out.bad.push(def.id + '#' + g.seed + '：死路回头路 ' + d.back + ' m');
+          if (b.loops < b.sides - 1) out.bad.push(def.id + '#' + g.seed + '：环路 ' + b.loops + ' / 旁支 ' + b.sides);
+          for (const rm of sp.rooms) {
+            if (rm.kind !== 'side') continue;
+            const doors = sp.links.filter((L) => (L.a === rm.id || L.b === rm.id) && L.door).length;
+            if (doors >= 2 && !sp.chests.some((c) => c.room === rm.id) && !sp.packs.some((p) => p.room === rm.id)) out.bad.push(def.id + '#' + g.seed + '：环路旁支 ' + rm.id + ' 里什么都没有');
+          }
+        }
+      }
+      return out;
+    });
+    assert(!r.bad.length, '旁支的环路 / 死路不对：' + r.bad.slice(0, 6).join(' | '));
+    return Object.keys(r.z).map((k) => k + ' 环路 ' + (r.z[k].loops / r.z[k].n).toFixed(1) + '、死路 ' + (r.z[k].dead / r.z[k].n).toFixed(1) + '（≤ ' + r.z[k].back + ' m）').join('；');
   });
 
   await titleSteps();
