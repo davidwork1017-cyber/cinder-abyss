@@ -4225,6 +4225,49 @@
   // map（可选）：这份 spec 光栅化后的网格。给了就在网格节点上数可走面积、做 BFS（0.5 m 节点正好落在 0.25 m 网格的节点上，
   // 节点上的网格值就是精确 sd，阈值 0 / 0.6 远在 CUT_STAMP 以内，结果和逐点精确求值一样），省掉整片的精确求值。
   // 进区时用这个版本（makeLayout），W.genLayout / 测试不给 map，照旧逐点精确求值（zones-integrate）
+  // 不相邻的关键路径房间（序号差 ≥ 2）边到边的间距 < gapMin 的列表（0.5 m 格子上量；validateSpec 第 4 条。map-loops：抽出来给生成器自查用）
+  function pathGaps(spec, gapMin) {
+    const h = 0.5, why = [];
+    const path = spec.rooms.filter((r) => r.path && r.kind !== 'link').sort((a, b) => a.order - b.order);
+    const roomSd = (rm, x, z) => {
+      let v = -1e18;
+      for (const p of rm.prims) v = Math.max(v, primSd(p, x, z));
+      return v;
+    };
+    // 外接框预筛：只看 A 的图元外接框和「B 的外接框外扩 gap」相交的那一块（更远的格子离 B 一定超过 gap，不影响结论）
+    const unionBox = (rm) => {
+      const u = [1e18, 1e18, -1e18, -1e18];
+      for (const p of rm.prims) {
+        const b = primBox(p);
+        if (b[0] < u[0]) u[0] = b[0];
+        if (b[1] < u[1]) u[1] = b[1];
+        if (b[2] > u[2]) u[2] = b[2];
+        if (b[3] > u[3]) u[3] = b[3];
+      }
+      return u;
+    };
+    for (let a = 0; a < path.length; a++) {
+      for (let b = a + 2; b < path.length; b++) {
+        const RA = path[a], RB = path[b];
+        if (Math.abs(RA.order - RB.order) < 2) continue;
+        let gap = 1e18;
+        const ub = unionBox(RB), g0 = gapMin + h;
+        const boxes = RA.prims.map(primBox).map((bx) => [Math.max(bx[0], ub[0] - g0), Math.max(bx[1], ub[1] - g0), Math.min(bx[2], ub[2] + g0), Math.min(bx[3], ub[3] + g0)]);
+        for (const bx of boxes) {
+          if (bx[0] > bx[2] || bx[1] > bx[3]) continue;
+          for (let z = Math.ceil(bx[1] / h) * h; z <= bx[3]; z += h) {
+            for (let x = Math.ceil(bx[0] / h) * h; x <= bx[2]; x += h) {
+              if (roomSd(RA, x, z) < 0) continue;
+              const g = -roomSd(RB, x, z);
+              if (g < gap) gap = g;
+            }
+          }
+        }
+        if (gap < gapMin) why.push('房间 ' + RA.id + ' 和 ' + RB.id + ' 只隔 ' + gap.toFixed(1) + ' m');
+      }
+    }
+    return why;
+  }
   function validateSpec(spec, gen, map) {
     const ck = Object.assign({}, CHECK, gen && gen.check);
     const why = [];
@@ -4322,43 +4365,7 @@
       }
     }
     // 不相邻的关键路径房间：边到边 ≥ gap（在 A 的格子上量到 B 的距离）
-    const roomSd = (rm, x, z) => {
-      let v = -1e18;
-      for (const p of rm.prims) v = Math.max(v, primSd(p, x, z));
-      return v;
-    };
-    // 外接框预筛：只看 A 的图元外接框和「B 的外接框外扩 gap」相交的那一块（更远的格子离 B 一定超过 gap，不影响结论）
-    const unionBox = (rm) => {
-      const u = [1e18, 1e18, -1e18, -1e18];
-      for (const p of rm.prims) {
-        const b = primBox(p);
-        if (b[0] < u[0]) u[0] = b[0];
-        if (b[1] < u[1]) u[1] = b[1];
-        if (b[2] > u[2]) u[2] = b[2];
-        if (b[3] > u[3]) u[3] = b[3];
-      }
-      return u;
-    };
-    for (let a = 0; a < path.length; a++) {
-      for (let b = a + 2; b < path.length; b++) {
-        const RA = path[a], RB = path[b];
-        if (Math.abs(RA.order - RB.order) < 2) continue;
-        let gap = 1e18;
-        const ub = unionBox(RB), g0 = ck.gap + h;
-        const boxes = RA.prims.map(primBox).map((bx) => [Math.max(bx[0], ub[0] - g0), Math.max(bx[1], ub[1] - g0), Math.min(bx[2], ub[2] + g0), Math.min(bx[3], ub[3] + g0)]);
-        for (const bx of boxes) {
-          if (bx[0] > bx[2] || bx[1] > bx[3]) continue;
-          for (let z = Math.ceil(bx[1] / h) * h; z <= bx[3]; z += h) {
-            for (let x = Math.ceil(bx[0] / h) * h; x <= bx[2]; x += h) {
-              if (roomSd(RA, x, z) < 0) continue;
-              const g = -roomSd(RB, x, z);
-              if (g < gap) gap = g;
-            }
-          }
-        }
-        if (gap < ck.gap) why.push('房间 ' + RA.id + ' 和 ' + RB.id + ' 只隔 ' + gap.toFixed(1) + ' m');
-      }
-    }
+    for (const w of pathGaps(spec, ck.gap)) why.push(w);
     // 怪群槽位、宝箱：离起点、离门，不在灼烧 / 熔岩上
     const doors = spec.links.filter((L) => L.door).map((L) => L.door);
     const bad = (x, z) => pr.hp.some((hz) => hz.kind === 'burn' && primSd(hz.p, x, z) >= 0) || pr.cp.some((c) => c.mat === MAT.LAVA && primSd(c.p, x, z) >= 0);
@@ -6512,7 +6519,7 @@
     const sub = (R() * 4294967296) >>> 0;
     let att = 0, k = 1, L = null, best = 0, base = null;
     // zones-polish：外接框转不进上限也换一串随机数重摆骨架（加长以后 S 形偶尔太舒展，原来只能等校验失败、整个换种子）
-    for (let it = 0; it < 16; it++) {
+    for (let it = 0; it < 32; it++) { // map-loops：16 → 32（两条环路小路接不上也要换一串随机数重摆）
       L = ashSkeleton(mulberry32((sub + Math.imul(att, 0x9e3779b1)) >>> 0), k);
       if (!L.ok) {
         att++;
@@ -6521,7 +6528,7 @@
       }
       const a = ashArea(L.spec);
       if (a < ASH_GEN.area[0] || a > ASH_GEN.area[1]) {
-        if (it < 15) {
+        if (it < 31) {
           k = Math.max(0.82, Math.min(1.25, k * Math.pow(5100 / a, 0.6)));
           continue;
         }
@@ -6549,7 +6556,7 @@
         }
         if (v <= 0) break;
       }
-      if (bestV <= 0 || it === 15) break;
+      if (bestV <= 0 || it === 31) break;
       att++;
       k = 1;
     }
@@ -7410,6 +7417,8 @@
     // 外接框：长边 ≤ 172 m；网格（外接框四周已含 4 m）0.25 m 一格不超过 FROST.cells（size-frost：原来是 170 × 150 的长宽上限）
     const BW = spec.bounds.maxX - spec.bounds.minX, BH = spec.bounds.maxZ - spec.bounds.minZ;
     if (Math.max(BW, BH) - 8 > 172 || (BW / 0.25 + 2) * (BH / 0.25 + 2) > FROST.cells) return frostFail('box');
+    // map-loops：校验第 4 条（不相邻的关键路径岛 ≥ 14 m）先在这里查：浅水圆、栈道摆完以后偶尔挤到 14 m 以内，原来要等校验失败、整个换种子
+    if (pathGaps(spec, CHECK.gap).length) return frostFail('gap');
     spec.est = { area: Math.round(area), mobs, elites };
     return spec;
   }
