@@ -42,14 +42,15 @@
   }
   // 拾取时的警告（走近一点、背包满了）不弹 toast，写成拾取记录里的一行（pickup-feed）；节流同 toast，同一个 key 共用一个时钟
   function feedWarn(msg, key, gapMs) {
-    if (!uiDue(key, gapMs)) return;
-    if (G.ui.feedWarn) G.ui.feedWarn(msg, key);
-    else G.ui.toast(msg, '#ff8a6a');
+    if (uiDue(key, gapMs)) G.ui.feedWarn(msg, key);
   }
   // 手动分解的结果：写在背包页的绿色小字里（分解是在背包里点的；拾取记录在面板后面看不见）
   function salvNote(msg) {
-    if (G.ui.salvNote) G.ui.salvNote(msg);
-    else G.ui.toast(msg, '#7fe0c0');
+    G.ui.salvNote(msg);
+  }
+  // 异兆的事件条（#enc-bar，toast-zero）：开始的目标句、结果、祈坛增益、第一次遇到时的用法，都写在顶上正中这一条里，不弹 toast
+  function encNote(o) {
+    if (G.ui && G.ui.encNote) G.ui.encNote(o);
   }
   // 场景里的飘字提示（没有目标、魔力不足……）按游戏时间节流：飘字要取随机数，节流若看真实时间，
   // 帧快帧慢会让同一个种子打出不同的随机序列。暂停 / 面板开着时游戏时间不走，节流也跟着停
@@ -615,6 +616,8 @@
       volAmb: toInt(ro.volAmb, 0, 100, 60), volMusic: toInt(ro.volMusic, 0, 100, 50), mute: !!ro.mute,
     };
     if (ro.salvageOffCls === true) s.opts.salvageOffCls = true; // 自动分解其他职业武器（T36）：只有打开时才有这个键，老存档没有 = 关
+    // 新手提示开关（hint-once）：只有在设置里动过才有这个键；没有 = 按存档算默认（10 级以上、进过轮回或打通烬渊深处的默认关，见 ui.js hintsOn）
+    if (typeof ro.hints === 'boolean') s.opts.hints = ro.hints;
     s.seenHelp = !!raw.seenHelp;
     s.seenStory = !!raw.seenStory;
     s.tut = {};
@@ -4492,9 +4495,7 @@
       if (kind && !save.bossKills[kind]) {
         save.bossKills[kind] = true;
         toast('首次击败「' + e.name + '」：获得 2 点天赋点', '#ffd75e');
-      } else {
-        toast('「' + e.name + '」已被击败', '#ffb46a');
-      }
+      } // 再打：首领条收起、掉落、传送门已经说明了，不弹 toast（toast-zero）
       if (state.zoneIdx === G.ZONES.length - 1 && state.tier >= save.maxTier) {
         save.maxTier = state.tier + 1;
         toast('轮回层级 ' + save.maxTier + ' 已解锁', '#d98cff');
@@ -4600,8 +4601,7 @@
       W.die(P.ent); // 留下一具替身演倒地，本体照旧隐藏到重生
       P.ent.group.visible = false;
       W.burst(P.x, 1, P.z, 0xff5a4a, 40, 6, 0.9);
-      G.sfx('death');
-      toast('你倒下了……', '#ff6a5a');
+      G.sfx('death'); // 「你倒下了」写在死亡遮罩上，不再弹 toast（toast-zero）
     }
     return true;
   };
@@ -11678,7 +11678,9 @@
     const max = isLife ? P.maxLife : P.maxMana;
     if (cur >= max && !P.hot[kind]) return false; // 满的时候不浪费
     if (P.flask[kind] < 1) {
-      toast(isLife ? '生命药剂已空，击杀敌人补充' : '魔力药剂已空，击杀敌人补充', '#c8b89a', 'flask-' + kind, 2000);
+      // 药剂图标抖一下（每次按都有）；拾取记录里一行警告，同一瓶 60 秒最多一次（toast-zero）
+      if (G.ui.flaskDeny) G.ui.flaskDeny(kind);
+      feedWarn(isLife ? '生命药剂空了 · 击杀补充' : '魔力药剂空了 · 击杀补充', 'flask-' + kind, 60000);
       return false;
     }
     P.flask[kind] -= 1;
@@ -11808,7 +11810,7 @@
   G.clickChest = function (c) {
     if (!c || c.open || P.dead) return false;
     if (dist(c.x, c.z, P.x, P.z) > 7) {
-      toast('走近一点', '#c8b89a', 'far', 900);
+      feedWarn('走近一点', 'far', 900);
       return false;
     }
     return G.openChest(c);
@@ -12196,7 +12198,6 @@
     if (G.clsDef() && !G.classCanUse(save.cls, id)) return null; // 别的职业的技能：学不了
     save.blankGems.pop();
     const slot = learnSkill(id);
-    toast('习得技能：' + sk.name + (slot >= 0 ? '' : '（去技能页绑定）') + ' · 用掉一颗' + G.BLANK_GEM.short, GEM_COLOR);
     G.sfx('gem');
     G.persist();
     return { id, slot };
@@ -12359,7 +12360,7 @@
       P.life = P.maxLife;
       P.mana = P.maxMana;
     }
-    toast('等级提升：Lv ' + save.level + '（获得 ' + gained + ' 点天赋点）', '#ffd75e');
+    if (G.ui.levelToast) G.ui.levelToast(save.level, gained); // 60 秒内连升几级：同一条 toast 改写，不另弹（toast-zero）
     if (G.world.levelUpFx) G.world.levelUpFx(P.x, P.z); // vf-vfx3：金色的环往外画开 + 竖直的细光痕（原来 4.5 米环 + 30 粒金光点）
     else G.world.ring(P.x, P.z, 4.5, 0xffd75e, 0.6);
     G.sfx('level');
@@ -12467,18 +12468,12 @@
   G.applyCurrency = function (item, curId, idx) {
     const save = G.save;
     if (!item || !G.CURRENCY[curId] || !(save.cur[curId] > 0)) return false;
-    if (item.rarity === 3) {
-      toast('烬铸武器无法改造', '#ff8a6a', 'uqlock', 600);
-      return false;
-    }
-    if (item.rarity === 4) {
-      toast(G.RELIC_NAME + '无法改造', '#ff8a6a', 'uqlock', 600);
-      return false;
-    }
+    G.craftMsg = ''; // 改造不成的原因（背包页的红字读它；toast-zero：不弹 toast）
+    if (item.rarity === 3 || item.rarity === 4) return false; // 烬铸 / 渊契：背包页写 lockText
     if (!G.canCraft(item, curId)) return false;
     const r = G.craft(item, curId, idx);
     if (!r.ok) {
-      if (r.msg) toast(r.msg, '#ff8a6a');
+      G.craftMsg = r.msg || '';
       return false;
     }
     save.cur[curId]--;
@@ -13073,7 +13068,7 @@
     enc.k = ok ? 1 : enc.k;
     enc.pend.length = 0;
     const D = G.ENCOUNTERS[enc.kind];
-    toast(D.name + (msg ? '：' + msg : ok ? '：完成' : '：失败'), ok ? '#c8b0ff' : '#a89a8a');
+    encNote({ kind: enc.kind, txt: msg || (ok ? '完成' : '失败'), st: ok ? 'ok' : 'fail' });
     state.stats.encDone = (state.stats.encDone || 0) + (ok ? 1 : 0);
   }
 
@@ -13091,7 +13086,7 @@
           enc.st = 'open';
           W.ring(s.x, s.z, D.r, 0xa98cff, 0.6);
           W.burst(s.x, 1.4, s.z, 0xb090ff, 30, 5, 0.8);
-          if (d < 40) toast('裂隙张开了：站进圈里坚守 ' + D.hold + ' 秒', '#c8b0ff');
+          // 张开了：事件条写「走进圈里，坚守 N 秒」，人在 40 米内时显示（G.ui 每帧看 enc.st === 'open'）
           return;
         }
         if (enc.st === 'open') {
@@ -13205,7 +13200,7 @@
             return e;
           });
         }
-        toast('锁链崩开：' + D.time + ' 秒内打倒三只匣卫', '#ffd36a');
+        encNote({ kind: 'box', txt: D.time + ' 秒内打倒三只匣卫', st: 'go' });
         return true;
       },
     },
@@ -13256,7 +13251,7 @@
         W.burst(enc.site.x, 2.4, enc.site.z, 0x9fe7ff, 30, 5, 0.8);
         W.ring(P.x, P.z, 2.4, 0x9fe7ff, 0.5);
         W.text(P.x, P.z, B.name, B.color, 26, { kind: 'tag', y: 2.6 });
-        toast('祈坛：' + B.name + '（' + B.desc + '）' + B.dur + ' 秒', B.color);
+        encNote({ kind: 'shrine', txt: B.name + '：' + B.desc + ' · ' + B.dur + ' 秒', st: 'ok', color: B.color });
         G.sfx('gem');
         return true;
       },
@@ -13277,7 +13272,7 @@
           enc.wave = 0;
           enc.leaveT = 0;
           ENC_RUN.trial.wave(enc);
-          toast('试锋开始：' + D.time + ' 秒内打完三波', '#ff8a6a');
+          encNote({ kind: 'trial', txt: D.time + ' 秒内打完三波', st: 'go' });
           return;
         }
         if (enc.st !== 'run') return;
@@ -13360,7 +13355,7 @@
           return e;
         });
         G.world.ring(at.x, at.z, 4, 0xb090ff, G.ENC.warn);
-        toast('「' + G.BOSSES[zone.def.boss].name + '」的残影浮现了', '#c8b0ff');
+        // 残影活着时事件条写「击败「X」的残影」，进度 = 它的生命（G.ui 看 enc.mob）
       },
     },
     ember: {
@@ -13444,7 +13439,7 @@
           });
         }
         G.world.burst(s.x, 1.2, s.z, 0xffa64a, 30, 5, 0.7);
-        toast('余烬开始落下：' + D.time + ' 秒内打碎四块烬晶', '#ffb070');
+        encNote({ kind: 'ember', txt: D.time + ' 秒内打碎四块烬晶', st: 'go' });
         return true;
       },
     },
@@ -13548,8 +13543,8 @@
         enc.live = true;
         ENC_RUN[enc.kind].wake(enc);
         // 能互动的几种：醒来时提示一句怎么用（同一种只在这次进区提示一次）
-        const HINT = { shrine: '祈坛：走近按 F 激活', trader: '拾烬客：走近按 F 交易', box: '缚匣：走近崩开锁链（会惊醒匣卫）' };
-        if (HINT[enc.kind]) toast(HINT[enc.kind], '#d8c8a8', 'enc-' + enc.kind, 2600);
+        const HINT = { shrine: '走近按 F 激活', trader: '走近按 F 交易', box: '走近崩开锁链（会惊醒匣卫）' };
+        if (HINT[enc.kind]) encNote({ kind: enc.kind, txt: HINT[enc.kind], st: 'hint', once: true }); // 同一种这次游戏只提示一次
       }
       if (enc.pend.length) tickPend(enc, dt);
       ENC_RUN[enc.kind].tick(enc, dt, d, pr);
@@ -13599,7 +13594,7 @@
   G.clickEnc = function (enc) {
     if (!enc || P.dead) return false;
     if (dist(enc.site.x, enc.site.z, P.x, P.z) > 7) {
-      toast('走近一点', '#c8b89a', 'far', 900);
+      feedWarn('走近一点', 'far', 900);
       return false;
     }
     return G.encUse(enc);
@@ -13687,7 +13682,7 @@
     if (item.rarity >= 1) res.dust = (res.dust || 0) + 1;
     for (const id in res) grantCurrency(id, res[id]);
     const txt = resultText(res);
-    if (txt) toast('卖给拾烬客：' + txt, '#7fe07a');
+    Object.defineProperty(res, 'txt', { value: txt }); // 拾烬客面板写「卖掉了「X」，得到 …」（toast-zero：不弹 toast；不可枚举，res 照旧只列通货）
     G.sfx('pickup');
     G.persist();
     return res;
@@ -13707,7 +13702,6 @@
     if (left > 0) return false;
     for (const id in plan) F[id] -= plan[id];
     F[want] = Math.min(G.FRAG_DROP.max, (F[want] || 0) + 1);
-    toast('换得 1 个' + G.FRAGS[want].name, G.FRAGS[want].color);
     G.persist();
     return plan;
   };
@@ -13808,7 +13802,7 @@
     if (W.precompile) W.precompile();
     if (W.crownBraziers) W.crownBraziers(state.pin.lit, -1, 0);
     G.persist();
-    toast(G.PINNACLE.name + ' · 轮回 ' + tier + '　首领等级 ' + level, '#ffd27a');
+    // 区名 / 等级：左上的区域信息常驻，进区时亮一下（toast-zero：不弹 toast）
     return state.zone;
   };
   const pinHere = () => !!(state.pin && state.zone && state.zone.def.id === G.PINNACLE.id);
@@ -13955,7 +13949,7 @@
     S.snuffT = PINS.snuffIv;
     pinRingOff();
     G.persist();
-    toast('一盏魂灯熄灭了（还剩 ' + S.lives + ' 盏）', '#ffd27a');
+    // 熄了一盏：死亡遮罩上写着（还剩几盏），左上魂灯常驻（toast-zero：不弹 toast）
     return false;
   };
   // 魂灯燃尽：四个烛芯里随机退还 G.PIN_REFUND 个（不同种类），回到进来之前那一区、打开地图
@@ -13984,7 +13978,7 @@
     if (first) {
       save.bossKills.snuffer = true;
       toast('首次击败「' + e.name + '」：获得 2 点天赋点', '#ffd75e');
-    } else toast('「' + e.name + '」已被击败', '#ffb46a');
+    }
     const PK = save.pinnacle;
     const ilvl = Math.max(1, e.level), x = e.x, z = e.z;
     for (let i = 0; i < 3; i++) G.spawnLoot('item', G.rollItem(ilvl, 2), x, z);
@@ -14190,7 +14184,7 @@
     save.tier = tier;
     G.questSync(true); // 主线：进区步、进轮回层级（lastZone / tier 刚写入）
     G.persist();
-    toast(def.name + (tier > 0 ? ' · 轮回 ' + tier : '') + '　怪物等级 ' + level, '#ffb46a');
+    // 区名 / 怪物等级 / 轮回层级：左上的区域信息常驻，进区时亮一下（toast-zero：不弹 toast）
     return state.zone;
   };
 })();

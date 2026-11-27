@@ -233,6 +233,7 @@ async function install() {
       // 手里换回同一把标准的刃（普通、物品等级 = 角色等级、平均成色、没有隐含属性）：攻击技能的伤害和出手速度跟着武器走，
       // 前面的背包步骤会随机换装甚至卸下武器，战斗步骤的数值得有个固定的起点
       arena() {
+        if (G.ui.toastReset) G.ui.toastReset(); // toast 的 60 秒同句节流不带进这一步（toast-zero）
         G.clearMinions(); // 上一步召出来的召唤物不带进这一步
         for (const k in G.save.autoSummon || {}) G.save.autoSummon[k] = false; // 自动召唤也关掉，不然下一步一开始就补出来
         G.clearEnemies();
@@ -310,8 +311,10 @@ async function install() {
         }
         return { mean: sum / (d.length / 4), colors: seen.size };
       },
+      // 亮着的 toast 加上排着的（toast-zero：同一时刻只亮一条，后来的排队）
       toasts() {
-        return document.getElementById('toasts').textContent;
+        const st = G.ui.toastStats ? G.ui.toastStats() : null;
+        return document.getElementById('toasts').textContent + (st ? st.queued.join('') : '');
       },
       bodyText() {
         return document.getElementById('panel-body').innerText;
@@ -529,6 +532,11 @@ async function uiStep(name, fn) {
         G.ui.close();
         G.debug.hold(true);
         T.hintsSeen();
+        // hint-once：测提示的几步把「新手提示」开关写成 true（测试角色读档时多半是老手、默认关）；步骤前后拿掉，存档回到没有这个键
+        if (G.save && G.save.opts && 'hints' in G.save.opts) {
+          delete G.save.opts.hints;
+          G.persist();
+        }
       });
     await page.mouse.up();
     await reset();
@@ -800,13 +808,14 @@ async function timedMain() {
       G.player.mana = G.player.maxMana;
       G.persist();
     });
-  await uiStep('计时｜新手提示：做到之后「做到了」不会一闪而过（按下翻滚 1.9 秒后才换掉）', async () => {
+  await uiStep('计时｜新手提示：做到之后「做到了」不会一闪而过（按下翻滚 1.1 秒后才换掉）', async () => {
     // 和原步骤走到这里时一样：本次从 1 级玩上来的角色升到 3 级，基础提示只差翻滚，身边一只不动的敌人
     await ev(() => {
       T.arena();
       G.save.bag.length = 0;
       G.save.blankGems = [];
       G.save.tut = { move: 1, attack: 1, bag: 1, craft: 1, support: 1, passive: 1, combo: 1, poise: 1, wskill: 1 };
+      G.save.opts.hints = true; // hint-once：开关打开（uiStep 收尾时拿掉）
       G.save.level = 3;
       G.computeStats();
       G.ui.refresh();
@@ -820,7 +829,7 @@ async function timedMain() {
     await seen('dodge');
     await hint(); // 原步骤在这里读一次提示状态（「做到了」的断言在 test:func 里），往返照样做一次
     await until(() => G.ui.hints().current !== 'dodge');
-    assert(Date.now() - t0 >= 1900, '提示在做到之后消失得太快：' + (Date.now() - t0) + ' ms');
+    assert(Date.now() - t0 >= 1100, '提示在做到之后消失得太快：' + (Date.now() - t0) + ' ms'); // hint-once：「做到了」只留 1.2 秒（原 2 秒，断言原为 ≥ 1900）
     const ms = Date.now() - t0;
     await hintsEnd();
     return ms + ' ms 后换掉';
@@ -834,6 +843,7 @@ async function timedMain() {
       G.save.level = 5;
       G.computeStats();
       G.save.tut = { move: 1, attack: 1, dodge: 1, combo: 1, poise: 1, loot: 1, bag: 1, craft: 1, support: 1, execute: 1, boss: 1, portal: 1, wskill: 1 };
+      G.save.opts.hints = true; // hint-once：开关打开（uiStep 收尾时拿掉）
       G.resetPassives();
       G.player.flask.life = 3;
       G.ui.refresh();
@@ -845,7 +855,8 @@ async function timedMain() {
     const tf = Date.now();
     await shown('flask');
     const r = await hint();
-    assert(Date.now() - tf < 5000 && !r.tut.includes('passive') && r.txt.includes('生命药剂'), '濒死时喝药的提示应立刻顶掉正在显示的面板提示：' + JSON.stringify(r));
+    // hint-once：被顶掉的那条也算看过（出现即记），原断言是 !r.tut.includes('passive')
+    assert(Date.now() - tf < 5000 && r.tut.includes('passive') && r.txt.includes('生命药剂'), '濒死时喝药的提示应立刻顶掉正在显示的面板提示：' + JSON.stringify(r));
     const ms = Date.now() - tf;
     await hintsEnd();
     return ms + ' ms 顶上来';
@@ -1037,7 +1048,93 @@ async function timedMain() {
 }
 
 let MUSIC_PRE = null; // 启动那一步记下的「第一次按键之前」的音频状态
+const START_STEP = '启动：页面无报错，首次运行弹出开场卡片（游戏暂停），回车关闭';
+
+// ------------------------------------------------------------------ 分块 / 分片（test/README.md「分片」）
+// test:func 按原来的顺序分成 7 块。每块是连续的一串步骤，开头自己开浏览器；块和块之间的依赖只有两处，都写在下面：
+// - title 要启动那一步记下的 MUSIC_PRE：同一次没跑 main 块时，prep 照启动那一步的做法（同一个种子、同一种窗口、第一次按键之前）重记一次；
+// - ui-t2 接着 ui-t1 的触屏浏览器：单独开头时按「背包（触屏）」那一步的种子开浏览器、做同一份布局用的角色，再按整套跑时的名字播种（uiLayoutSteps）。
+// 整套跑（不带 --shard）= 7 块依次跑，步骤、顺序、种子和分块之前一样。--shard i/n 只跑 SHARDS[n][i - 1] 里的块（按这里的先后）。
+// next：同一次里紧接着跑的下一块（ui-t1 后面不是 ui-t2 时自己关掉触屏浏览器，同一时刻只开一个浏览器）
+const FUNC_BLOCKS = [
+  { id: 'main', run: () => mainBody() }, // 启动 → rift（405 步，一个页面从头走到尾；确定性 / 画质一致那几步的哈希依赖前面的步骤，所以整块不拆）
+  { id: 'title', run: () => titleSteps(), prep: musicPrePrep }, // 标题画面、暂停菜单、音效 / 音乐、主线
+  { id: 'touch', run: () => touchSteps() }, // 触屏（不含界面布局）
+  { id: 'ui-t1', run: (next) => uiTouchSteps(0, 2, next === 'ui-t2') }, // 界面布局：背包、仓库（触屏）
+  { id: 'ui-t2', run: () => uiTouchSteps(2, UI_PANEL_ORDER.length) }, // 界面布局：地图 … 天赋（触屏）
+  { id: 'ui-desk', run: () => uiDeskSteps() }, // 界面布局：桌面、桌面样式、天赋盘触屏默认视口、桌面浮窗
+  {
+    id: 'tail',
+    run: async () => {
+      await storySteps();
+      await slotSteps();
+      await classSteps();
+      await d2bSteps(); // 职业 D2b-1（class-d2b1）
+      await d2b2Steps(); // 职业 D2b-2（class-d2b2）
+      await imbueSteps(); // 装填 / 散钉 / 反冲弹 / 绊雷（imbue 批）
+      await lootWarmStep(); // 掉落模型都在启动预热里建好（列车 2）
+    },
+  },
+];
+// 固定分法：按各块实测的步骤耗时配平（分钟，2026-11-27 分片跑 4 次的中位数，池里有别人的任务）：
+// main 23.4 · title 7.5 · touch 12.0 · ui-t1 5.6 · ui-t2 19.0 · ui-desk 8.4 · tail 5.0（合计 81）。main 一块是下限
+const SHARDS = {
+  2: [['main', 'touch', 'tail'], ['title', 'ui-t1', 'ui-t2', 'ui-desk']], // 40.4 / 40.6
+  3: [['main', 'tail'], ['title', 'touch', 'ui-t1'], ['ui-t2', 'ui-desk']], // 28.4 / 25.1 / 27.4
+  4: [['main'], ['title', 'touch'], ['ui-t2'], ['ui-t1', 'ui-desk', 'tail']], // 23.4 / 19.5 / 19.0 / 19.0
+};
+const SHARD = (() => {
+  const i = process.argv.indexOf('--shard');
+  if (i < 0) return null;
+  const m = /^(\d+)\/(\d+)$/.exec(process.argv[i + 1] || '');
+  const n = m && +m[2], k = m && +m[1];
+  if (!m || !SHARDS[n] || k < 1 || k > n) {
+    console.log('--shard 要写成 i/n（n = ' + Object.keys(SHARDS).join(' / ') + '，1 ≤ i ≤ n）：' + (process.argv[i + 1] || ''));
+    process.exit(2);
+  }
+  return { k, n, blocks: SHARDS[n][k - 1] };
+})();
+// 自检：每种分法里每块正好出现一次
+for (const n in SHARDS) {
+  const all = SHARDS[n].flat();
+  if (all.length !== FUNC_BLOCKS.length || FUNC_BLOCKS.some((b) => !all.includes(b.id))) throw new Error('SHARDS[' + n + '] 没有把每块正好分一次：' + all.join(' '));
+}
 async function main() {
+  curStep = 'func:准备';
+  const ids = SHARD ? SHARD.blocks : FUNC_BLOCKS.map((b) => b.id);
+  const todo = FUNC_BLOCKS.filter((b) => ids.includes(b.id));
+  for (let i = 0; i < todo.length; i++) {
+    const b = todo[i];
+    if (SHARD) console.log('== 块 ' + b.id);
+    if (SHARD && b.prep) await b.prep(ids);
+    await b.run(todo[i + 1] && todo[i + 1].id);
+  }
+  if (SHARD) console.log('== 块 完');
+}
+// title 块的准备：这一次没跑 main 块时，按启动那一步的做法重记 MUSIC_PRE（同一个种子、1440×900、省渲染照旧，进区后第一次按键之前），
+// 然后关掉这个浏览器。不算一步；出错只打一行 note，MUSIC_PRE 留空，音乐那一步照常判失败
+async function musicPrePrep(ids) {
+  if (ids.includes('main')) return;
+  curStep = '分片准备（MUSIC_PRE）';
+  let r = null;
+  try {
+    r = await launch({ width: 1440, height: 900, seed: SEEDED ? seedKey(START_STEP) : null });
+    ({ browser, page, errors } = r);
+    await install();
+    await ev(() => G.debug.hold(false));
+    await frames(3);
+    await frames(2);
+    MUSIC_PRE = await ev(() => ({ ctx: !!(G.audio && G.audio.ctx()), music: G.music ? G.music.state() : null }));
+    if (errors.length) throw new Error('页面报错：' + errors.join(' | ').slice(0, 300));
+  } catch (e) {
+    MUSIC_PRE = null;
+    console.log('note 分片准备（MUSIC_PRE）出错：' + String(e && e.message ? e.message : e).split('\n')[0].slice(0, 200));
+  }
+  if (r) await r.browser.close().catch(() => {});
+  browser = page = errors = null;
+}
+
+async function mainBody() {
   curStep = 'func:准备';
   // ------------------------------------------------------------------ 自产素材（只用 Node，不起浏览器）
   await step('素材：自产布景件（assets/ca/manifest.json 里的每个 GLB）符合预算、命名、原点 / 单位规矩，打进包的就是这一份（tools/check-art.mjs）', async () => {
@@ -1061,7 +1158,7 @@ async function main() {
   });
 
   // ------------------------------------------------------------------ 启动
-  await step('启动：页面无报错，首次运行弹出开场卡片（游戏暂停），回车关闭', async () => {
+  await step(START_STEP, async () => {
     ({ browser, page, errors } = await launch({ width: 1440, height: 900 }));
     await install();
     await ev(() => G.debug.hold(false));
@@ -1788,6 +1885,7 @@ async function main() {
 
     // 太远 / 背包已满
     const e = await ev(() => {
+      G.ui.feedClear(); // 前面步骤留下的拾取记录（比如 toast-zero 以后「药剂空了」也写在这里）不算进下面数的警告行
       const far = G.spawnLoot('item', G.rollItem(1, 0), 0, 0);
       far.x = 7.6;
       far.z = 0;
@@ -2192,6 +2290,7 @@ async function main() {
   await step('升级：经验满后升级、回满、得到天赋点并在 HUD 上提醒', async () => {
     const r = await ev(() => {
       const P = G.player, save = G.save;
+      G.ui.toastReset(); // 前面步骤 60 秒内的升级提示不算（toast-zero：60 秒内再升级不另弹）
       P.life = 30;
       const need = G.xpNeed(save.level) - save.xp;
       const max0 = P.maxLife;
@@ -7748,10 +7847,10 @@ async function main() {
     });
     r = await ev((u) => {
       const l = G.state.loot.find((x) => x.kind === 'item' && x.data.uid === u);
-      return { cap: null, inBag: G.save.bag.some((i) => i.uid === u), d: l ? Math.hypot(l.x - G.player.x, l.z - G.player.z) : -1, tab: T.tab(), toast: T.toasts(), icon: !!document.querySelector('#toasts .toast .ico') };
+      return { cap: null, inBag: G.save.bag.some((i) => i.uid === u), d: l ? Math.hypot(l.x - G.player.x, l.z - G.player.z) : -1, tab: T.tab(), toast: T.toasts(), note: T.bodyText() };
     }, ids.belt);
     assert(mid === '丢到地上' && !r.inBag && r.d >= 0 && r.d < 3 && r.tab === 'inv', '拖出窗口应把物品丢在脚边：' + JSON.stringify(r));
-    assert(r.toast.includes('丢下了') && r.icon, '丢弃提示应带图标');
+    assert(!r.toast.includes('丢下了') && r.note.includes('丢下了「'), '丢弃提示应写在背包的绿字里（不弹 toast）：' + JSON.stringify({ toast: r.toast, note: r.note.slice(0, 200) }));
     await dragTo(cell(ids.body), { x: vp.width - 8, y: vp.height / 2 });
     r = await ev((u) => ({ on: document.getElementById('confirm').classList.contains('on'), inBag: G.save.bag.some((i) => i.uid === u), box: T.rect('#confirm'), w: innerWidth, h: innerHeight }), ids.body);
     assert(r.on && r.inBag && r.box.l >= 0 && r.box.r <= r.w && r.box.t >= 0 && r.box.b <= r.h, '稀有物品应先弹出确认框：' + JSON.stringify(r));
@@ -9199,7 +9298,7 @@ async function main() {
     r = await ev(() => ({ gems: G.save.blankGems.join(), lvl: G.save.skills.meteor, floor: G.gemFloor(), sock: JSON.stringify(G.save.sockets.meteor), bar: G.save.bar.join(), msg: (document.querySelector('.bk-msg') || {}).innerText || '', toast: T.toasts(), card: !!(T.skCard('meteor') && document.querySelector('.skill-card [data-act="bind"][data-skill="meteor"]')), stored: JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).blankGems.join() }));
     assert(r.lvl === r.floor && r.gems === '7,5' && r.stored === '7,5', '学会陨火应记成长下限、用掉最低的那颗：' + JSON.stringify(r));
     assert(r.sock === '[null,null,null]' && r.bar === 'ember,,nova,meteor' && r.card, '学会后应开好辅助槽并自动放进技能栏的空格（右键不算空格）：' + JSON.stringify(r));
-    assert(r.msg.includes('陨火') && !/Lv/.test(r.msg) && r.toast.includes('习得技能：陨火') && !/陨火 Lv/.test(r.toast), '学会后应给出提示（不写等级）：' + JSON.stringify(r));
+    assert(r.msg.includes('陨火') && !/Lv/.test(r.msg) && !r.toast.includes('陨火'), '学会后应在技能页给出提示（不写等级、不弹 toast）：' + JSON.stringify(r));
     await until(() => document.querySelectorAll('#slots .slot')[3].dataset.skill === 'meteor').catch(() => {
       throw new Error('HUD 技能栏没有同步');
     });
@@ -9223,6 +9322,8 @@ async function main() {
       T.arena();
       T.hintsSeen();
       delete G.save.tut.blank;
+      G.save.opts.hints = true; // hint-once：开关打开（uiStep 收尾时拿掉）
+      G.ui.hintsGap(0);
       G.save.blankGems = [];
       const P = G.player;
       const l = G.spawnLoot('blank', {}, P.x, P.z);
@@ -9256,7 +9357,7 @@ async function main() {
     });
   });
 
-  await uiStep('新手提示：按情境逐条出现、做到即消失、不挡操作，看过的写进存档；面板里有对应的提示条；老角色跳过基础操作', async () => {
+  await uiStep('新手提示：按情境逐条出现、出现即记为看过（只出一次）、做到即消失、点一下收起、两条之间隔 30 秒，看过的写进存档；面板里有对应的提示条；老角色跳过基础操作', async () => {
     const hint = () => ev(() => Object.assign(G.ui.hints(), { cls: document.getElementById('coach').className, txt: document.getElementById('coach').innerText, tut: Object.keys(G.save.tut).join() }));
     const shown = (id) => until((id) => G.ui.hints().current === id && G.ui.hints().state === 'show' && document.getElementById('coach').classList.contains('on'), id).catch(() => {
       throw new Error('提示「' + id + '」没有出现');
@@ -9273,6 +9374,7 @@ async function main() {
       G.save.bag.length = 0;
       G.save.blankGems = []; // 前面的步骤里可能随机捡到过无铭宝石：它的提示会插队
       G.save.tut = {};
+      G.save.opts.hints = true; // hint-once：开关打开（uiStep 收尾时拿掉）
       G.ui.refresh();
       G.debug.hold(false);
       return k;
@@ -9282,14 +9384,24 @@ async function main() {
     let r = await hint();
     // 远程改版又加了几条（拿上远程武器、量表满、长弓改名、新区域……），按下限比
     assert(r.txt.includes('移动') && r.all.length >= 19, '第一条提示应是移动（至少 19 条，含武器技、旧存档的武器改版与成长改版说明）：' + r.txt + ' / ' + r.all.join());
+    // hint-once：出现那一刻就记进存档（原来要做到才记）
+    r = await ev(() => ({ mem: !!G.save.tut.move, stored: !!JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).tut.move, vis: G.ui.hints().visFor }));
+    assert(r.mem && r.stored && r.vis >= 6 && r.vis <= 8, '提示一出现就应记为看过、写进存档，亮 6–8 秒：' + JSON.stringify(r));
+    // hint-once：提示卡点得到（点一下收起），原断言是 pointerEvents === 'none'（只有点在画布上的才算游戏输入，见 main.js）
     r = await ev(() => { const c = T.rect('#coach'), k = T.rect('#keyhints'), f = T.rect('.orb-wrap.left'); return { c, under: c.t >= k.b, aboveOrb: c.b <= f.t, pe: getComputedStyle(document.getElementById('coach')).pointerEvents }; });
-    assert(r.under && r.aboveOrb && r.c.l >= 0 && r.pe === 'none', '提示卡的位置不对或挡住了操作：' + JSON.stringify(r));
+    assert(r.under && r.aboveOrb && r.c.l >= 0 && r.pe === 'auto', '提示卡的位置不对：' + JSON.stringify(r));
     await page.keyboard.down('KeyD');
     try {
-      await seen('move');
+      await until(() => G.ui.hints().state === 'done').catch(() => { throw new Error('走了几步，移动提示没有显示「做到了」'); });
     } finally {
       await page.keyboard.up('KeyD');
     }
+    await until(() => G.ui.hints().current === null);
+    r = await hint();
+    assert(r.gapLeft > 28000, '收起之后下一条至少隔 30 秒：' + JSON.stringify(r));
+    await frames(10);
+    assert((await hint()).current === null, '间隔内不应出下一条');
+    await ev(() => G.ui.hintsGap(0));
     await shown('attack');
     await holdInput(0, true);
     try {
@@ -9299,23 +9411,23 @@ async function main() {
     }
     await frames(3);
     r = await hint();
-    assert(r.current === 'attack' && !r.tut.includes('attack'), '只用了一个键，提示不应消失');
+    assert(r.current === 'attack' && r.state === 'show', '只用了一个键，提示不应消失'); // hint-once：原来还断言 attack 没记进 tut；现在出现即记
     await holdInput(1, true);
     try {
-      await seen('attack');
+      await until(() => G.ui.hints().current !== 'attack' || G.ui.hints().state === 'done').catch(() => { throw new Error('两个键都用过后攻击提示没有收起'); });
     } finally {
       await holdInput(1, false);
     }
     r = await ev(() => Object.keys(JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).tut).sort().join());
     assert(r === 'attack,move', '看过的提示没有写进存档：' + r);
     // 没有敌人时不提示翻滚；背包里有东西时提示背包，并在背包页里接着提示
-    await ev(() => { G.save.tut.dodge = 1; G.debug.giveItem(1, 'helm'); });
+    await ev(() => { G.save.tut.dodge = 1; G.debug.giveItem(1, 'helm'); G.ui.hintsGap(0); });
     await shown('bag');
     await page.keyboard.press('KeyI');
     r = await ev(() => ({ banner: (document.querySelector('.inv-tips.coach') || {}).innerText || '', hidden: getComputedStyle(document.getElementById('coach')).display }));
     assert(r.banner.includes('右键') && r.hidden === 'none', '背包页里应有对应的提示条：' + JSON.stringify(r));
     await page.click('.cell[data-item]', { button: 'right' });
-    await seen('bag');
+    await until(() => G.ui.hints().current !== 'bag' || G.ui.hints().state === 'done');
     await until(() => !document.querySelector('.inv-tips.coach')).catch(() => {
       throw new Error('做到之后面板里的提示条没有收掉');
     });
@@ -9328,12 +9440,12 @@ async function main() {
     });
     await shown('dodge');
     r = await hint();
-    assert(!r.veteran && r.txt.includes('翻滚') && !r.tut.includes('dodge'), '升到 3 级的新角色应照常看到翻滚提示：' + JSON.stringify(r));
-    // 做到了：立刻记为看过，但卡片要留到读得完为止（至少 4 秒），不会一闪而过（「1.9 秒后才换掉」看墙钟，在 test:timed 里）
+    assert(!r.veteran && r.txt.includes('翻滚') && r.tut.includes('dodge'), '升到 3 级的新角色应照常看到翻滚提示（出现即记）：' + JSON.stringify(r)); // hint-once：原为 !r.tut.includes('dodge')
+    // 做到了：显示「做到了」，卡片至少留 2.5 秒（hint-once：原来至少 4 秒，断言原为 minShow >= 4；「1.1 秒后才换掉」看墙钟，在 test:timed 里）
     await page.keyboard.press('Space');
-    await seen('dodge');
+    await until(() => G.ui.hints().state === 'done');
     r = await hint();
-    assert(r.state === 'done' && r.cls.includes('done') && r.minShow >= 4, '做到之后应显示「做到了」：' + JSON.stringify(r));
+    assert(r.state === 'done' && r.cls.includes('done') && r.minShow >= 2.5, '做到之后应显示「做到了」：' + JSON.stringify(r));
     await until(() => G.ui.hints().current !== 'dodge');
     await ev(() => { G.clearEnemies(); G.player.roll.cd = 0; });
     // 读档时已经 3 级以上的老角色：基础操作的提示直接跳过（只在读档那一刻判定）
@@ -9349,7 +9461,7 @@ async function main() {
     });
     r = await hint();
     assert(r.current === null && r.veteran, '老角色不应看到基础提示：' + JSON.stringify(r));
-    // 要开面板才做得了的提示（天赋）亮着时生命见底：喝药的提示立刻顶上来，被顶掉的那条不算看过，之后还会再出
+    // 要开面板才做得了的提示（天赋）亮着时生命见底：喝药的提示立刻顶上来；hint-once：被顶掉的那条也算看过，之后不再出
     await ev(() => {
       G.save.tut = { move: 1, attack: 1, dodge: 1, combo: 1, poise: 1, loot: 1, bag: 1, craft: 1, support: 1, execute: 1, boss: 1, portal: 1, wskill: 1 };
       G.resetPassives();
@@ -9359,27 +9471,43 @@ async function main() {
     await ev(() => { G.player.life = G.player.maxLife * 0.2; });
     await shown('flask');
     r = await hint();
-    assert(!r.tut.includes('passive') && r.txt.includes('生命药剂'), '濒死时喝药的提示应立刻顶掉正在显示的面板提示：' + JSON.stringify(r)); // 「5 秒内」看墙钟，在 test:timed 里
+    // hint-once：原断言 !r.tut.includes('passive')（被顶掉的不算看过）
+    assert(r.tut.includes('passive') && r.txt.includes('生命药剂'), '濒死时喝药的提示应立刻顶掉正在显示的面板提示：' + JSON.stringify(r)); // 「5 秒内」看墙钟，在 test:timed 里
     await ev(() => { G.player.life = G.player.maxLife; });
-    await seen('flask');
+    await until(() => G.ui.hints().current !== 'flask');
+    // hint-once：被顶掉的天赋提示不再出（原来这里会再出一次）
+    await ev(() => G.ui.hintsGap(0));
+    await sleep(1500);
+    r = await hint();
+    assert(r.current !== 'passive' && r.current !== 'flask', '看过的提示（被顶掉的也算）不应再出：' + JSON.stringify(r));
+    // 打起来了：需要清静的提示收起（hint-once：已经算看过，不再出）
+    await ev(() => { delete G.save.tut.passive; G.ui.hintsGap(0); });
     await shown('passive');
-    // 打起来了：先收起，不占着提示位，也不算看过
     await ev(() => { T.mob('husk', 7, 0); });
     await until(() => G.ui.hints().current !== 'passive').catch(() => {
       throw new Error('战斗开始后，需要清静的提示没有收起');
     });
     r = await hint();
-    assert(!r.tut.includes('passive'), '被战斗打断的提示不应算作看过：' + JSON.stringify(r));
+    assert(r.tut.includes('passive'), '被战斗打断的提示也算看过（只出一次）：' + JSON.stringify(r)); // hint-once：原断言 !r.tut.includes('passive')
     await frames(20);
     assert((await hint()).current !== 'passive', '身边有敌人时不应再弹出需要清静的提示');
-    await ev(() => { G.clearEnemies(); });
+    await ev(() => { G.clearEnemies(); G.ui.hintsGap(0); });
+    await sleep(1500);
+    assert((await hint()).current !== 'passive', '打完之后被打断的提示不应再出');
+    // 点一下提示卡：立刻收起，不放技能
+    await ev(() => { delete G.save.tut.passive; G.ui.hintsGap(0); });
     await shown('passive');
+    const cr = await ev(() => T.rect('#coach'));
+    await page.mouse.click(cr.x, cr.y);
+    await until(() => G.ui.hints().current === null).catch(() => { throw new Error('点一下提示卡没有收起'); });
+    r = await ev(() => ({ cast: !!G.player.cast, gap: G.ui.hints().gapLeft, cls: document.getElementById('coach').className }));
+    assert(!r.cast && r.gap > 28000 && !r.cls.includes('on'), '点提示卡应只收起提示、不放技能，之后隔 30 秒：' + JSON.stringify(r));
     // 帮助页可以重置
     await page.keyboard.press('KeyH');
     await page.click('[data-act="topic"][data-topic="keys"]'); // B4a：按钮在「操作」这一节的最下面（帮助页记着上次看的话题）
     await page.click('[data-act="tut-reset"]');
-    r = await ev(() => ({ n: Object.keys(G.save.tut).length, txt: document.querySelector('.help-foot').innerText }));
-    assert(r.n === 0 && r.txt.includes('已重置'), '帮助页的「重新显示新手提示」无效');
+    r = await ev(() => ({ n: Object.keys(G.save.tut).length, txt: document.querySelector('.help-foot').innerText, on: G.save.opts.hints }));
+    assert(r.n === 0 && r.txt.includes('已重置') && r.on === true, '帮助页的「重新显示新手提示」无效：' + JSON.stringify(r));
     await closePanel();
     await ev((keep) => {
       G.debug.hold(true);
@@ -9396,10 +9524,141 @@ async function main() {
     }, keep);
   });
 
-  await step('面板内的提示：toast 不压页签栏和面板内容', async () => {
+  await uiStep('新手提示只出一次（hint-once）：出现即记，读档后不再出，不点不做 8 秒内自己收起；设置里「新手提示」关掉后不出（每页的一次性说明也不出，改版说明照出）；老存档按等级 / 轮回 / 通关定默认；帮助页「重新显示新手提示」重新打开', async () => {
+    const hint = () => ev(() => Object.assign(G.ui.hints(), { cls: document.getElementById('coach').className, txt: document.getElementById('coach').innerText }));
+    // ms 毫秒内一直没有新手提示（改版说明不算）
+    const none = async (ms, what) => {
+      const t = Date.now();
+      while (Date.now() - t < ms) {
+        const h = await hint();
+        if (h.current && !h.notes.includes(h.current)) throw new Error(what + '：' + JSON.stringify(h));
+        await sleep(200);
+      }
+    };
+    const pageHint = () => ev(() => { G.ui.open('inv'); const n = !!document.querySelector('#panel-body .pg-note.hint'); G.ui.close(); return n; });
+    const keep = await ev(() => {
+      T.arena();
+      const k = { level: G.save.level, xp: G.save.xp };
+      G.save.level = 5;
+      G.computeStats();
+      G.save.bag.length = 0;
+      G.save.blankGems = [];
+      G.save.opts.hints = true;
+      const tut = {};
+      for (const id of G.ui.hints().all) if (id !== 'passive') tut[id] = 1;
+      G.save.tut = tut;
+      G.resetPassives();
+      G.ui.refresh();
+      G.debug.hold(false);
+      return k;
+    });
+    await page.mouse.move(900, 450);
+    // 1) 出现那一刻就记进存档；不点也不做，最多 8 秒自己收起
+    await until(() => G.ui.hints().current === 'passive' && document.getElementById('coach').classList.contains('on')).catch(() => { throw new Error('天赋提示没有出现'); });
+    const t0 = Date.now();
+    let r = await ev(() => ({ mem: !!G.save.tut.passive, stored: !!JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).tut.passive, vis: G.ui.hints().visFor }));
+    assert(r.mem && r.stored && r.vis >= 6 && r.vis <= 8, '提示一出现就应记为看过、写进存档，亮 6–8 秒：' + JSON.stringify(r));
+    // 亮多久按游戏里的时间算（coach 每帧最多记 0.1 秒，机器忙、帧率低时墙钟会更长）：收起前最后一帧的 shownFor 不超过 visFor
+    const life = await ev(() => new Promise((res) => {
+      let last = 0;
+      const t = performance.now();
+      const f = () => {
+        const h = G.ui.hints();
+        if (h.current === 'passive') last = h.shownFor;
+        if (h.current !== 'passive' || performance.now() - t > 60000) return res({ last, vis: h.visFor, cur: h.current });
+        requestAnimationFrame(f);
+      };
+      f();
+    }));
+    const secs = (Date.now() - t0) / 1000;
+    assert(life.cur === null && life.last <= r.vis + 0.3 && life.last >= r.vis - 0.5, '提示应亮满 6–8 秒（游戏时间）后自己收起：' + JSON.stringify(life) + '，墙钟 ' + secs.toFixed(1) + ' 秒');
+    // 2) 读档（等同刷新页面）：天赋点还在，提示不再出
+    await ev(() => { G.persist(); G.loadSave(); G.computeStats(); G.debug.hold(false); });
+    r = await ev(() => ({ free: G.passivePoints().free, seen: !!G.save.tut.passive, on: G.ui.hints().on }));
+    assert(r.free > 0 && r.seen && r.on, '读档后天赋点还在、提示记为看过：' + JSON.stringify(r));
+    await none(3000, '读档后看过的提示不应再出');
+    // 3) 设置里关掉：「操作」一组的「新手提示」开关
+    const row = () => ev(() => {
+      const sw = document.querySelector('#p-view [data-tact="hints"]');
+      return sw ? { on: sw.classList.contains('on'), txt: sw.innerText, grp: sw.closest('.m-grp').querySelector('.m-gt').textContent, opt: G.save.opts.hints, stored: JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).opts.hints } : null;
+    });
+    await openSettings();
+    let sw = await row();
+    assert(sw && sw.on && sw.txt.includes('新手提示') && sw.txt.includes('只出一次') && sw.grp === '操作', '设置「操作」里应有「新手提示」开关（开着）：' + JSON.stringify(sw));
+    await page.click('#p-view [data-tact="hints"]');
+    sw = await row();
+    assert(sw && !sw.on && sw.opt === false && sw.stored === false, '点一下应关掉并存档：' + JSON.stringify(sw));
+    await closeSettings();
+    await ev(() => {
+      for (const id of ['passive', 'bag', 'move', 'attack']) delete G.save.tut[id];
+      G.debug.giveItem(1, 'helm');
+      G.ui.hintsGap(0);
+      G.debug.hold(false);
+    });
+    await none(3000, '关掉「新手提示」后不应出新手提示');
+    r = await ev(() => { localStorage.removeItem('cinder-abyss-ui-seen'); return true; });
+    assert(!(await pageHint()), '关掉「新手提示」后背包页底部的一次性说明也不应出');
+    // 改版说明不是教学：关着也照出（每条一次）
+    await ev(() => { delete G.save.tut.zone5; G.newZoneNotice = true; G.ui.hintsGap(0); });
+    await until(() => G.ui.hints().current === 'zone5').catch(() => { throw new Error('关掉「新手提示」后改版说明也应照出'); });
+    await ev(() => { document.getElementById('coach').click(); G.newZoneNotice = false; });
+    r = await hint();
+    assert(r.current === null && r.notes.includes('zone5') && !r.notes.includes('passive'), '点一下应收起改版说明：' + JSON.stringify(r));
+    // 4) 没动过开关的存档（没有 opts.hints）：10 级以上、进过轮回或打通烬渊深处的默认关，其余默认开；新存档没有这个键
+    r = await ev(() => {
+      const KEY = 'cinder-abyss-save-v1';
+      const base = localStorage.getItem(KEY);
+      const out = { fresh: 'hints' in G.newSave().opts };
+      const load = (o) => {
+        const raw = Object.assign(JSON.parse(base), o);
+        raw.opts = Object.assign({}, raw.opts);
+        delete raw.opts.hints;
+        localStorage.setItem(KEY, JSON.stringify(raw));
+        G.loadSave();
+        const h = G.ui.hints();
+        return h.on + (h.explicit ? '!' : '') + ('hints' in G.save.opts ? '+key' : '');
+      };
+      try {
+        out.l5 = load({ level: 5, maxTier: 0, tier: 0, cleared: {} });
+        out.l9 = load({ level: 9, maxTier: 0, tier: 0, cleared: { ash: 0, frost: 0 } });
+        out.l10 = load({ level: 10, maxTier: 0, tier: 0, cleared: {} });
+        out.tier = load({ level: 6, maxTier: 1, tier: 0, cleared: {} });
+        out.abyss = load({ level: 9, maxTier: 0, tier: 0, cleared: { ash: 0, frost: 0, storm: 0, abyss: 0 } });
+      } finally {
+        localStorage.setItem(KEY, base);
+        G.loadSave();
+        G.computeStats();
+      }
+      return out;
+    });
+    assert(!r.fresh && r.l5 === 'true' && r.l9 === 'true' && r.l10 === 'false' && r.tier === 'false' && r.abyss === 'false', '没动过开关时的默认不对：' + JSON.stringify(r));
+    const defs = r;
+    // 5) 帮助页「重新显示新手提示」：看过的清空、开关回到开（写进存档）、每页的一次性说明重新出
+    await page.keyboard.press('KeyH');
+    await page.click('[data-act="topic"][data-topic="keys"]');
+    await page.click('[data-act="tut-reset"]');
+    r = await ev(() => ({ n: Object.keys(G.save.tut).length, on: G.save.opts.hints, stored: JSON.parse(localStorage.getItem('cinder-abyss-save-v1')).opts.hints }));
+    assert(r.n === 0 && r.on === true && r.stored === true, '「重新显示新手提示」应清空看过的记录并打开开关：' + JSON.stringify(r));
+    await closePanel();
+    assert(await pageHint(), '重新显示之后背包页底部的一次性说明应重新出');
+    await ev((keep) => {
+      G.debug.hold(true);
+      T.hintsSeen();
+      delete G.save.opts.hints;
+      G.save.level = keep.level;
+      G.save.xp = keep.xp;
+      G.save.bag.length = 0;
+      G.computeStats();
+      G.persist();
+    }, keep);
+    return '出现即记 · 亮 ' + life.last.toFixed(1) + ' 秒（墙钟 ' + secs.toFixed(1) + '）自己收起 · 读档不再出 · 关掉后 3 秒内 0 条 · 默认 ' + JSON.stringify(defs);
+  });
+
+  await step('面板内的提示：toast 不压页签栏和面板内容；同一时刻只亮一条（toast-zero）', async () => {
     await page.keyboard.press('KeyI');
     await until(() => G.ui.isOpen());
     const r = await ev(() => {
+      G.ui.toastReset();
       G.ui.toast('较早的一条提示');
       G.ui.toast('分解获得：微光尘 ×1');
       const rect = (n) => { const b = n.getBoundingClientRect(); return { l: b.left, t: b.top, r: b.right, b: b.bottom }; };
@@ -9409,17 +9668,21 @@ async function main() {
         tabs: rect(document.getElementById('tabs')), body: rect(document.getElementById('panel-body')), h: innerHeight,
       };
     });
-    assert(r.n === 1 && r.txt.includes('分解获得'), '面板打开时应只显示最新的一条提示：' + JSON.stringify(r));
+    assert(r.n === 1 && r.txt.includes('较早的一条'), '同一时刻只亮一条提示（后来的排队，toast-zero）：' + JSON.stringify(r));
     assert(r.toast.t >= r.tabs.b, '提示压在页签栏上：' + JSON.stringify(r));
     assert(r.toast.t >= r.body.b - 2 && r.toast.b <= r.h, '提示压在面板内容上或超出屏幕：' + JSON.stringify(r));
     await closePanel();
     const out = await ev(() => {
+      G.ui.toastReset();
       G.ui.toast('甲');
       G.ui.toast('乙');
+      G.ui.toast('甲'); // 60 秒内同一句不再排
       const vis = Array.from(document.querySelectorAll('#toasts .toast')).filter((n) => n.getBoundingClientRect().height > 0);
-      return { t: vis[vis.length - 1].getBoundingClientRect().top, n: vis.length };
+      const st = G.ui.toastStats();
+      G.ui.toastReset();
+      return { t: vis[vis.length - 1].getBoundingClientRect().top, n: vis.length, txt: vis[0].textContent, q: st.queued };
     });
-    assert(out.t < 300 && out.n >= 2, '面板关闭后提示应回到屏幕上方并恢复多条：' + JSON.stringify(out));
+    assert(out.t < 300 && out.n === 1 && out.txt === '甲' && JSON.stringify(out.q) === '["乙"]', '面板关闭后提示应回到屏幕上方；同一时刻只亮一条、后来的排队、同一句 60 秒内不重复：' + JSON.stringify(out));
   });
 
   await step('按住 Alt 查看详情：只有带详情的技能卡 / 浮窗才有提示行；面板开着时按住 Alt 展开、松开收起', async () => {
@@ -10978,6 +11241,8 @@ async function main() {
       G.computeStats();
       T.hintsSeen();
       delete G.save.tut.combo;
+      G.save.opts.hints = true; // hint-once：开关打开（uiStep 收尾时拿掉）
+      G.ui.hintsGap(0);
     });
     await frames(20);
     assert((await ev(() => G.ui.hints().current)) === null, '身边没有敌人时不应提示连击');
@@ -10992,6 +11257,7 @@ async function main() {
       G.clearEnemies();
       delete G.save.tut.poise;
       delete G.save.tut.execute;
+      G.ui.hintsGap(0); // hint-once：连击提示收起后要隔 30 秒，这里直接放行
       window.E = T.mob('brute', 4, 0, { elite: true });
     });
     await shown('poise');
@@ -11309,7 +11575,7 @@ async function main() {
       P.life = 1;
       let dt = 0;
       while (!P.dead && dt < 40) { G.tick(1 / 60); dt += 1 / 60; }
-      const out = { before, dead: P.dead, dieT: dt, hidden: !P.ent.group.visible, toast: T.toasts(), deadT: P.deadT };
+      const out = { before, dead: P.dead, dieT: dt, hidden: !P.ent.group.visible, toast: T.toasts(), deadT: P.deadT, cover: document.querySelector('#death .death-title').textContent };
       P.deadT = 4; // 拉长一点，方便检查遮罩
       const x = P.x, z = P.z;
       G.input.keys.KeyD = true;
@@ -11321,7 +11587,7 @@ async function main() {
       return out;
     });
     assert(a.dead && a.dieT < 40, '关掉无敌、只剩 1 点生命，40 秒内居然没死');
-    assert(a.hidden && a.toast.includes('倒下'), '死亡表现不对');
+    assert(a.hidden && !a.toast.includes('倒下') && a.cover === '你倒下了', '死亡表现不对（「你倒下了」只写在死亡遮罩上，不弹 toast）：' + JSON.stringify({ hidden: a.hidden, toast: a.toast, cover: a.cover }));
     assert(a.frozen && !a.flask && !a.dodge, '死亡后不应还能移动 / 喝药 / 翻滚');
     await until(() => document.getElementById('death').classList.contains('on') && +getComputedStyle(document.getElementById('death')).opacity > 0.5).catch(() => {
       throw new Error('死亡遮罩没有显示');
@@ -14193,10 +14459,12 @@ async function main() {
     });
     const seen = {};
     for (let i = 0; i < 2; i++) {
-      await until(() => ['zone5', 'bowmig'].includes(G.ui.hints().current) && !G.save.tut[G.ui.hints().current], null, 40000).catch(() => { throw new Error('读进旧存档后应依次提示新区域与远程改版：' + JSON.stringify(seen)); });
-      const h = await ev(() => ({ id: G.ui.hints().current, txt: document.getElementById('coach').innerText }));
+      // hint-once：出现即记为看过（原来等 !G.save.tut[current]）；两条之间隔 30 秒，读完一条点掉并放行下一条
+      await until((ids) => ['zone5', 'bowmig'].includes(G.ui.hints().current) && !ids.includes(G.ui.hints().current), Object.keys(seen), 40000).catch(() => { throw new Error('读进旧存档后应依次提示新区域与远程改版：' + JSON.stringify(seen)); });
+      const h = await ev(() => ({ id: G.ui.hints().current, txt: document.getElementById('coach').innerText, tut: !!G.save.tut[G.ui.hints().current] }));
+      assert(h.tut, '改版说明一出现就应记为看过：' + JSON.stringify(h));
       seen[h.id] = h.txt;
-      await ev((id) => { G.save.tut[id] = 1; }, h.id);
+      await ev(() => { document.getElementById('coach').click(); G.ui.hintsGap(0); });
     }
     await ev((keep) => {
       G.debug.hold(true);
@@ -14385,7 +14653,7 @@ async function main() {
     return r.lines;
   });
 
-  await uiStep('烬铸：所有通货（含琢刻石、重铸石）都拒绝，提示「烬铸武器无法改造」，拖上去时变暗；分解要点两次「分解」，固定给一把高阶通货；提示里有完美度和区间', async () => {
+  await uiStep('烬铸：所有通货（含琢刻石、重铸石）都拒绝，提示「烬铸武器无法改造」（不弹 toast），拖上去时变暗；分解要点两次「分解」，固定给一把高阶通货；提示里有完美度和区间', async () => {
     const pre = await ev(() => {
       while (G.save.bag.length > 30) G.save.bag.pop();
       const it = G.debug.giveItem(3, 'jinduan', 0.6, 44);
@@ -14400,7 +14668,7 @@ async function main() {
       return out;
     });
     assert(!pre.can.length && !pre.applied.length && pre.same && pre.cur && !pre.chisel, '烬铸武器被通货改动了：' + JSON.stringify(pre));
-    assert(pre.msgs.every((m) => m === '烬铸武器无法改造') && /烬铸武器无法改造/.test(pre.toast), '拒绝的提示不对：' + JSON.stringify(pre.msgs) + ' ' + pre.toast);
+    assert(pre.msgs.every((m) => m === '烬铸武器无法改造') && !/无法改造/.test(pre.toast), '拒绝的提示不对（写在背包红字里，不弹 toast）：' + JSON.stringify(pre.msgs) + ' ' + pre.toast);
     // 界面：选中后详情里有完美度、区间、机制；拖琢刻石过去时这一格变暗并写明原因
     await ev(() => G.ui.open('inv'));
     await clickCard('.cell[data-item="' + pre.uid + '"]');
@@ -21143,6 +21411,84 @@ async function main() {
     return '波次 ' + r.waves.join(' → ') + '，评级 ' + r.how;
   });
 
+  await step('toast-zero：异兆的开始 / 结果 / 用法写在顶上的事件条里；空药剂抖图标 + 拾取记录一行（60 秒一次）；连升两级只一条 toast；卖东西的所得写在拾烬客面板；余烛殿倒下写在死亡遮罩上；这些都不弹 toast', async () => {
+    await encKit();
+    const r = await ev(async () => {
+      const S = G.state, P = G.player, sv = G.save, out = {};
+      const raf = () => new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)));
+      const bar = () => {
+        const b = document.getElementById('enc-bar');
+        return { on: b.classList.contains('on'), name: b.querySelector('.eb-name').textContent, txt: b.querySelector('.eb-txt').textContent, mode: b.dataset.mode || '' };
+      };
+      G.ui.toastReset();
+      G.ui.encNoteReset(); // 前面的异兆步骤已经提示过祈坛的用法（这次游戏只提示一次）
+      const t0 = G.ui.toastStats().shown;
+      // 试锋：开始时事件条先写目标句；弃权写结果（灰）
+      const D = G.ENCOUNTERS.trial.p;
+      let enc = EK.put('trial', 2, 1);
+      T.tp(enc.site.x, enc.site.z);
+      EK.step(0.5);
+      await raf();
+      out.go = Object.assign(bar(), { st: enc.st, want: D.time + ' 秒内打完三波' });
+      T.tp(enc.site.door.x + (enc.site.door.x - enc.site.x) * 2, enc.site.door.z + (enc.site.door.z - enc.site.z) * 2);
+      EK.step(5);
+      await raf();
+      out.quit = Object.assign(bar(), { how: enc.how });
+      // 祈坛：醒来时写一次用法（这次游戏同一种只写一次）
+      enc = EK.put('shrine', 1, 0);
+      T.tp(enc.site.x + 2, enc.site.z);
+      EK.step(0.2);
+      await raf();
+      out.hint = bar();
+      G.ui.encNote({ kind: 'shrine', txt: '走近按 F 激活', st: 'hint', once: true });
+      out.notes = G.ui.encNotes().filter((n) => n.startsWith('shrine:hint')).length;
+      EK.done();
+      // 空药剂：图标抖一下（每次按），拾取记录写一行（60 秒内只一次）
+      G.ui.feedClear();
+      const fl0 = P.flask.life;
+      P.flask.life = 0;
+      P.life = P.maxLife * 0.3;
+      out.flask = [G.useFlask('life'), G.useFlask('life')];
+      await raf();
+      out.deny = document.getElementById('flask-life').classList.contains('deny');
+      out.feed = Array.from(document.querySelectorAll('#feed .fd')).map((n) => n.innerText.replace(/\s+/g, ' ').trim());
+      P.flask.life = fl0;
+      P.life = P.maxLife;
+      G.ui.feedClear();
+      // 连升两级：同一条 toast 改写（天赋点加在一起）
+      const lv0 = sv.level, xp0 = sv.xp;
+      G.gainXp(G.xpNeed(sv.level) - sv.xp + 1);
+      G.gainXp(G.xpNeed(sv.level) - sv.xp + 1);
+      const ts = G.ui.toastStats();
+      out.lvl = { cur: ts.cur, queued: ts.queued.length, want: '等级提升：Lv ' + sv.level + '（获得 2 点天赋点）', n: ts.shown - t0 };
+      sv.level = lv0;
+      sv.xp = xp0;
+      G.computeStats();
+      // 余烛殿倒下：死亡遮罩上写还剩几盏魂灯
+      const pin0 = S.pin;
+      S.pin = { lives: 3, done: false, phase: 0, lit: [1, 1, 1, 1], br: [] };
+      P.dead = true;
+      await raf();
+      out.pinSub = document.querySelector('#death .death-sub').textContent;
+      P.dead = false;
+      S.pin = pin0;
+      await raf();
+      // 卖东西：所得交给面板（res.txt），不弹 toast
+      out.toasts = T.toasts();
+      out.n = G.ui.toastStats().shown - t0;
+      G.ui.toastReset();
+      return out;
+    });
+    assert(r.go.st === 'run' && r.go.on && r.go.name === '试锋' && r.go.txt === r.go.want, '试锋开始时事件条应先写目标句：' + JSON.stringify(r.go));
+    assert(r.quit.how === 'quit' && r.quit.on && r.quit.mode === 'fail' && r.quit.txt === '弃权', '弃权应写在事件条上（灰）：' + JSON.stringify(r.quit));
+    assert(r.hint.on && r.hint.name === '祈坛' && r.hint.txt.includes('激活') && r.hint.mode === 'hint' && r.notes === 1, '祈坛的用法应只写一次：' + JSON.stringify(r));
+    assert(r.flask.join() === 'false,false' && r.deny && r.feed.length === 1 && r.feed[0].includes('生命药剂空了'), '空药剂：图标抖一下、拾取记录只写一行：' + JSON.stringify(r));
+    assert(r.lvl.cur === r.lvl.want && r.lvl.queued === 0 && r.lvl.n === 1, '连升两级应只有一条 toast、天赋点加在一起：' + JSON.stringify(r.lvl));
+    assert(/还剩 2 盏/.test(r.pinSub), '余烛殿倒下应在死亡遮罩上写还剩几盏魂灯：' + r.pinSub);
+    assert(r.n === 1 && !/试锋|祈坛|药剂|魂灯/.test(r.toasts), '这一步只应有升级那一条 toast：' + JSON.stringify(r));
+    return '事件条 ' + r.go.txt + ' / ' + r.quit.txt + ' · 药剂 ' + r.feed[0] + ' · ' + r.lvl.cur;
+  });
+
   await step('异兆「拾烬客」：按 F 打开货架（至少 1 件稀有），买得起才能买、扣对价钱；卖东西按分解价 +1 微光尘；烛芯任意 2 换 1（层级 2 起）', async () => {
     await encKit();
     const r = await ev(() => {
@@ -21173,6 +21519,8 @@ async function main() {
         const d0 = sv.cur.dust || 0;
         const got = G.traderSell(it);
         out.sell = (got.dust || 0) === (exp.dust || 0) + 1 && sv.bag.length === 0 && (sv.cur.dust || 0) === d0 + (exp.dust || 0) + 1;
+        out.sellTxt = got.txt; // toast-zero：所得写在拾烬客面板（res.txt），不弹 toast
+        out.sellToast = T.toasts();
         // 烛芯 2 换 1
         sv.frags = { seal: 3, rift: 0, vow: 1, box: 0 };
         out.swap = JSON.stringify(G.traderSwap('rift'));
@@ -21198,6 +21546,7 @@ async function main() {
     assert(r.F && r.open && r.html && r.rare >= 1 && r.gem && r.sup >= 1, '拾烬客的货架不对：' + JSON.stringify(r));
     assert(r.poor === 'cost' && r.buy === true && r.left.join() === '1,1' && r.inBag && r.twice === 'none', '买东西不对：' + JSON.stringify(r));
     assert(r.sell, '卖东西应按分解价 +1 微光尘：' + JSON.stringify(r));
+    assert(/微光尘 ×\d/.test(r.sellTxt) && !r.sellToast.includes('卖给'), '卖东西的所得应交给面板写、不弹 toast：' + JSON.stringify([r.sellTxt, r.sellToast]));
     assert(r.swap === '{"seal":2}' && r.frags === '{"seal":1,"rift":1,"vow":1,"box":0}' && r.short === false && r.t1 === false, '烛芯 2 换 1 不对：' + JSON.stringify(r));
     return '货架 ' + r.rare + ' 件稀有，2 换 1：' + r.frags;
   });
@@ -22855,7 +23204,7 @@ async function main() {
     await page.mouse.click(a.far.x, a.far.y);
     const c = await ev(() => {
       const ch = G.state.zone.chests, far = ch[ch.length - 1];
-      const r = { farOpen: far.open, toast: T.toasts().includes('走近一点') };
+      const r = { farOpen: far.open, toast: T.toasts().includes('走近一点'), feed: document.getElementById('feed').innerText.includes('走近一点') };
       // F 键：清掉地上的掉落，站到远处那个宝箱 3 m 以内
       T.clearLoot();
       T.tp(far.x - 2.4, far.z + 0.6);
@@ -22871,7 +23220,7 @@ async function main() {
     assert(a.far.ok, '远处那个宝箱应在画面里：' + JSON.stringify(a));
     assert(b.open && b.loot > 0, '点宝箱应当打开并掉东西：' + JSON.stringify(b));
     assert(!b.cast && !(b.tap > 0) && !b.held, '点宝箱时不应同时施法：' + JSON.stringify(b));
-    assert(!c.farOpen && c.toast, '7 m 以外点宝箱不应打开，应提示走近：' + JSON.stringify(c));
+    assert(!c.farOpen && !c.toast && c.feed, '7 m 以外点宝箱不应打开，应在拾取记录里提示走近（不弹 toast）：' + JSON.stringify(c));
     assert(d.fOpen && d.loot > 0, '附近没有掉落时 F 键应打开 3.5 m 内的宝箱：' + JSON.stringify(d));
     return '点击打开 ✓、远处提示走近 ✓、F 键打开 ✓';
   });
@@ -23431,14 +23780,7 @@ async function main() {
     return Object.keys(r.z).map((k) => k + ' 环路 ' + (r.z[k].loops / r.z[k].n).toFixed(1) + '、死路 ' + (r.z[k].dead / r.z[k].n).toFixed(1) + '（≤ ' + r.z[k].back + ' m）').join('；');
   });
 
-  await titleSteps();
-  await storySteps();
-  await slotSteps();
-  await classSteps();
-  await d2bSteps(); // 职业 D2b-1（class-d2b1）
-  await d2b2Steps(); // 职业 D2b-2（class-d2b2）
-  await imbueSteps(); // 装填 / 散钉 / 反冲弹 / 绊雷（imbue 批）
-  await lootWarmStep(); // 掉落模型都在启动预热里建好（列车 2）
+  // 后面的块（title … tail）由 main() 接着跑，见 FUNC_BLOCKS
 }
 
 // ------------------------------------------------------------------ 职业（class-d2）
@@ -26700,7 +27042,7 @@ async function titleSteps() {
       for (const id of G.ui.hints().all) G.save.tut[id] = 1; // 提示卡不挡追踪条的位置检查
       G.enterZone(0, 0);
       G.debug.god(true);
-      // 完成提示：记下 #toasts 里加进来的每一条（2.9 秒后就会消失）
+      // 完成提示（toast-zero：不弹 toast，追踪条自己亮「主线 n/N 完成」几秒）：G.ui.quest().log 记着每一条；另记下 #toasts 里加进来的，应当没有
       window.__qToasts = [];
       if (!window.__qObs) {
         window.__qObs = new MutationObserver((ms) => {
@@ -26747,10 +27089,13 @@ async function titleSteps() {
     assert(g.before === 0 && g.near && g.after === 1, '走到门口前应还在第 1 步、走到后 0.5 秒内完成：' + JSON.stringify(g));
     assert(g.stored === 1, '完成一步应马上存档（门口这一步没有别的痕迹，关页面后不能再给一次）：' + JSON.stringify(g));
     assert(qDiff(cur0, cur1) === '{"dust":2,"augment":1}', '第 1 步奖励应正好 微光尘 +2、增幅尘 +1：' + qDiff(cur0, cur1));
-    await until(() => window.__qToasts.some((t) => t.includes('主线 1/11 完成')), null, 20000);
+    await until(() => G.ui.quest().done === '主线 1/11 完成', null, 20000);
+    const vd = await ev(() => ({ q: G.ui.quest(), cls: document.getElementById('quest').classList.contains('done'), feed: document.getElementById('feed').innerText.replace(/\s+/g, ' ') }));
+    await until(() => G.ui.quest().k === '主线 2/11', null, 20000);
     await frames(2);
     const v2 = await ev(() => Object.assign(G.ui.quest(), { toasts: window.__qToasts.slice() }));
-    assert(v2.toasts.includes('主线 1/11 完成 · 微光尘 ×2、增幅尘 ×1'), '完成提示不对：' + JSON.stringify(v2.toasts));
+    assert(vd.cls && vd.q.on && vd.q.goal === '获得 微光尘 ×2、增幅尘 ×1' && vd.feed.includes('主线奖励 · 微光尘 ×2、增幅尘 ×1'), '完成时追踪条应亮「主线 1/11 完成 · 获得 …」，拾取记录记一行奖励：' + JSON.stringify(vd));
+    assert(v2.log.includes('主线 1/11 完成 · 微光尘 ×2、增幅尘 ×1') && !v2.toasts.some((t) => t.startsWith('主线')), '完成提示不对（不应弹 toast）：' + JSON.stringify(v2));
     assert(v2.k === '主线 2/11' && v2.goal === '击败熔渣巨像' && v2.how === '首领 4 级', '应显示第 2 步：' + JSON.stringify(v2));
     // 再走一遍门口不再给
     const again = await ev(() => {
@@ -26789,13 +27134,11 @@ async function titleSteps() {
     assert(r2.n === 3 && r2.ev === 1, '进霜骨沼泽应完成第 3 步（进区步不触发首领挂钩）：' + JSON.stringify(r2));
     assert(qDiff(cur1, cur2) === '{"dust":1,"regal":1}', '第 3 步奖励应正好 微光尘 +1、冠冕石 +1：' + qDiff(cur1, cur2));
     await until(() => !G.world.assetsPending(), null, 60000); // D2 起素材载入时追踪条先不显示（第一次进霜骨沼泽）
-    await until(() => G.ui.quest().k === '主线 4/11' && window.__qToasts.some((t) => t.includes('主线 3/11 完成')), null, 20000);
-    const t = await ev(() => window.__qToasts.filter((s) => s.startsWith('主线')));
-    assert(t.includes('主线 2/11 完成') && t.includes('主线 3/11 完成 · 微光尘 ×1、冠冕石 ×1'), '完成提示不对：' + JSON.stringify(t));
-    // 完成提示排在同一时刻的其它飘字后面（区域名那一条先出）
-    const order = await ev(() => window.__qToasts.slice());
-    const iz = order.findIndex((s) => s.startsWith('霜骨沼泽')), iq = order.indexOf('主线 3/11 完成 · 微光尘 ×1、冠冕石 ×1');
-    assert(iz >= 0 && iq > iz, '完成提示应排在区域名后面：' + JSON.stringify(order));
+    await until(() => G.ui.quest().k === '主线 4/11', null, 20000);
+    const t = await ev(() => ({ log: G.ui.quest().log, toasts: window.__qToasts.slice() }));
+    assert(t.log.includes('主线 2/11 完成') && t.log.includes('主线 3/11 完成 · 微光尘 ×1、冠冕石 ×1'), '完成提示不对：' + JSON.stringify(t));
+    // 区名、主线完成都不弹 toast（toast-zero）：区名写在左上的区域信息里
+    assert(!t.toasts.some((s) => s.startsWith('霜骨沼泽') || s.startsWith('主线')), '进区 / 完成主线不应弹 toast：' + JSON.stringify(t.toasts));
     const a = await ev(async () => {
       G.input.alt = true;
       await new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)));
@@ -27137,6 +27480,9 @@ async function titleSteps() {
     // 重进灰烬荒原：传送门没了 → 不指，追踪条第 3 行「按 M 打开地图选它」
     await ev(() => G.enterZone(0, 0));
     await frames(3);
+    // 重进区域时素材还在载入，追踪条先藏着、第 3 行要等就绪后才写上：按帧等它写上（最多 120 帧，等不到照样走下面的断言报错）。
+    // 原来固定等 3 帧，机器忙时读到空串（和 8d44dd3 的 questReady 同一类）
+    for (let i = 0; i < 120 && !(await ev(() => G.ui.quest().how)); i++) await frames(1);
     const b = await ev(() => ({ t: G.questTarget(), m: G.world.questMark().on, how: G.ui.quest().how }));
     assert(!b.t && !b.m && b.how === '按 M 打开地图选它', '传送门没了应不指、第 3 行让按 M：' + JSON.stringify(b));
     // 地图卡片角标
@@ -27264,7 +27610,9 @@ async function titleSteps() {
     await until(() => !G.world.assetsPending(), null, 20000);
     await frames(3);
     const c = await ev(() => ({ on: G.ui.quest().on, k: G.ui.quest().k, tr: getComputedStyle(document.getElementById('quest')).transitionDuration }));
-    assert(c.on && c.k === '主线 4/11' && c.tr === '0.3s', '就绪后应显示（0.3 秒淡入）：' + JSON.stringify(c));
+    // toast-zero：就绪后先亮 3 秒「主线 3/11 完成」（载入时排着没放），再换成第 4 步
+    assert(c.on && c.k === '主线 3/11 完成' && c.tr === '0.3s', '就绪后应显示（0.3 秒淡入），先亮完成提示：' + JSON.stringify(c));
+    await until(() => G.ui.quest().k === '主线 4/11', null, 10000);
     // 正常重进（素材已就绪）照常显示
     await ev(() => G.enterZone(1, 0));
     await frames(3);
@@ -27706,8 +28054,7 @@ async function titleSteps() {
     const n = await ev(() => G.questStep());
     return '主线 n ' + n;
   });
-
-  await touchSteps();
+  // 接下来的 touch 块（touchSteps）由 main() 接着跑，见 FUNC_BLOCKS
 }
 
 // ------------------------------------------------------------------ 触屏（mobile M1，设计稿 game-workspace/notes/mobile-design §5）
@@ -28260,12 +28607,13 @@ async function touchSteps() {
 
   await step('触屏：开场卡片、背包、技能、天赋、地图、帮助、浮窗、暂停菜单里没有鼠标 / 键盘说法（右键 / 左键 / 悬停 / Alt / WASD / Shift，Esc / Enter 角标）；点物品 → 详情里点「装备」穿上；长按看详情；长按不会误穿', async () => {
     await touchPage();
-    // 打一场（没开面板）：触屏文字处理一次都不该跑（只盯面板 / 浮窗 / 菜单，不盯 HUD）；提示卡打起来 4 秒后收成一行
+    // 打一场（没开面板）：触屏文字处理一次都不该跑（只盯面板 / 浮窗 / 菜单，不盯 HUD）。
+    // hint-once：提示卡打起来以后不再收成一行（战斗中只出紧急提示、6–8 秒就收、点一下收起），这里只打 4 秒
     const busy = await ev(async () => {
       const P = G.player;
       for (let i = 0; i < 8; i++) T.mob('husk', Math.sin(i) * 4, Math.cos(i) * 4);
       const co = document.getElementById('coach');
-      co.querySelector('.co-body').textContent = '提示卡测试：打起来以后四秒收成一行，点一下展开';
+      co.querySelector('.co-body').textContent = '提示卡测试：打起来以后照常显示，点一下收起';
       co.dataset.hint = 'touchtest';
       co.className = 'on';
       await new Promise((r) => setTimeout(r, 0)); // 上面改提示卡文字的那一次处理先跑完（MutationObserver 是微任务）
@@ -28274,19 +28622,19 @@ async function touchSteps() {
       G.input.mouse.b[0] = true;
       const t0 = performance.now();
       await new Promise((res) => {
-        const f = () => (co.classList.contains('t-min') || performance.now() - t0 > 30000 ? res() : requestAnimationFrame(f));
+        const f = () => (performance.now() - t0 > 4000 ? res() : requestAnimationFrame(f));
         requestAnimationFrame(f);
       });
       G.input.mouse.b[0] = false;
       G.debug.hold(true);
       const st = G.touch.state();
-      const out = { calls: st.txt.calls - c0, ms: st.txt.ms, min: co.classList.contains('t-min'), sec: +((performance.now() - t0) / 1000).toFixed(1), lines: Math.round(co.querySelector('.co-body').getBoundingClientRect().height / 17) };
+      const out = { calls: st.txt.calls - c0, ms: st.txt.ms, sec: +((performance.now() - t0) / 1000).toFixed(1), lines: Math.round(co.querySelector('.co-body').getBoundingClientRect().height / 17) };
       co.className = '';
       for (const e of G.state.enemies) if (e.atkCd === 1e9) e.dead = true;
       return out;
     });
     assert(busy.calls === 0, '没开面板时触屏文字处理不该跑：' + JSON.stringify(busy));
-    assert(busy.min && busy.lines === 1, '打起来后提示卡应收成一行：' + JSON.stringify(busy));
+    // hint-once：原断言 busy.min && busy.lines === 1（打起来后收成一行）——这个行为去掉了
     const scan = (where) =>
       ev((where) => {
         const bad = [];
@@ -29198,7 +29546,8 @@ async function touchSteps() {
         const co = document.getElementById('coach');
         co.querySelector('.co-body').textContent = txt;
         co.dataset.hint = 'hudtest';
-        co.className = 'on' + (open ? ' t-open' : '');
+        co.className = 'on'; // hint-once：提示卡整句显示（最多四行），不再有 t-open
+        void open;
       }, [txt, open]);
     const setNarr = (on) =>
       ev((on) => {
@@ -29227,7 +29576,7 @@ async function touchSteps() {
               else st.removeProperty('--t-safe-' + k);
             }
           }, [size, mirror, sa]);
-          for (const [st, txt, open, narr] of [['两行提示卡', SHORT, false, false], ['点开的长提示', LONG, true, false], ['两行提示卡 + 旁白卡', SHORT, false, true], ['点开的长提示 + 旁白卡', LONG, true, true]]) {
+          for (const [st, txt, open, narr] of [['两行提示卡', SHORT, false, false], ['长提示（整句）', LONG, true, false], ['两行提示卡 + 旁白卡', SHORT, false, true], ['长提示（整句） + 旁白卡', LONG, true, true]]) {
             await setCoach(txt, open);
             await setNarr(narr);
             await frames(2);
@@ -29736,8 +30085,7 @@ async function touchSteps() {
     await ev(() => G.ui.close());
     return out.map((r) => r.size).join(' / ');
   });
-
-  await uiSteps();
+  // 接下来的界面布局（uiSteps）：整套跑时由 main() 按 ui-t1 / ui-t2 / ui-desk 三块接着跑；--touch 时在这之后跑，见文件末尾
 }
 // 界面布局那一组（各面板的触屏 / 桌面布局、桌面样式、天赋页）：触屏组末尾跑；node test/smoke.mjs --ui 单独跑这一组
 async function uiSteps() {
@@ -29745,9 +30093,18 @@ async function uiSteps() {
   // 闲着的那个 GPU 进程照样空转（SwiftShader 下一个浏览器的 GPU 进程不管页面在不在动都吃 3 个核左右，冻结页面也不降），机器满载时拖慢别人。
   // 种子：每一步开始时 step() 给「当前的 page」播种，以前那个 page 是上一步的（另一个浏览器）；这里在换到这一步的浏览器之后，
   // 按以前实际落到它身上的那个名字再播一次（触屏步骤用上一个面板桌面那一步的名字，桌面步骤用同一面板触屏那一步的名字），每个浏览器拿到的随机序列和以前一样
-  const PANELS = ['bag', 'stash', 'map', 'help', 'settings', 'char', 'skills', 'trader', 'title', 'tree'];
-  for (let i = 0; i < PANELS.length; i++) await uiLayoutSteps(PANELS[i], 'touch', i ? uiStepName(PANELS[i - 1], 'desk') : null);
-  await uiLayoutClose('touch');
+  await uiTouchSteps(0, UI_PANEL_ORDER.length);
+  await uiDeskSteps();
+}
+const UI_PANEL_ORDER = ['bag', 'stash', 'map', 'help', 'settings', 'char', 'skills', 'trader', 'title', 'tree'];
+// 触屏布局的第 a … b - 1 个面板（UI_PANEL_ORDER）。keep：下一块接着用这个触屏浏览器（ui-t1 后面紧跟 ui-t2），不关
+async function uiTouchSteps(a, b, keep) {
+  const PANELS = UI_PANEL_ORDER;
+  for (let i = a; i < b; i++) await uiLayoutSteps(PANELS[i], 'touch', i ? uiStepName(PANELS[i - 1], 'desk') : null);
+  if (!keep) await uiLayoutClose('touch');
+}
+// 桌面布局、桌面样式，以及界面布局那一组最后自己开浏览器的几步
+async function uiDeskSteps() {
   const desk = (p) => uiLayoutSteps(p, 'desk', p === 'bag' ? null : uiStepName(p, 'touch'));
   await desk('bag');
   await uiDeskStyleStep();
@@ -30002,6 +30359,19 @@ function treeFitCheck() {
     if (px < 10.95) out.push('名字 ' + t.textContent + ' ' + px.toFixed(1) + ' px');
   }
   return out.slice(0, 4);
+}
+// CINDER_FP=1：界面布局每个面板开头打一行 fp（存档 JSON、localStorage 的哈希；现在的种子名的哈希）。用来比分片开头的状态和整套跑时是不是一样
+// （test/README.md「分片」）。每次跑都会变的先换掉：物品 uid（'i' + Date.now 的 36 进制 + 计数 + 随机段）换成 U，存档索引里按原文算的哈希 h 换成 H，
+// 12 位以上的数字（时间戳）换成 T
+function uiStateFp() {
+  const h = (str) => {
+    let x = 2166136261;
+    for (let i = 0; i < str.length; i++) x = Math.imul(x ^ str.charCodeAt(i), 16777619);
+    return (x >>> 0).toString(16);
+  };
+  const mask = (t) => String(t).replace(/\bi[0-9a-z]{10,16}\b/g, 'U').replace(/(\\?"h\\?":)\d+/g, '$1H').replace(/\d{12,}/g, 'T');
+  const ls = Object.keys(localStorage).sort().map((k) => k + '=' + mask(localStorage.getItem(k))).join('\n');
+  return 'save ' + h(mask(JSON.stringify(G.save))) + ' ls ' + h(ls) + ' seed ' + h(window.__testRand ? window.__testRand.key() : '');
 }
 // 布局检查用的角色：30 级、学会全部技能、背包 29 件、身上有戒指和胸甲、仓库 18 件
 async function uiFixture() {
@@ -30460,13 +30830,18 @@ async function uiLayoutSteps(panel, mode, key) {
       const fresh = !uiPages[mode];
       if (!uiPages[mode]) {
         if (browser && !Object.values(uiPages).some((u) => u.browser === browser)) await browser.close().catch(() => {}); // 前面步骤留下的浏览器（布局步骤自己的两个留着，三个面板共用）
-        ({ browser, page, errors } = await launch(mode === 'touch' ? { width: 844, height: 340, mobile: { scale: 2 }, dpr: null } : { width: 1366, height: 768, dpr: null }));
+        // 这个浏览器整套跑时总是在第一个面板（背包）那一步开的、用它的名字播种；分片时可能从后面的面板开头（ui-t2），照样用背包那一步的名字，
+        // 布局用的角色（uiFixture 掷的物品）就和整套跑时一样
+        const seed0 = panel !== UI_PANEL_ORDER[0] && SEEDED ? { seed: seedKey(uiStepName(UI_PANEL_ORDER[0], mode)) } : {};
+        ({ browser, page, errors } = await launch(Object.assign(mode === 'touch' ? { width: 844, height: 340, mobile: { scale: 2 }, dpr: null } : { width: 1366, height: 768, dpr: null }, seed0)));
         const fx = await uiFixture();
         if (mode === 'touch') touch = await touchKit();
         uiPages[mode] = { browser, page, errors, fx };
       }
       await uiUse(mode);
-      if (key && !fresh) await reseed(key);
+      // 整套跑时只有第一个面板会新开浏览器（key 为空）；分片时从后面的面板新开的，开完照样按整套跑时的名字播种
+      if (key && (!fresh || panel !== UI_PANEL_ORDER[0])) await reseed(key);
+      if (process.env.CINDER_FP) console.log('fp ' + panel + '/' + mode + ' ' + (await ev(uiStateFp)));
       const fx = uiPages[mode].fx;
       const bad = [];
       let nStates = 0;
@@ -30581,7 +30956,7 @@ async function uiLayoutSteps(panel, mode, key) {
 
 // 跑哪几份：默认两份都跑（先 func 后 timed，各用一个新浏览器）；--func / --timed 只跑一份。
 // 只跑 func，或在 cc-slot 的池里跑（CC_SLOT_HELD=pool:…，或手动设 CC_POOL=1）时，每行的耗时和 ms 数字标成不可比
-const PARTS = process.argv.includes('--func') ? ['func'] : process.argv.includes('--timed') ? ['timed'] : process.argv.includes('--touch') ? ['touch'] : process.argv.includes('--ui') ? ['ui'] : ['func', 'timed'];
+const PARTS = SHARD || process.argv.includes('--func') ? ['func'] : process.argv.includes('--timed') ? ['timed'] : process.argv.includes('--touch') ? ['touch'] : process.argv.includes('--ui') ? ['ui'] : ['func', 'timed'];
 const POOL = !!process.env.CC_POOL || /^pool:/.test(process.env.CC_SLOT_HELD || '');
 const sum = (p, f) => (f ? '失败 ' + f + ' 项，' : '') + '通过 ' + p + ' 项';
 (async () => {
@@ -30593,20 +30968,20 @@ const sum = (p, f) => (f ? '失败 ' + f + ' 项，' : '') + '通过 ' + p + ' �
   for (const part of PARTS) {
     NC_TAG = POOL || (part === 'func' && PARTS.length === 1) ? ' [pool, not comparable]' : '';
     cheap = (part === 'func' || part === 'touch' || part === 'ui') && !process.env.CINDER_FULL;
-    console.log('== test:' + part + ' · HEAD ' + head + ' · ' + new Date().toISOString() + ' · 槽位 ' + (process.env.CC_SLOT_HELD || '无') + (cheap ? ' · 省渲染 dpr ' + CHEAP_DPR + '（' + FULL_RES.length + ' 类步骤按 1）' : '') + (NC_TAG ? ' · 耗时数字不可比' + NC_TAG : '') + ' · Chrome 日志 ' + LOG_DIR.replace(/^.*\/(test-logs\/)/, '$1') + (part === 'timed' && POOL ? ' · 警告：计时步骤在池里跑，结果不作数' : ''));
+    console.log('== test:' + part + ' · HEAD ' + head + ' · ' + new Date().toISOString() + ' · 槽位 ' + (process.env.CC_SLOT_HELD || '无') + (SHARD && part === 'func' ? ' · 分片 ' + SHARD.k + '/' + SHARD.n + '（' + SHARD.blocks.join(' ') + '）' : '') + (cheap ? ' · 省渲染 dpr ' + CHEAP_DPR + '（' + FULL_RES.length + ' 类步骤按 1）' : '') + (NC_TAG ? ' · 耗时数字不可比' + NC_TAG : '') + ' · Chrome 日志 ' + LOG_DIR.replace(/^.*\/(test-logs\/)/, '$1') + (part === 'timed' && POOL ? ' · 警告：计时步骤在池里跑，结果不作数' : ''));
     // 外层 timeout 剩的时间不到正常耗时的两倍左右（池里 test:func 45–56 分钟）就先警告一行
     const tw = outerTimeoutWarning(part === 'func' ? 100 : part === 'touch' || part === 'ui' ? 30 : 15);
     if (tw) console.log(tw);
     const p0 = passed, f0 = failed;
     try {
-      await (part === 'func' ? main() : part === 'touch' ? touchSteps() : part === 'ui' ? uiSteps() : timedMain());
+      await (part === 'func' ? main() : part === 'touch' ? touchSteps().then(uiSteps) : part === 'ui' ? uiSteps() : timedMain());
     } catch (e) {
       failed++;
       console.log('FAIL 测试脚本自身出错 — ' + (e && e.stack ? e.stack : e));
     }
     if (browser) await browser.close().catch(() => {});
     browser = page = errors = null;
-    per.push('test:' + part + ' ' + sum(passed - p0, failed - f0));
+    per.push('test:' + part + (SHARD && part === 'func' ? ' 分片 ' + SHARD.k + '/' + SHARD.n : '') + ' ' + sum(passed - p0, failed - f0));
   }
   if (AUDIT) {
     const top = auditWaits.slice().sort((a, b) => b.ms / b.guard - a.ms / a.guard).slice(0, 12);

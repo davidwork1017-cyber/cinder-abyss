@@ -12501,9 +12501,15 @@
     return (CM[key] = m);
   }
   // 这副骨架要不要换成 C 模型：有配置、模型解析成功、没有被关掉（window.CA_PROCEDURAL_CHARS = true 时全部用程序化外观）
-  function cSpec(key) {
-    const sp = CSPEC[key];
+  function cSpec(key, noAi) {
+    let sp = CSPEC[key];
     if (!sp || window.CA_PROCEDURAL_CHARS) return null;
+    // 主角默认用 AI 生成的模型（ai3d-hero，chars 包里的 aihero_hi / aihero_lo，低画质用低档）；包里没有、解析失败、
+    // 或者套用时出错（见 cTry），退回 Adventurer。window.CA_OLD_HERO = true 时直接用 Adventurer（对比用）
+    if (key === 'player' && !noAi && !window.CA_OLD_HERO) {
+      const mk = qualId === 'low' ? 'aihero_lo' : 'aihero_hi';
+      if (cModel(mk)) sp = Object.assign({}, CSPEC.playerAI, { model: mk, aiHero: true });
+    }
     const md = cModel(sp.model);
     if (!md) return null;
     const cs = Object.assign({ key, md }, sp);
@@ -12523,7 +12529,16 @@
       try {
         return make(cs);
       } catch (e) {
-        if (window.console) console.warn('[角色] ' + key + ' 套用模型失败，改用程序化外观', e);
+        if (window.console) console.warn('[角色] ' + key + ' 套用模型失败，改用' + (cs.aiHero ? ' Adventurer' : '程序化外观'), e);
+      }
+      // AI 主角套用失败：退回 Adventurer，再不行才用程序化外观
+      const c2 = cs.aiHero ? cSpec(key, true) : null;
+      if (c2) {
+        try {
+          return make(c2);
+        } catch (e) {
+          if (window.console) console.warn('[角色] ' + key + ' 套用模型失败，改用程序化外观', e);
+        }
       }
     }
     return make(null);
@@ -14585,6 +14600,18 @@
   };
   // 上臂静止时比程序化骨架多张开一点（这个模型肩窄、胸厚，垂直放下会插进躯干）
   const PL_ARM = [0.3, -1, 0.0], PL_FORE = [0.06, -1, 0.1];
+  // AI 生成的主角（ai3d-hero）：UE / UAL 骨骼名 → 程序化关节（和现网主角 PL_MAP 同一套对应：腹部并到 root，胸口两节分给 spine / chest）；
+  // 贴地压暗的强度；围巾结扣按 neck_01 算（同 plKnot）
+  const AI_MAP = {
+    pelvis: 'root', spine_01: 'root', spine_02: 'spine', spine_03: 'chest', clavicle_l: 'chest', clavicle_r: 'chest', neck_01: 'head', Head: 'head', head_leaf: 'head',
+    upperarm_l: 'uaL', lowerarm_l: 'faL', hand_l: 'hL', upperarm_r: 'uaR', lowerarm_r: 'faR', hand_r: 'hR',
+    thigh_l: 'thL', calf_l: 'shL', foot_l: 'ftL', ball_l: 'ftL', thigh_r: 'thR', calf_r: 'shR', foot_r: 'ftR', ball_r: 'ftR',
+  };
+  const AI_SHADE = 0.12;
+  const aiKnot = (side) => (pos, piv0) => {
+    const n = pos('neck_01'), o = piv0('sf' + side + '1');
+    return [n[0] + PL_KNOT[0] + (o[0] - SF.kx), n[1] + PL_KNOT[1], n[2] + PL_KNOT[2]];
+  };
   // 卡通配色（设计稿 2.3）：模型贴图调色板的几种颜色各换成游魂自己的一套——灰烬灰的冷皮肤、两种暗紫褐的破衣，
   // 贴图里的血污换成余烬裂纹（自发光，见 vglow），眼白压成深眼窝、瞳孔发光。比地面亮一档、比主角暗、饱和度低。
   // 每项：[贴图里的原色（最近的那个算数）, 下端色, 上端色]；渐变按静止姿态的高度（0.2 → 1.95）
@@ -14884,6 +14911,52 @@
       },
       color: (mat, prim, base, vc, y, out, x, z) => plColor(mat, y, x, z, out),
       surf: (mat) => PL_SURF[mat] || SURF.cloth,
+      sock: { head: ['head', 0, 0.2, 0.02], chest: ['chest', 0, 0.06, 0.12] },
+      ankle: (rig) => rig.joints[rig.JI.ftL].py,
+    },
+    // AI 生成的主角（ai3d-hero）：cSpec 默认用它顶替 player（Adventurer 留作退路）。同一副程序化骨架、同样的动作 / 挂点 / 模拟，只换外观：
+    // 模型是 art/ai/hero_rig.py 出的 GLB（assets/ai/hero/，UE / UAL 骨骼名、A 字站姿、COLOR_0 一角一色），按 Adventurer 的对应关系并到程序化关节上，
+    // aim 摆成游戏的静止姿态（拳头在 GLB 里已经卷好）；模型里已经有的围巾圈、护腕、腰带扣、后摆不再加程序化的，
+    // 围巾的两条尾巴、左肩护肩、左手的余烬照旧
+    playerAI: {
+      model: 'aihero_hi', height: 1.9, yaw: 0, center: 'pelvis',
+      map: (n) => {
+        const m = STD_FINGER.exec(n);
+        return m ? 'h' + m[3].toUpperCase() : AI_MAP[n] || null;
+      },
+      pivot: {
+        root: 'pelvis', spine: 'spine_02', chest: 'spine_03', head: 'neck_01',
+        uaL: 'upperarm_l', faL: 'lowerarm_l', hL: 'hand_l', uaR: 'upperarm_r', faR: 'lowerarm_r', hR: 'hand_r',
+        thL: 'thigh_l', shL: 'calf_l', thR: 'thigh_r', shR: 'calf_r',
+        ftL: (pos) => { const k = pos('calf_l'); return [k[0], 0.1, k[2]]; },
+        ftR: (pos) => { const k = pos('calf_r'); return [k[0], 0.1, k[2]]; },
+        sfL1: aiKnot('L'), sfR1: aiKnot('R'),
+      },
+      drive: { ftL: 'foot_l', ftR: 'foot_r' },
+      aim: (n) => {
+        const sd = n.slice(-2), s = sd === '_l' ? 1 : -1, j = sd === '_l' ? 'L' : 'R';
+        if (n === 'upperarm' + sd) return ['lowerarm' + sd, [s * PL_ARM[0], PL_ARM[1], PL_ARM[2]]];
+        if (n === 'lowerarm' + sd) return ['hand' + sd, [s * PL_FORE[0], PL_FORE[1], PL_FORE[2]]];
+        if (n === 'hand' + sd) return ['middle_01' + sd, [s * PL_FORE[0], PL_FORE[1], PL_FORE[2]]];
+        if (n === 'thigh' + sd) return ['calf' + sd, ['th' + j, 'sh' + j]];
+        return null;
+      },
+      // 拳头已经烘进模型的绑定姿态（hero_rig.py 的 bake_fist：按量出来的掌心朝向卷，和现网主角同样的角度），这里不再卷
+      keep: (j) => !PL_BODY[j],
+      extra: (b, pos) => {
+        const ua = pos('upperarm_l');
+        b.at('uaL').surf(SURF.leather).p(gDome(0.1, 9, 3, 1.3), [PL_LEA[0], PL_LEA[1]], ua[0] + 0.025, ua[1] + 0.02, ua[2], 0, 0, -0.5, 1.05, 0.72, 1.12);
+        b.surf(SURF.gold).p(gTorus(0.1, 0.011, 4, 12), PL_GOLD, ua[0] + 0.025, ua[1] + 0.02, ua[2], HALF_PI, -0.5, 0, 1.05, 1.12, 1);
+        const wl = pos('hand_l'), md = pos('middle_01_l');
+        const ex = wl[0] + (md[0] - wl[0]) * 0.8, ey = wl[1] + (md[1] - wl[1]) * 0.8 - 0.05, ez = wl[2] + (md[2] - wl[2]) * 0.8 + 0.07;
+        b.at('hL').g(gOct(0.042), 1.35, ex, ey, ez, 0, 0.6, 0, 1, 1.4, 1).g(gSph(0.05, 7, 5), 0.55, ex, ey + 0.01, ez, 0, 0, 0, 1, 1.25, 1);
+      },
+      color: (mat, prim, base, vc, y, out) => {
+        const c = vc || base;
+        out[0] = c[0]; out[1] = c[1]; out[2] = c[2];
+        return cShade(out, out, y, 1.9, AI_SHADE);
+      },
+      surf: () => SURF.cloth,
       sock: { head: ['head', 0, 0.2, 0.02], chest: ['chest', 0, 0.06, 0.12] },
       ankle: (rig) => rig.joints[rig.JI.ftL].py,
     },
