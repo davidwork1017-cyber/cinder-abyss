@@ -21774,8 +21774,19 @@
     for (const k of Object.keys(LOOT_MODEL)) if (!lootModels[k]) loots.push(W.makeLoot('item', 0xffffff, false, 0, 2, { slot: 'weapon', type: k }));
     lootWarm = false;
     // AI 武器（&aiwpn=1）：另一档画质的掉落模型也先建好（换画质档以后不再新建几何体）
-    if (aiwOn()) for (const t of AIW_TYPES) if (aiwHas[t]) for (const lo of [false, true]) if (!(lo && AIW_FIT[t].loScripted) && !lootModels[t + (lo ? '~lo' : '~hi')]) lootModels[t + (lo ? '~lo' : '~hi')] = aiwLoot(t, lo);
-    for (const t of AIW_TYPES) if (aiwOn(t) && AIW_FIT[t].loScripted && !lootModels[t]) lootModels[t] = LOOT_MODEL[t](); // 低画质用的脚本件也先建好
+    // 两档画质的掉落模型都在这一帧里画一次（都上传到显卡）：开场的画质档和之后换的不一样时（测试、玩家改设置），
+    // 第一次掉到某一种才上传的话，几何体数会按掉落顺序一圈圈往上涨（内存一步）
+    lootWarm = true; // 提灯：预热时不去要 kit-gear 包
+    if (aiwOn())
+      for (const t of AIW_TYPES)
+        if (aiwHas[t])
+          for (const lo of [false, true]) {
+            aiwLoForce = lo;
+            const gear = G.SLOTS.indexOf(t) >= 0;
+            loots.push(W.makeLoot('item', 0xffffff, false, 0, 2, gear ? t : { slot: 'weapon', type: t }));
+            aiwLoForce = null;
+          }
+    lootWarm = false;
     if (aiwOn()) aiwRelease();
     allyFxVisible(true); // 召唤法阵 / 聚焦标记平时是隐藏的：预热这一帧让它们露个面，着色器一并编译
     warmWeaponFx(true);
@@ -22002,6 +22013,7 @@
   }
   const lootModels = Object.create(null);
   let lootWarm = false; // warmEntities 正在预热掉落模型
+  let aiwLoForce = null; // AI 掉落模型：预热时强制用哪一档（true = 低画质的 lo），null = 按当前画质
   const WEAPON_MODEL = GEAR_KEYS; // 掉落模型的名字和武器种类同名
   let lootBody = null;
   let lootBodyU = null; // 烬铸武器掉在地上时的本体：带一点余烬自发光
@@ -22028,7 +22040,7 @@
     if (!LOOT_MODEL[key]) key = 'item';
     if (key === 'lantern' && W.lanternNeed && !lootWarm) W.lanternNeed(); // 地上掉了提灯：先把手持的自产模型要过来（class-d2b1）；启动预热时不要
     // AI 武器（&aiwpn=1）：高 / 中画质 hi 档、低画质 lo 档，各缓存一份（启动时两档都在 warmEntities 里建好）
-    const aiLo = W.quality() === 'low', aiT = key === 'bow' ? 'eagle' : key; // 旧的 'bow' 就是鹰眼长弓
+    const aiLo = aiwLoForce !== null ? aiwLoForce : W.quality() === 'low', aiT = key === 'bow' ? 'eagle' : key; // 旧的 'bow' 就是鹰眼长弓
     const aiK = aiwOn(aiT) && !(aiLo && AIW_FIT[aiT].loScripted) ? aiT + (aiLo ? '~lo' : '~hi') : null;
     const mdl = aiK ? lootModels[aiK] || (lootModels[aiK] = aiwLoot(aiT, aiLo)) : lootModels[key] || (lootModels[key] = LOOT_MODEL[key]());
     if (!lootBody) lootBody = new T.MeshStandardMaterial({ vertexColors: true, roughness: 0.42, metalness: 0.45, envMap: rigEnvMap(), envMapIntensity: 0.9, flatShading: true });
