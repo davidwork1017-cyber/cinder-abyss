@@ -247,8 +247,19 @@ def process(prov_rel, out, stats):
         if o.get('hull'):
             # 凸包再按角度合并棱面：冰晶 / 冰棱这类本来就是凸的件，凸包的面是平的大棱面（硬棱、利落），直接从 2 万面的软网格减面会成一团疙瘩。
             # 合并角度二分到三角形数刚好不超预算（固定 24 轮，确定性）；取色仍按低模的面去整理后的高模上找最近点
+            # clip（埋进地里的件）：只取 y ≥ 0 的顶点和穿过 y = 0 的边的交点再取凸包，地下那截不留（斜插时不会从另一边冒出来），面全用在露出来的部分
+            pts = [tuple(v.co) for v in hb.verts if not o['fit'].get('clip') or v.co.y >= 0]
+            if o['fit'].get('clip'):
+                for e in hb.edges:
+                    a, b = e.verts[0].co, e.verts[1].co
+                    if (a.y < 0) != (b.y < 0):
+                        t = a.y / (a.y - b.y)
+                        pts.append((a.x + (b.x - a.x) * t, 0.0, a.z + (b.z - a.z) * t))
+
             def hull_at(ang):
-                cb = hb.copy()
+                cb = bmesh.new()
+                for q in pts:
+                    cb.verts.new(q)
                 res = bmesh.ops.convex_hull(cb, input=list(cb.verts), use_existing_faces=False)
                 keep = set(g for g in res['geom'] if isinstance(g, bmesh.types.BMFace))
                 bmesh.ops.delete(cb, geom=[f for f in cb.faces if f not in keep], context='FACES')

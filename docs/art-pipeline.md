@@ -221,6 +221,6 @@ npm run build:art && git status --short assets/ca js/assets   # 没有输出 = �
 5. `split`：一件拆成两个（形状批里一个实例只有一种颜色），比如雷桩按高度拆成晶柱和底座；
 6. 全部写进 `js/assets/skill-pieces.js`（`window.CA_SKILL_PIECES`，经典脚本，`index.html` 在 `js/vfx.js` 前面同步引入）。
 
-直接跑：`CA_AI_INBOX=<源模型目录> blender -b --factory-startup --python-exit-code 1 --python art/ai/pieces.py`（devbox 上用 `cc-slot batch` 包一层）。源文件不在的机器上保留已经提交的 `skill-pieces.js`；同一个 Blender 版本重复构建逐字节相同。check-art 查每件的三角形数（`art/budgets.json` 的 `pieces`）、形状批的件不超过槽位、逐面数组和面数对得上、每件都对得上来源记录、来源记录里没有个人信息。
+全量的 `npm run build:art` 最后会跑它；单独跑：`CA_AI_INBOX=<源模型目录> blender -b --factory-startup --python-exit-code 1 --python art/ai/pieces.py`（devbox 上用 `cc-slot batch` 包一层）。源文件不在的机器上保留已经提交的 `skill-pieces.js`；同一个 Blender 版本重复构建逐字节相同。check-art 查每件的三角形数（`art/budgets.json` 的 `pieces`）、形状批的件不超过槽位、逐面数组和面数对得上、每件都对得上来源记录、来源记录里没有个人信息。
 
 游戏端的形状批（`js/vfx.js`）改成槽位布局：原来所有形状合在一个几何体里，每个实例都要跑完全部 401 个三角形的顶点，不管它画的是哪个形状。现在每个形状的顶点放进一张 RGBA32F 的数据纹理，几何体只有一个槽位那么多顶点（150 个三角形），顶点着色器按 `gl_VertexID` 和实例的形状号取顶点。还是一次 draw，每个实例从 401 个三角形降到 150 个；原有形状的三角形一个不差。没有顶点纹理、着色器链接失败，或者网址带 `vshape=merged` 时，退回原来的合并几何体（只有原来的 7 个形状，新形状号映射回冰晶 / 碎石，雷桩照原来的三根晶柱加三块暗石画）。
