@@ -1,4 +1,4 @@
-# 外部素材（CC0，另有 AI 生成的件：一件布景、一只首领的外观、主角的外观、一批技能件和绊雷）
+# 外部素材（CC0，另有 AI 生成的件：一件布景、一只首领的外观、主角的外观、一批技能件和绊雷、武器和装备掉落）
 
 | 目录 | 来源 | 许可证 |
 | --- | --- | --- |
@@ -6,7 +6,7 @@
 | `ambientcg/` | ambientCG 贴图，https://ambientcg.com | CC0（`ambientcg/LICENSE.txt`） |
 | `generated/` | `tools/gen-ground-textures.mjs` 按固定种子程序化生成的地面覆盖层（`g_cover_*`）和贴花图集（`g_decals`）；`tools/gen-paint-textures.mjs` 按固定种子画的平铺贴图（`p_mud` 龟裂焦土、`p_burn` 焦痕碎石、`p_rock` 棱面石头，第 0 区的路面 / 粗糙地面 / 虚空地面和岩石三向投影；`p_ice` 冰面、`p_snow` 带雪的冻泥、`p_frock` 层状岩，第 1 区的同样几处；种子写在 `tools/paint-tex.mjs` 每张图的 `seed` 里：p_mud 211、p_burn 307、p_rock 101、p_ice 401、p_snow 503、p_frock 607），清单 `generated/manifest.json` 记着生成器、种子、原始像素和 JPEG 的 sha256 | 原创（我们自己画的，不是第三方素材） |
 | `ca/` | 自产布景件：`art/` 下的 Blender 生成脚本按固定种子生成（`npm run build:art`，见 `docs/art-pipeline.md`），清单 `ca/manifest.json` 记着每件的生成器、参数、种子和 sha256；`ship` 为 true 的件打进 `js/assets/kit-<区>.js` | 原创（我们自己的脚本生成，不是第三方素材） |
-| `ai/` | AI 生成的布景件（试点，2026-11-26 起；见下面「AI 生成」）：用户用文生图 → 图生 3D 生成源模型，`art/ai/importer.py` 处理成游戏用的件，每件一个目录（来源记录 `provenance.json` + 反照率贴图） | 组件许可证见下面「AI 生成」；输出不受限制 |
+| `ai/` | AI 生成的布景件和武器（试点，2026-11-26 起；见下面「AI 生成」）：用户用文生图 → 图生 3D 生成源模型，`art/ai/importer.py`（武器走 `art/ai/weapon.py`）处理成游戏用的件，每件一个目录（来源记录 `provenance.json`，布景件另有反照率贴图） | 组件许可证见下面「AI 生成」；输出不受限制 |
 | `story/` | 开场故事的画格（`js/story.js` 放的时候才加载）：`tools/story/bake.mjs` 用游戏自己的引擎摆拍（角色、区域、首领都是游戏里现成的，用到的第三方模型和贴图就是上面这些 CC0 包），再加墨线 / 平涂分阶 / 网点烘成分层 webp，见 `tools/story/README.md` | 原创（游戏画面的渲染图，不是第三方素材） |
 | `kaykit-dungeon-remastered/` | KayKit Dungeon Remastered 1.0，Kay Lousberg，https://kaylousberg.itch.io/kaykit-dungeon-remastered | CC0（`LICENSE.txt`）；2026-11-22（models-drop）起不再打进游戏，源文件和许可证留作记录 |
 | `kaykit-halloween-bits/` | KayKit Halloween Bits 1.0，Kay Lousberg，https://kaylousberg.itch.io/halloween-bits | CC0（`LICENSE.txt`）；2026-11-22（models-drop）起不再打进游戏，源文件和许可证留作记录 |
@@ -34,23 +34,28 @@
 
 ## AI 生成
 
-2026-11-26 起用 AI 生成模型（用户批准）：先是一件静态布景（试点），之后熔渣巨像的外观也换成 AI 生成的模型，骨架、动作和招式都没动，只换了网格和贴图。2026-11-27 起技能放出来的实心小件（冰系、雷桩）和绊雷也换成 AI 生成的模型，判定和数值都没动；主角的外观也换成 AI 生成的模型，程序化骨架、动作、挂点和模拟都没动，Adventurer 留作退路。
+2026-11-26 起用 AI 生成模型（用户批准）：先是一件静态布景（试点），之后熔渣巨像的外观也换成 AI 生成的模型，骨架、动作和招式都没动，只换了网格和贴图。2026-11-27 起技能放出来的实心小件（冰系、雷桩、熔光炮台）和绊雷也换成 AI 生成的模型，判定和数值都没动；主角的外观也换成 AI 生成的模型，程序化骨架、动作、挂点和模拟都没动，Adventurer 留作退路。2026-11-26 用户还要求武器也试一试：先试点剑、长杖、战锤、机炮四种，通过审核以后所有武器种类和七种装备掉落都换上了（手里拿的和掉在地上的），处理见下面。
 
 | 件 | 用在哪 | 来源记录 |
 | --- | --- | --- |
 | `ca/frost_waystone`（路标石：风化的石柱立在碎石和积雪的基座上） | 霜骨沼泽岸边，每区 3–6 块，低画质不显示 | `ai/frost_waystone/provenance.json` |
 | `ca/boss_golem`（熔渣巨像：玄武岩块拼成的巨像，胸口是拱形铁栅炉膛，肩上两根短烟囱）、`ca/boss_golem_lo`（低画质的减面版） | 第 0 区首领，`js/assets/boss-golem.js`；低画质用减面版 | `ca/boss/golem.provenance.json` |
+| `ca/aiwpn_<种>`、`_lo`：剑、长杖、短杖、战锤、太刀、机炮（另有枪管束 `_barrel`）、左轮、焚炉喷枪、鹰眼长弓、追猎弓、符文弓、冰弓 | 手里（lo，烘进主角骨架）和掉落（高 / 中 hi、低 lo），默认开，`&aiwpn=0` 关掉 | `ai/wpn_<种>/provenance.json` |
+| `ca/aiwpn_daggers`、`ca/aiwpn_lantern`、`ca/aiwpn_banner`（各带 `_lo`）：双匕、提灯、魂幡 | 只做掉落模型（手里照旧是脚本件；提灯的低画质掉落也是） | `ai/wpn_<种>/provenance.json` |
+| `ca/aiwpn_helm`、`body`、`gloves`、`boots`、`belt`、`ring`、`amulet`（各带 `_lo`）：头盔、胸甲、手套、靴子、腰带、戒指、护身符 | 装备的掉落模型 | `ai/gear_<栏位>/provenance.json` |
 | 技能件：冰晶、冰凌、冰碴、冰簇、雷桩（晶柱 + 底座）、冰棱（刻式件、投射物零件各一份，投射物另有低画质减面版） | 冰系技能（冰脊、坠凌、冰棱、冰爆、冰系命中和碎块、冰片 / 冰棱投射物）、雷桩；`js/assets/skill-pieces.js`，几十到一百多个三角形、一面一色、没有贴图 | `ai/skill-ice-spike`、`skill-ice-icicle`、`skill-ice-chunk`、`skill-ice-cluster`、`skill-ice-shard`、`skill-pylon` 下的 `provenance.json` |
+| 技能件：熔光炮台（铁灰的炮座、三条腿和炮头 + 余烬色的炮管） | 熔光射线放下的炮台；`js/assets/skill-pieces.js`（炮座 150 + 炮头 150 + 炮管 99 个三角形、一面一色、没有贴图） | `ai/skill-turret/provenance.json` |
 | `ca/gear_mine`（绊雷：暗铁圆盘、往上张开的爪，中间一个灯窝） | 夜猎 / 炉匠的绊雷，`js/assets/kit-gear.js` | `ai/gear_mine/provenance.json` |
 | 主角（银紫短发、青绿围巾、敞开的靛紫短袖夹克带两片到膝的后摆、米色衬衣、藏青长裤、棕靴）：`ai/hero/hero.glb`（高 / 中画质，10032 个三角形）、`ai/hero/hero_lo.glb`（低画质，7632） | 主角默认外观，打进 `js/assets/chars.js`（`aihero_hi` / `aihero_lo`）；包缺了、解析失败或套用出错时退回 Adventurer | `ai/hero/provenance.json` |
 
 - **生成流程**：ComfyUI 0.43.0，只用内置节点。Z-Image Turbo 文生图，TRELLIS.2 图生 3D，另外用到 BiRefNet、DINOv3、MoGe-2。巨像和主角的蒙皮用 UniRig（只算权重，骨架是我们自己拟合的骨架）。提示词、种子、每个组件的版本都在各自的来源记录里。
 - **处理**：
   - 布景件：`art/ai/importer.py`（`gen='ai'`）摆正、去碎块、减面到 `art/budgets.json` 的 `aiprop`，反照率贴图在 `ai/<件>/albedo.jpg`。
-  - 技能件：`art/ai/pieces.py` 按每件的坐标约定摆好，凸的件取凸包再合并棱面，别的减面，预算在 `art/budgets.json` 的 `pieces`（冰晶 / 冰凌 120、冰碴 / 冰簇 / 雷桩 150、冰棱 60、低画质冰棱 36）；颜色按面从反照率里取，烘成形状批的色阶、刻式件的明暗倍数或投射物的顶点色，不要贴图。绊雷走布景件的 `vc` 外观（三角形不超过原来的 508）。
+  - 技能件：`art/ai/pieces.py` 按每件的坐标约定摆好，凸的件取凸包再合并棱面，别的减面，预算在 `art/budgets.json` 的 `pieces`（冰晶 / 冰凌 120、冰碴 / 冰簇 / 雷桩 150、炮台的炮座 150 + 炮头 150 + 炮管 99、冰棱 60、低画质冰棱 36）；颜色按面从反照率里取，烘成形状批的色阶、刻式件的明暗倍数或投射物的顶点色，不要贴图。绊雷走布景件的 `vc` 外观（三角形不超过原来的 508）。
   - 巨像：`art/ai/golem_rig.py`（`gen='golem_ai'`）把源模型对到巨像骨架上，减面到首领预算以内（高 7845、低 3837 个三角形），四肢和关节用 UniRig 的权重，头、烟囱、肩甲这些整块的地方按几何区域改成刚性，反照率贴图 512 带在 GLB 里，按游戏镜头的灰度调亮。
   - 主角：`art/ai/hero_rig.py`（拟合在 `art/ai/hero_fit.py`）把 A 字站姿的源模型对到 53 根的标准人形骨架（UE / UAL 骨骼名），先做几处脚本修形（头放大 1.15、护膝压平），权重用 UniRig 算的再按区域改（头和头发、手掌、四指三节、拇指、护腕、后摆各有固定的规则），拳头烘进绑定姿态，减面到 `art/budgets.json` 的 `hero` 以内（高 10032、低 7632，低画质不比 Adventurer 的 8450 重）。颜色按角从反照率里取，再按定点改色把头发、围巾、衬衣、长裤调回游戏里主角的配色；脸上的暗条改回肤色，另贴两只小眼睛和细眉。导出时同色的角并成一个顶点，颜色存 8 位，没有贴图。`--ship` 把选定的一份复制到 `ai/hero/`。
-  - 布景件和巨像由 `npm run build:art` 调用，主角用 `hero_rig.py` 单独生成；源文件不在的机器上保留已提交的生成物。
+  - 武器：`art/ai/weapon.py`（`gen='ai'`、外观 `fc`）逐面取色、发光区拆成单独的一层壳（按稀有度着色），不带贴图，见 `docs/art-pipeline.md`「AI 生成的武器」。
+  - 布景件、巨像和武器由 `npm run build:art` 调用，主角用 `hero_rig.py` 单独生成；源文件不在的机器上保留已提交的生成物。
 - **许可证**：生成时用到的每个组件都读过许可证原文：
   - ComfyUI：GPL-3.0，只是工具，输出不受约束；
   - Z-Image Turbo、Qwen3-4B 文本编码器、VAE（和 FLUX.1-schnell 的 ae 逐字节相同）：Apache-2.0；
@@ -61,5 +66,6 @@
   这些组件都不限制输出、不禁止商用，也不要求在输出上署名。nvdiffrast（只许研究或评估用途）不在这条流程里；Puppeteer 的蒙皮用到 NVIDIA PartField（只许非商业研究用途），不用。换生成流程、换权重或者商业发行之前，要重新审一遍。
 - **凭据**：许可证审查表和每份许可证原文（第一行是来源和版本）在编排者的笔记 `notes/ai3d/` 里，不进仓库；每件的来源记录里记着结论。
 - **不进仓库的东西**：源 GLB、概念图、UniRig 的权重 GLB（都只记 sha256）。仓库里只有处理后的游戏用件、反照率贴图和来源记录。
-- **审核**：和脚本件 / 脚本首领一样看灰度、风格和预算（首领另看出手帧：挂点落在预警里），另外做一次相似度检查：不能像任何已有游戏的素材或 IP，提示词里也不提别的游戏或 IP。
+- **审核**：和脚本件 / 脚本首领一样看灰度、风格和预算（首领另看出手帧：挂点落在预警里；武器是 `art/budgets.json` 的 `aiweapon`），另外做一次相似度检查：不能像任何已有游戏的素材或 IP，提示词里也不提别的游戏或 IP。
+- **武器和 DINOv3 §1.b.v**：这一条不许把 DINOv3 用于「与枪支或非法武器的开发或使用有关」的用途。用户 2026-11-26 定了：拿来做游戏美术不算禁止的用途，枪也可以做。商业发行前要重新审。武器的来源记录里有这一条（`licence_audit.dinov3_1bv`）。
 

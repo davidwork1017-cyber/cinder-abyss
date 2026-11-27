@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { readGlb, stats, isIdentity, bakedMean, bakeGeo, packAi, packBoss, bossEntry, accessor, bossRows } from './glb.mjs';
+import { readGlb, stats, isIdentity, bakedMean, bakeGeo, packAi, packFc, packBoss, bossEntry, accessor, bossRows } from './glb.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const rd = (p) => JSON.parse(fs.readFileSync(path.join(root, p), 'utf8'));
@@ -66,7 +66,7 @@ function checkAi(a, bad) {
 // ai3d-skills：AI 技能件（js/assets/skill-pieces.js，art/ai/pieces.py 生成）：每件的三角形数在 art/budgets.json 的 pieces 预算内，
 // 形状批里的件不超过槽位（slot），雷桩两段合计不超过 pylonTotal；逐面数组和面数对得上、数都是有限数、色阶在 0–1；
 // 每件都能对上 art/ai/pieces.json 列的来源记录（字段齐全、没有个人信息、目录里不放 PNG / 概念图），清单里的件和来源记录的输出一一对应
-const SHAPE_PIECES = ['crystal', 'icicle', 'ichip', 'cluster', 'pylon', 'pylonBase'];
+const SHAPE_PIECES = ['crystal', 'icicle', 'ichip', 'cluster', 'pylon', 'pylonBase', 'turret', 'turretHead', 'turretLens', 'turretBarrel'];
 function checkPieces(bad) {
   const B = rd('art/budgets.json').pieces || {};
   const f = path.join(root, 'js/assets/skill-pieces.js');
@@ -94,6 +94,9 @@ function checkPieces(bad) {
     for (const o of (P.processing && P.processing.outputs) || []) {
       want[o.key] = P.id;
       if (o.split) want[o.split.below] = P.id;
+      if (o.presplit && o.presplit.key) want[o.presplit.key] = P.id;
+      if (o.presplit && o.presplit.upper_key) want[o.presplit.upper_key] = P.id;
+      if (o.presplit && o.presplit.parts) for (const r of o.presplit.parts) if (r.key) want[r.key] = P.id;
     }
   }
   for (const k of Object.keys(want)) if (!D[k]) bad('skill-pieces', '来源记录里的输出 ' + k + ' 不在 js/assets/skill-pieces.js 里（重新跑 art/ai/pieces.py）');
@@ -115,6 +118,8 @@ function checkPieces(bad) {
   }
   for (const k of SHAPE_PIECES) if (tri[k] > (B.slot || 150)) bad('piece/' + k, '形状批的件不能超过槽位 ' + (B.slot || 150) + ' 个三角形（现在 ' + tri[k] + '）');
   if ((tri.pylon || 0) + (tri.pylonBase || 0) > (B.pylonTotal || 150)) bad('piece/pylon', '雷桩两段合计 ' + ((tri.pylon || 0) + (tri.pylonBase || 0)) + ' 个三角形，超过 ' + (B.pylonTotal || 150));
+  if ((tri.turret || 0) + (tri.turretHead || 0) + (tri.turretLens || 0) + (tri.turretBarrel || 0) > (B.turretTotal || 400)) bad('piece/turret', '炮台各段合计超过 ' + (B.turretTotal || 400));
+  if (D.turret && !(D.turretBarrel && Array.isArray(D.turretBarrel.muzzle) && D.turretBarrel.muzzle.length === 3)) bad('piece/turretBarrel', '缺炮口位置 muzzle（游戏端从这里起射线）');
   return tri;
 }
 function jpegWidth(buf) {
@@ -205,10 +210,12 @@ export function checkArt() {
     // 例外：AI 布景件的 albedo 外观（ai3d-pilot）材质 ai_albedo、GLB 里不带图（见下面的 checkAi）；
     // 类别里写了 albedo 的首领（ai3d-golem）可以带一张自己的反照率贴图（JPEG、边长不超过 albedo.maxPx、材质名 albedo.material）
     const aiAlbedo = a.source && a.source.gen === 'ai' && a.mode === 'albedo';
+    // AI 武器的 fc 外观（ai3d-weapons，art/ai/weapon.py）：材质 ai_fc、GLB 里不带图，颜色全在 COLOR_0（UV 全 0，不采样调色板）
+    const aiFc = a.source && a.source.gen === 'ai' && a.mode === 'fc';
     const alb = cat.albedo, ownTex = !!(alb && (g.json.materials || []).some((m) => m.name === alb.material));
-    const wantMat = aiAlbedo ? 'ai_albedo' : ownTex ? alb.material : budgets.material;
-    for (const m of g.json.materials || []) if (m.name !== wantMat) bad(id, '材质名 ' + m.name + '，应为' + (aiAlbedo ? ' ai_albedo（AI 件的反照率外观）' : '共享的 ' + budgets.material + (alb ? ' 或 ' + alb.material : '')));
-    if (aiAlbedo && (g.json.images || []).length) bad(id, 'AI 件的 albedo 外观 GLB 里不该带图（贴图走 tools/asset-sources.json 的 textures）');
+    const wantMat = aiAlbedo ? 'ai_albedo' : aiFc ? 'ai_fc' : ownTex ? alb.material : budgets.material;
+    for (const m of g.json.materials || []) if (m.name !== wantMat) bad(id, '材质名 ' + m.name + '，应为' + (aiAlbedo ? ' ai_albedo（AI 件的反照率外观）' : aiFc ? ' ai_fc（AI 武器的逐面颜色）' : '共享的 ' + budgets.material + (alb ? ' 或 ' + alb.material : '')));
+    if ((aiAlbedo || aiFc) && (g.json.images || []).length) bad(id, 'AI 件的 ' + a.mode + ' 外观 GLB 里不该带图（贴图走 tools/asset-sources.json 的 textures）');
     if (a.source && a.source.gen === 'ai') checkAi(a, bad);
     for (const im of g.json.images || []) {
       const bv = g.json.bufferViews[im.bufferView];
@@ -225,12 +232,18 @@ export function checkArt() {
     // 单位 / 尺度：高度在类别的合理范围里（按厘米导出会大 100 倍）
     if (!(h >= cat.h[0] && h <= cat.h[1])) bad(id, '高度 ' + h.toFixed(3) + ' m 不在 ' + a.category + ' 的合理范围 ' + cat.h.join('–') + ' m（单位错了？）');
     // 原点在底面中心：最低点在地面附近（允许根 / 埋入部分到 -15% 高度），原点落在水平包围盒里且靠近中心
-    if (s.min[1] > 0.02) bad(id, '最低点 y = ' + s.min[1].toFixed(3) + '，悬空：原点应在底面（y = 0 是地面）');
-    if (s.min[1] < -(0.15 * h + 0.05)) bad(id, '最低点 y = ' + s.min[1].toFixed(3) + '，埋得太深（> 15% 高度）：原点不在底面？');
-    const ext = Math.max(s.max[0] - s.min[0], s.max[2] - s.min[2]);
-    const cx = (s.max[0] + s.min[0]) / 2, cz = (s.max[2] + s.min[2]) / 2;
-    if (s.min[0] > 0 || s.max[0] < 0 || s.min[2] > 0 || s.max[2] < 0 || Math.hypot(cx, cz) > 0.35 * ext + 0.05)
-      bad(id, '原点不在水平中心附近（包围盒中心 ' + cx.toFixed(2) + ', ' + cz.toFixed(2) + '，宽 ' + ext.toFixed(2) + '）');
+    if (cat.origin === 'grip') {
+      // 武器（aiweapon）：原点在握把中心，不在底面。原点要落在件的包围盒里（单独成件的前段，比如机炮的枪管束，原点在握把那边，不查）
+      if (!a.part || a.part === 'body')
+        for (let q = 0; q < 3; q++) if (s.min[q] > 0 || s.max[q] < 0) bad(id, '原点（握把）不在包围盒里：第 ' + q + ' 轴 ' + s.min[q].toFixed(3) + '–' + s.max[q].toFixed(3));
+    } else {
+      if (s.min[1] > 0.02) bad(id, '最低点 y = ' + s.min[1].toFixed(3) + '，悬空：原点应在底面（y = 0 是地面）');
+      if (s.min[1] < -(0.15 * h + 0.05)) bad(id, '最低点 y = ' + s.min[1].toFixed(3) + '，埋得太深（> 15% 高度）：原点不在底面？');
+      const ext = Math.max(s.max[0] - s.min[0], s.max[2] - s.min[2]);
+      const cx = (s.max[0] + s.min[0]) / 2, cz = (s.max[2] + s.min[2]) / 2;
+      if (s.min[0] > 0 || s.max[0] < 0 || s.min[2] > 0 || s.max[2] < 0 || Math.hypot(cx, cz) > 0.35 * ext + 0.05)
+        bad(id, '原点不在水平中心附近（包围盒中心 ' + cx.toFixed(2) + ', ' + cz.toFixed(2) + '，宽 ' + ext.toFixed(2) + '）');
+    }
     // 没有未应用的变换：只有一个网格节点、本身和父级都是单位矩阵
     if (s.meshNodes.length !== 1) bad(id, '网格节点 ' + s.meshNodes.length + ' 个，应为 1 个');
     for (const n of s.meshNodes) {
@@ -290,6 +303,10 @@ export function checkArt() {
           // AI 件的紧凑包（packAi）：重新打一遍逐字节相同、贴图 id 和清单一致
           const q = packAi(g);
           if (e.n !== q.n || e.p !== b64(q.p) || e.u !== b64(q.u) || e.c !== b64(q.c) || e.i !== b64(q.i) || e.t !== a.tex) bad(id, 'js/assets/kit-' + a.zone + '.js 里的 AI 件和重新打包的不一致（重新打包）');
+        } else if (aiFc) {
+          // AI 武器的紧凑包（packFc）：重新打一遍逐字节相同
+          const q = packFc(g);
+          if (e.n !== q.n || JSON.stringify(e.q) !== JSON.stringify(q.q) || e.p !== b64(q.p) || e.c !== b64(q.c) || e.g !== (q.g ? b64(q.g) : undefined) || e.i !== b64(q.i) || e.fc !== 2) bad(id, 'js/assets/kit-' + a.zone + '.js 里的 AI 武器和重新打包的不一致（重新打包）');
         } else {
           const b = bakeGeo(g);
           if (e.n !== b.count || e.p !== b64(b.pos) || e.nn !== b64(b.nor) || e.c !== b64(b.col) || e.g !== b64(b.glow) || e.u !== undefined || e.t !== undefined) bad(id, 'js/assets/kit-' + a.zone + '.js 里的几何体和重新烘焙的不一致（重新打包）');

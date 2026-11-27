@@ -1,0 +1,165 @@
+{
+ "_comment": "AI 生成武器的来源记录（ai3d-weapons，试点）。processing 是 art/ai/weapon.py 的处理参数（npm run build:art 读这里）。源 GLB 不进仓库，只记 sha256；概念图不进仓库。",
+ "id": "ca/aiwpn_wand",
+ "title": "短杖（骨白杖身、雕花杖头托着一颗蓝宝石）",
+ "pilot": true,
+ "source": {
+  "name": "wpn-wand-01",
+  "file": "model.glb",
+  "sha256": "6d775cf949d43568cc53045f0b40d0e8c6b3ad0357b73ebb70e891e7a81287ec",
+  "bytes": 1193328,
+  "faces": 20000,
+  "textures": "1024 JPEG（底色 / 金属粗糙度 / 法线，只用底色）",
+  "kept": "不进仓库：用户上传到编排者的收件箱，构建时用环境变量 CA_AI_INBOX 指过去",
+  "concept_image": "不进仓库"
+ },
+ "generation": {
+  "date": "2026-11-26",
+  "prompt": "a short pale bone wand with a knobbed grip end, two small bone thorns near the tip, a small glowing crystal at the tip, stylized low-poly toon fantasy weapon, refined, clean flat colour blocks, soft simple shading, matte, single object, upright, plain white background, no text, no logos, no emblems, a separate glow inlay clearly readable as its own coloured band, no hand",
+  "negative_prompt": null,
+  "seed": 1361,
+  "text_to_image": {
+   "model": "Z-Image Turbo",
+   "weights": [
+    "z_image_turbo_int8_convrot.safetensors",
+    "qwen_3_4b_fp8_mixed.safetensors",
+    "ae.safetensors"
+   ]
+  },
+  "image_to_3d": {
+   "model": "TRELLIS.2",
+   "weights": [
+    "birefnet.safetensors",
+    "dino_v3_L_naf_fp32.safetensors",
+    "moge_2_vitl_normal_fp16.safetensors",
+    "trellis_2_int8_convrot.safetensors",
+    "trellis_2_shape_vae_bf16.safetensors",
+    "trellis_2_texture_vae_bf16.safetensors"
+   ],
+   "target_faces": 20000,
+   "texture_size": 1024
+  },
+  "tool": {
+   "name": "ComfyUI",
+   "version": "0.43.0",
+   "commit": "426f5eea52a7ece1dd599fff4cb6cd1f352ddd24",
+   "nodes": "只用内置节点（comfy_extras/nodes_trellis2.py、nodes_bg_removal.py、nodes_mesh_postprocess.py），没有自定义节点"
+  }
+ },
+ "components": [
+  {
+   "name": "ComfyUI",
+   "rev": "Comfy-Org/ComfyUI@426f5eea52a7ece1dd599fff4cb6cd1f352ddd24",
+   "licence": "GPL-3.0",
+   "role": "运行环境（不随游戏分发，输出不受 GPL 约束）"
+  },
+  {
+   "name": "Z-Image Turbo",
+   "rev": "Comfy-Org/Z-Image-Turbo@6fc90a3b1b653e935a0d175e260736de25b84df5 ← Tongyi-MAI/Z-Image-Turbo",
+   "licence": "Apache-2.0",
+   "role": "文生图"
+  },
+  {
+   "name": "Qwen3-4B",
+   "rev": "Comfy-Org/Z-Image-Turbo@6fc90a3b1b653e935a0d175e260736de25b84df5 ← Qwen/Qwen3-4B",
+   "licence": "Apache-2.0",
+   "role": "文生图的文本编码器"
+  },
+  {
+   "name": "VAE ae.safetensors",
+   "rev": "Comfy-Org/Z-Image-Turbo@6fc90a3b1b653e935a0d175e260736de25b84df5（和 FLUX.1-schnell 的 ae 逐字节相同）",
+   "licence": "Apache-2.0",
+   "role": "文生图的 VAE"
+  },
+  {
+   "name": "BiRefNet",
+   "rev": "Comfy-Org/BiRefNet@884af709e9b795d89dafbf97f29c8d6a2386f5c6 ← ZhengPeng7/BiRefNet",
+   "licence": "MIT",
+   "role": "抠背景"
+  },
+  {
+   "name": "DINOv3 ViT-L/16（+ NAF 上采样器）",
+   "rev": "Comfy-Org/Pixal3D@f37641be376725d324c56626007cc477f1249a69 dino_v3_L_naf_fp32",
+   "licence": "DINOv3 License（NAF：Apache-2.0）",
+   "role": "图像编码器"
+  },
+  {
+   "name": "MoGe-2",
+   "rev": "Comfy-Org/MoGe@1484985258ba7ef45c314144fcf0e90924ffbf44 ← microsoft/MoGe",
+   "licence": "MIT",
+   "role": "几何估计"
+  },
+  {
+   "name": "TRELLIS.2",
+   "rev": "Comfy-Org/TRELLIS.2@430a9d09b2416687018c8fe8edced2ad4858a439 ← microsoft/TRELLIS.2-4B；两个 VAE 取自 Comfy-Org/Pixal3D@f37641be（和 TRELLIS.2 的逐字节相同）",
+   "licence": "MIT",
+   "role": "图生 3D"
+  }
+ ],
+ "licence_audit": {
+  "verdict": "所有组件都没有限制输出、没有禁止商用、也不要求在输出上署名",
+  "evidence": "编排者笔记 notes/ai3d/licence-audit.md 和 notes/ai3d/licences/（每份许可证原文，第一行是来源和版本），不在仓库里",
+  "nvdiffrast": "不在这条流程里（生成的机器上没装，ComfyUI 0.43.0 也不引用）。以后如果改用上游 TRELLIS.2 / Pixal3D 的导出（会用到 nvdiffrast + nvdiffrec，许可证只许研究或评估用途），上线前要重新审；商业发行前也要重新审",
+  "rereview": "换生成流程（别的节点、上游仓库、新权重）或商业发行之前重新审一遍",
+  "dinov3_1bv": "DINOv3 §1.b.v reviewed: user ruling 2026-11-26, game art not a prohibited end use; re-review before any commercial release"
+ },
+ "credit": "用 Z-Image Turbo（Apache-2.0）、TRELLIS.2（MIT）、BiRefNet（MIT）、DINOv3（DINOv3 License）、MoGe-2（MIT）在 ComfyUI 里生成，经 art/ai/importer.py 处理（自愿署名，许可证不要求）",
+ "processing": {
+  "pipeline": "TRELLIS.2（输出是正的，只换轴）",
+  "mode": "fc",
+  "weld": 1e-05,
+  "min_island": 0.0005,
+  "float_h": 10.0,
+  "colors": {
+   "k": 7
+  },
+  "frame": {
+   "long": "+z",
+   "up": "+x"
+  },
+  "length": 0.75,
+  "grip": [
+   0.5,
+   0.17
+  ],
+  "lods": {
+   "hi": 400,
+   "lo": 56
+  },
+  "glow_lods": {
+   "hi": 40,
+   "lo": 12
+  },
+  "glow": {
+   "rules": [
+    {
+     "h": [
+      195,
+      260
+     ],
+     "s": [
+      0.35,
+      1
+     ],
+     "v": [
+      0.3,
+      1
+     ]
+    }
+   ],
+   "box": {
+    "long": [
+     0.8,
+     1.01
+    ]
+   },
+   "min_area": 0.0005,
+   "fill_area": 0.004,
+   "frac": 0.5,
+   "shell": 0.002,
+   "shell_grow": 1,
+   "cut_body": true
+  },
+  "lods_note": "lo（手里 + 低画质掉落）：本体 56 + 发光 12，不超过原来脚本件（掉落 / 手里 = 68 / 236 个三角形）"
+ }
+}
