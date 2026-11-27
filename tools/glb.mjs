@@ -119,6 +119,14 @@ export function decodePng(buf) {
   return { w, h, bpp, d: out };
 }
 // 面积加权的平均线性颜色和亮度（每个三角形取第一个顶点的颜色，游戏里是平直着色、一面一色）
+// 材质底色贴图的原始字节和类型（PNG = 共享调色板图集；JPEG = AI 生成首领的反照率贴图，ai3d-golem）
+export function baseImage(g, mat) {
+  const j = g.json, pbr = (mat || {}).pbrMetallicRoughness || {};
+  if (!pbr.baseColorTexture) return null;
+  const im = j.images[j.textures[pbr.baseColorTexture.index].source], bv = j.bufferViews[im.bufferView];
+  const bytes = g.bin.subarray(bv.byteOffset || 0, (bv.byteOffset || 0) + bv.byteLength);
+  return { bytes, mime: im.mimeType || (bytes[0] === 0x89 ? 'image/png' : 'image/jpeg'), png: bytes[0] === 0x89 && bytes[1] === 0x50 };
+}
 export function bakedMean(g) {
   const j = g.json, acc = [0, 0, 0];
   let A = 0;
@@ -126,10 +134,8 @@ export function bakedMean(g) {
     for (const p of mesh.primitives) {
       const pbr = ((j.materials || [])[p.material] || {}).pbrMetallicRoughness || {}, bf = pbr.baseColorFactor || [1, 1, 1, 1];
       let im = null;
-      if (pbr.baseColorTexture) {
-        const bv = j.bufferViews[j.images[j.textures[pbr.baseColorTexture.index].source].bufferView];
-        im = decodePng(g.bin.subarray(bv.byteOffset || 0, (bv.byteOffset || 0) + bv.byteLength));
-      }
+      const bi = baseImage(g, (j.materials || [])[p.material]);
+      if (bi && bi.png) im = decodePng(bi.bytes); // 反照率贴图（JPEG）这里不解码：只按顶点色算
       const P = accessor(g, p.attributes.POSITION);
       const U = p.attributes.TEXCOORD_0 !== undefined ? accessor(g, p.attributes.TEXCOORD_0) : null;
       const C = p.attributes.COLOR_0 !== undefined ? accessor(g, p.attributes.COLOR_0) : null;
@@ -171,7 +177,7 @@ function rawAccessor(g, i) {
   return { arr: out, n, normalized: !!a.normalized, type: a.componentType };
 }
 export function bakeGeo(g) {
-  const j = g.json, P = [], N = [], C = [], GL = [];
+  const j = g.json, P = [], N = [], C = [], GL = [], U = [];
   const sc = j.scenes[j.scene || 0];
   const walk = (ni) => {
     const nd = j.nodes[ni];
@@ -221,13 +227,36 @@ export function bakeGeo(g) {
             bb *= vc.arr[i * vc.n + 2] * vcK;
           }
           C.push(r, gg, bb);
+          U.push(uv ? uv.arr[i * 2] : 0, uv ? uv.arr[i * 2 + 1] : 0); // AI 件（材质 ai_albedo）要带 UV 采样自己的反照率贴图；调色板件的包里不写
           GL.push(vc && vc.n === 4 ? Math.max(0, 1 - vc.arr[i * 4 + 3] * vcK) : 0);
         }
       }
     for (const c of nd.children || []) walk(c);
   };
   for (const ni of sc.nodes) walk(ni);
-  return { count: P.length / 3, pos: Float32Array.from(P), nor: Float32Array.from(N), col: Float32Array.from(C), glow: GL.some((k) => k > 0.01) ? Float32Array.from(GL) : null };
+  return { count: P.length / 3, pos: Float32Array.from(P), nor: Float32Array.from(N), col: Float32Array.from(C), glow: GL.some((k) => k > 0.01) ? Float32Array.from(GL) : null, uv: Float32Array.from(U) };
+}
+
+// ---------- AI 件（ai3d-pilot，外观 albedo）的紧凑包：bakeGeo 的结果按 (位置, UV, 颜色) 焊接成带索引的网格 ----------
+// 游戏端用平直着色（材质 flatShading，法线在着色器里按面算），所以不存法线；颜色只是烘好的 AO（同一个顶点的各个角相同）。
+// 输出 { n: 索引数, p: 顶点位置 Float32 × 3, u: UV Float32 × 2, c: 颜色 Float32 × 3, i: 索引 Uint16 / Uint32 }，顺序 = 第一次出现的顺序（固定）
+export function packAi(g) {
+  const b = bakeGeo(g), map = new Map(), P = [], U = [], C = [], I = [];
+  const f = new Float32Array(1), u32 = new Uint32Array(f.buffer), bits = (x) => ((f[0] = x), u32[0]);
+  for (let k = 0; k < b.count; k++) {
+    const key = [b.pos[k * 3], b.pos[k * 3 + 1], b.pos[k * 3 + 2], b.uv[k * 2], b.uv[k * 2 + 1], b.col[k * 3], b.col[k * 3 + 1], b.col[k * 3 + 2]].map(bits).join(',');
+    let v = map.get(key);
+    if (v === undefined) {
+      v = P.length / 3;
+      map.set(key, v);
+      P.push(b.pos[k * 3], b.pos[k * 3 + 1], b.pos[k * 3 + 2]);
+      U.push(b.uv[k * 2], b.uv[k * 2 + 1]);
+      C.push(b.col[k * 3], b.col[k * 3 + 1], b.col[k * 3 + 2]);
+    }
+    I.push(v);
+  }
+  const verts = P.length / 3;
+  return { n: I.length, verts, p: Float32Array.from(P), u: Float32Array.from(U), c: Float32Array.from(C), i: verts < 65536 ? Uint16Array.from(I) : Uint32Array.from(I) };
 }
 
 // ---------- 首领包（boss-golem）：带蒙皮和动作的首领 GLB → 游戏直接用的数组（和布景件的预烘焙一样，游戏端不解析 GLB、不解码调色板） ----------
@@ -244,8 +273,11 @@ const l2s = (c) => (c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 
 // 调色板图集的行数（每行 2 像素高）：首领包按 UV 记行号
 export const bossRows = (g) => {
   const im = g.json.images[0], bv = g.json.bufferViews[im.bufferView];
+  if (g.bin[bv.byteOffset || 0] !== 0x89) return 0; // 反照率贴图（JPEG）：没有调色板行
   return g.bin.readUInt32BE((bv.byteOffset || 0) + 20) / 2; // PNG 的 IHDR 高度
 };
+// 带反照率贴图的首领（ai3d-golem）：每个三角形的调色板行一律记成这一行（灰白石 → 表面按石头），颜色 = 贴图 × 角上的颜色（白，α = 1 − 发光）
+export const BOSS_TEX_ROW = 10;
 export const BOSS_Q = 8192; // 通道值的量化：Int16 / 8192（±4 弧度 / 米，精度 0.00012）
 const m4mul = (a, b) => { const o = new Float64Array(16); for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) { let v = 0; for (let k = 0; k < 4; k++) v += a[k * 4 + r] * b[c * 4 + k]; o[c * 4 + r] = v; } return o; };
 const m4trs = (t, q) => {
@@ -263,8 +295,8 @@ const m4inv = (m) => {
 export function packBoss(g, rows) {
   const j = g.json, prim = j.meshes[0].primitives[0];
   const pbr = (j.materials[prim.material] || {}).pbrMetallicRoughness || {}, bf = pbr.baseColorFactor || [1, 1, 1, 1];
-  const ibv = j.bufferViews[j.images[j.textures[pbr.baseColorTexture.index].source].bufferView];
-  const px = decodePng(g.bin.subarray(ibv.byteOffset || 0, (ibv.byteOffset || 0) + ibv.byteLength));
+  const bi = baseImage(g, j.materials[prim.material]), tex = bi && !bi.png; // tex：反照率贴图（JPEG），角上记 UV、颜色只取顶点色
+  const px = tex ? null : decodePng(bi.bytes);
   const pos = rawAccessor(g, prim.attributes.POSITION), uv = rawAccessor(g, prim.attributes.TEXCOORD_0), vc = rawAccessor(g, prim.attributes.COLOR_0);
   const jn = rawAccessor(g, prim.attributes.JOINTS_0), wt = rawAccessor(g, prim.attributes.WEIGHTS_0), idx = rawAccessor(g, prim.indices).arr;
   const n = pos.arr.length / 3, vcK = vc.normalized ? 1 / (vc.type === 5121 ? 255 : 65535) : 1;
@@ -302,11 +334,20 @@ export function packBoss(g, rows) {
     remap[i] = at;
   }
   // 角：顶点序号 + 烘焙好的颜色（sRGB 8 位）+ 每个三角形的调色板行
-  const nc = idx.length, CI = new Uint16Array(nc), C8 = new Uint8Array(nc * 4), R8 = new Uint8Array(nc / 3);
+  const nc = idx.length, CI = new Uint16Array(nc), C8 = new Uint8Array(nc * 4), R8 = new Uint8Array(nc / 3), UV = tex ? new Uint16Array(nc * 2) : null;
   if (P.length / 3 > 65535) throw new Error('首领顶点太多（焊接后 ' + P.length / 3 + '）');
+  const uvK = uv.normalized ? 1 / (uv.type === 5121 ? 255 : 65535) : 1;
   for (let t = 0; t < nc; t++) {
     const i = idx[t];
     CI[t] = remap[i];
+    if (tex) {
+      UV[t * 2] = Math.round(Math.min(1, Math.max(0, uv.arr[i * 2] * uvK)) * 65535);
+      UV[t * 2 + 1] = Math.round(Math.min(1, Math.max(0, uv.arr[i * 2 + 1] * uvK)) * 65535);
+      for (let k = 0; k < 3; k++) C8[t * 4 + k] = Math.round(Math.min(1, Math.max(0, l2s(bf[k] * vc.arr[i * 4 + k] * vcK))) * 255);
+      C8[t * 4 + 3] = Math.round(vc.arr[i * 4 + 3] * vcK * 255);
+      if (t % 3 === 0) R8[t / 3] = BOSS_TEX_ROW;
+      continue;
+    }
     let u = uv.arr[i * 2], v = uv.arr[i * 2 + 1];
     u -= Math.floor(u);
     v -= Math.floor(v);
@@ -365,7 +406,7 @@ export function packBoss(g, rows) {
     }
     clips[a.name] = { ex: a.extras || {}, n: nF, ch };
   }
-  return { bones, nv: P.length / 3, p: Float32Array.from(P), j: Uint8Array.from(J8), w: Uint8Array.from(W8), nc, ci: CI, c: C8, r: R8, clips };
+  return { bones, nv: P.length / 3, p: Float32Array.from(P), j: Uint8Array.from(J8), w: Uint8Array.from(W8), nc, ci: CI, c: C8, r: R8, clips, ...(tex ? { uv: UV, tex: 'data:' + bi.mime + ';base64,' + Buffer.from(bi.bytes).toString('base64') } : {}) };
 }
 // 首领包的 JSON（数组转 base64，键的顺序固定）
 export function bossEntry(sha, b) {
@@ -376,5 +417,5 @@ export function bossEntry(sha, b) {
     for (const k of Object.keys(c.ch).sort()) ch[k] = b64(c.ch[k]);
     clips[name] = { ex: c.ex, n: c.n, ch };
   }
-  return { sha, q: BOSS_Q, bones: b.bones, nv: b.nv, p: b64(b.p), j: b64(b.j), w: b64(b.w), nc: b.nc, ci: b64(b.ci), c: b64(b.c), r: b64(b.r), clips };
+  return { sha, q: BOSS_Q, bones: b.bones, nv: b.nv, p: b64(b.p), j: b64(b.j), w: b64(b.w), nc: b.nc, ci: b64(b.ci), c: b64(b.c), r: b64(b.r), clips, ...(b.uv ? { uv: b64(b.uv), tex: b.tex } : {}) };
 }

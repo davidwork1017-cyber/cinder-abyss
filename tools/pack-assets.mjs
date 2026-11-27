@@ -6,7 +6,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readGlb, bakeGeo, packBoss, bossEntry, bossRows } from './glb.mjs';
+import { readGlb, bakeGeo, packAi, packBoss, bossEntry, bossRows } from './glb.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const manifest = JSON.parse(fs.readFileSync(path.join(root, 'tools/asset-sources.json'), 'utf8'));
@@ -107,17 +107,26 @@ for (const [name, pk] of Object.entries(manifest.packs)) {
   if (pk.kit)
     for (const a of caManifest().assets)
       if (a.zone === pk.kit && a.ship) {
-        const buf = fs.readFileSync(path.join(root, a.file)), b = bakeGeo(readGlb(buf)), b64 = (f) => Buffer.from(f.buffer, f.byteOffset, f.byteLength).toString('base64');
+        const buf = fs.readFileSync(path.join(root, a.file)), b64 = (f) => Buffer.from(f.buffer, f.byteOffset, f.byteLength).toString('base64');
+        if (a.mode === 'albedo') {
+          // AI 件（ai3d-pilot，外观 albedo）：带索引的紧凑包（tools/glb.mjs 的 packAi：位置 + UV + AO 色 + 索引，不存法线，游戏端平直着色）；t = 反照率贴图的 id（贴图在 zone-<区> 包里）
+          const q = packAi(readGlb(buf));
+          (data.geo || (data.geo = {}))[a.id] = { sha: a.sha256, n: q.n, p: b64(q.p), u: b64(q.u), c: b64(q.c), i: b64(q.i), i32: q.i instanceof Uint32Array ? 1 : 0, t: a.tex };
+          continue;
+        }
+        const b = bakeGeo(readGlb(buf));
         (data.geo || (data.geo = {}))[a.id] = { sha: a.sha256, n: b.count, p: b64(b.pos), nn: b64(b.nor), c: b64(b.col), ...(b.glow ? { g: b64(b.glow) } : {}) };
       }
   // 首领（boss-<kind> 包，art/ 下的生成脚本经 npm run build:art 生成）：打包时就换成游戏直接用的数组（tools/glb.mjs 的 packBoss：颜色烘焙好、
   // 动作换成关节通道），游戏端不解析 GLB、不解码调色板。sha 是所用 GLB 的 sha256（check-art 拿它和清单对、并重新打包核对）
+  // lo（ai3d-golem 起）：低画质用的减面版（id = ca/boss_<lo>），打进同一个包，key 是 lo 的名字（游戏端按画质挑，BOSS_SPEC.lo）
   if (pk.boss)
-    for (const a of caManifest().assets)
-      if (a.category === 'boss' && a.ship && a.id === 'ca/boss_' + pk.boss) {
-        const g = readGlb(fs.readFileSync(path.join(root, a.file)));
-        (data.boss || (data.boss = {}))[pk.boss] = bossEntry(a.sha256, packBoss(g, bossRows(g)));
-      }
+    for (const kind of [pk.boss].concat(pk.lo ? [pk.lo] : []))
+      for (const a of caManifest().assets)
+        if (a.category === 'boss' && a.ship && a.id === 'ca/boss_' + kind) {
+          const g = readGlb(fs.readFileSync(path.join(root, a.file)));
+          (data.boss || (data.boss = {}))[kind] = bossEntry(a.sha256, packBoss(g, bossRows(g)));
+        }
   // 角色模型（GLB，由 tools/convert-chars.mjs 生成）：游戏端同步解析，不经过 assets.js 的布景烘焙
   for (const [k, rel] of Object.entries(pk.chars || {})) data.models[k] = fs.readFileSync(path.join(root, 'assets', rel)).toString('base64');
   // 特效贴图（PNG，由 tools/gen-vfx-textures.mjs 生成）：游戏端 js/vfx.js 当 data URI 用
