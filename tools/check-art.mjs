@@ -10,6 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { execFileSync } from 'node:child_process';
 import { readGlb, stats, isIdentity, bakedMean, bakeGeo, packAi, packFc, packBoss, bossEntry, accessor, bossRows } from './glb.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -316,7 +317,35 @@ export function checkArt() {
   }
   checkAiHero(budgets, bad);
   checkPieces(bad);
+  checkRepoPrivacy(bad);
   return { fails, rows, count: man.assets.length };
+}
+
+// 仓库卫生（main-scrub，2026-11-27）：git 跟踪的文件里不许有 Python 字节码（.pyc / __pycache__，里面带着生成时的绝对路径），
+// 也不许有任何文件（文本、二进制、符号链接的目标都算）含机器上的绝对家目录路径。
+// 正则拆成几段拼出来，这份文件自己的源码就不会被它匹配到。
+const SL = '/';
+const HOME_RX = new RegExp('(' + SL + 'ho' + 'me' + SL + '[^' + SL + '\\s"\'`]+' + SL + '|' + SL + 'da' + 'ta00' + SL + ')');
+export function checkRepoPrivacy(bad) {
+  let files;
+  try {
+    files = execFileSync('git', ['ls-files', '-z'], { cwd: root, maxBuffer: 64 << 20 }).toString('utf8').split('\0').filter(Boolean);
+  } catch (e) {
+    return bad('(仓库)', '列不出 git 跟踪的文件（git ls-files 失败），没法做隐私检查：' + String(e && e.message ? e.message : e).split('\n')[0]);
+  }
+  for (const f of files) {
+    if (/\.pyc$/i.test(f) || /(^|\/)__pycache__(\/|$)/.test(f)) bad(f, '跟踪了 Python 字节码（.pyc / __pycache__），删掉并让 .gitignore 管住');
+    const abs = path.join(root, f);
+    let st;
+    try {
+      st = fs.lstatSync(abs);
+    } catch (e) {
+      continue; // 工作区里删了还没提交：不是这次要查的内容
+    }
+    const txt = st.isSymbolicLink() ? fs.readlinkSync(abs) : st.isFile() ? fs.readFileSync(abs).toString('latin1') : '';
+    const m = HOME_RX.exec(txt);
+    if (m) bad(f, '含机器上的绝对路径（第 ' + m.index + ' 个字节起），仓库里不许写家目录路径');
+  }
 }
 
 // AI 生成的主角（ai3d-hero）：assets/ai/hero/hero.glb（高 / 中）、hero_lo.glb（低）。和来源记录里的 sha256 一致；三角形在 hero 预算内，
