@@ -21122,6 +21122,7 @@ async function main() {
         return { on: b.classList.contains('on'), name: b.querySelector('.eb-name').textContent, txt: b.querySelector('.eb-txt').textContent, mode: b.dataset.mode || '' };
       };
       G.ui.toastReset();
+      G.ui.encNoteReset(); // 前面的异兆步骤已经提示过祈坛的用法（这次游戏只提示一次）
       const t0 = G.ui.toastStats().shown;
       // 试锋：开始时事件条先写目标句；弃权写结果（灰）
       const D = G.ENCOUNTERS.trial.p;
@@ -27277,7 +27278,9 @@ async function titleSteps() {
     await until(() => !G.world.assetsPending(), null, 20000);
     await frames(3);
     const c = await ev(() => ({ on: G.ui.quest().on, k: G.ui.quest().k, tr: getComputedStyle(document.getElementById('quest')).transitionDuration }));
-    assert(c.on && c.k === '主线 4/11' && c.tr === '0.3s', '就绪后应显示（0.3 秒淡入）：' + JSON.stringify(c));
+    // toast-zero：就绪后先亮 3 秒「主线 3/11 完成」（载入时排着没放），再换成第 4 步
+    assert(c.on && c.k === '主线 3/11 完成' && c.tr === '0.3s', '就绪后应显示（0.3 秒淡入），先亮完成提示：' + JSON.stringify(c));
+    await until(() => G.ui.quest().k === '主线 4/11', null, 10000);
     // 正常重进（素材已就绪）照常显示
     await ev(() => G.enterZone(1, 0));
     await frames(3);

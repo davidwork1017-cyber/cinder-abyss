@@ -9060,6 +9060,12 @@
     flaskDeny,
     encNote,
     encNotes: () => encHud.notes.slice(),
+    // 测试用：忘掉「这次游戏已经提示过哪几种异兆的用法」
+    encNoteReset() {
+      for (const k in encHud.told) delete encHud.told[k];
+      encHud.note = null;
+      encHud.notes.length = 0;
+    },
     saveBar: (kind) => saveBar(kind),
     saveBarKind: () => saveBarKind,
     hurt,
@@ -9092,7 +9098,7 @@
     // 测试读：追踪条现在显示的字、显不显示、排队中的完成提示
     narr: () => ({ on: !!nc.cur, id: nc.cur ? nc.cur.id : '', out: !!(nc.cur && nc.cur.out), t: nc.cur ? nc.cur.t : 0, dur: nc.cur ? nc.cur.dur : 0, lines: nc.cur ? [nc.l1.textContent, nc.l2.textContent] : [], queued: nc.q.map((x) => x.id), held: nc.root.classList.contains('held') }),
     narrSkip,
-    quest: () => ({ on: !!qh.vis, k: qh.k.textContent, goal: qh.goal.textContent, how: qh.how.textContent, alt: qh.alt.textContent, done: qh.done ? qh.k.textContent : '', log: qh.log.slice() }),
+    quest: () => ({ on: !!qh.vis, k: qh.k.textContent, goal: qh.goal.textContent, how: qh.how.textContent, alt: qh.alt.textContent, done: qh.done ? qh.k.textContent : '', log: qh.log.slice(), queued: (qh.done ? [qh.done] : []).concat(qh.doneQ).map((d) => '主线 ' + d.n + '/' + G.QUEST_N + ' 完成') }),
     // 测试用：天赋盘回到「这次还没看过」（下次在触屏上打开按前沿放大一档）；treeFront() 读默认视口的结果
     treeViewReset: () => {
       ui.tv = undefined;
