@@ -28224,8 +28224,8 @@
       mStretch(x0 + ddx * cl * 0.5, y0 + dy * cl * 0.5, z0 + ddz * cl * 0.5, ddx, dy, ddz, 0.07, cl);
       pfPut('beam', 1.6, 1.4, 1.1);
     }
-    // 缠在射线上的几道短电弧（雷），比玩家那道稀
-    const nArc = lo ? Math.max(1, Math.round(L / 4)) : Math.max(2, Math.round(L / 2.6));
+    // 缠在射线上的几道短电弧（雷），比玩家那道稀；低画质不画（电弧件常常整场只有它在用，省一次 draw call）
+    const nArc = lo ? 0 : Math.max(2, Math.round(L / 2.6));
     for (let i = 0; i < nArc; i++) {
       if (hash2(Math.floor(wtime * 24) + i * 5, i + (h.side > 0 ? 3 : 11)) < 0.45) continue;
       const f = (i + hash2(Math.floor(wtime * 18), i + 17)) / nArc;

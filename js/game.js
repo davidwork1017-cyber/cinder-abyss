@@ -11187,8 +11187,9 @@
     }
     return best;
   }
-  // faint：小而淡的数字（同一个敌人每隔一会儿才冒一个）；noFlash：不闪白（一秒十跳加上机炮的子弹，怪会一直是白的，看不清）
-  const TURRET_INFO = { w: 0, quiet: true, faint: true, noFlash: true, turret: true };
+  // faint：小而淡的数字（同一个敌人每隔一会儿才冒一个）；noFlash / dot：不闪白、不后仰、不甩命中火花（只是画面：一秒十跳加上机炮的子弹，
+  // 怪会一直是白的、一直在抖，命中火花还多占两次 draw call）——射线打到哪儿由射线尽头的光和火星交代
+  const TURRET_INFO = { w: 0, quiet: true, faint: true, noFlash: true, dot: true, turret: true };
   function tickTurrets(dt) {
     if (P.dead) {
       clearTurrets();
