@@ -426,7 +426,10 @@ def _vc_tags(k, faces, fuv, px, spec, log):
     clab = _lab(s2l(np.array([c[2] for c in cand])))
     Ls, Lc = lab[:, 0], clab[:, 0]
     lo, hi = np.percentile(Ls, 3), np.percentile(Ls, 97)
-    L = Lc.min() + (Ls - lo) / max(1e-6, hi - lo) * (Lc.max() - Lc.min())
+    tn = (Ls - lo) / max(1e-6, hi - lo)
+    if V.get('gamma', 1.0) != 1.0:  # gamma < 1：中间调往亮里提（暗色为主的源模型，比如 AI 的绊雷）；缺省 1 和原来完全一样
+        tn = np.clip(tn, 0, 1) ** V['gamma']
+    L = Lc.min() + tn * (Lc.max() - Lc.min())
     q = np.stack([L, lab[:, 1] * V.get('chroma', 1.0), lab[:, 2] * V.get('chroma', 1.0)], axis=-1)
     d = ((q[:, None, :] - clab[None, :, :]) ** 2).sum(-1)
     pick = d.argmin(axis=1)
