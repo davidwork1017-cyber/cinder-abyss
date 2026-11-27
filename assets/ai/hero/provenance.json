@@ -1,0 +1,366 @@
+{
+ "_comment": "主角的 AI 生成外观（ai3d-hero，b02h）的来源记录。源 GLB、概念图、UniRig 的权重 GLB 都不进仓库，只记 sha256（存放在私有的 cinder-ai-src）；art/ai/hero_rig.py 按 art/ai/hero/b02h.json 生成 hero.glb（高 / 中画质）和 hero_lo.glb（低画质的减面版），pack-assets 打进 js/assets/chars.js（aihero_hi / aihero_lo）；没有源文件的机器上保留已提交的 GLB。",
+ "source": {
+  "name": "hero-b-02",
+  "file": "models/hero-b-02/model.glb",
+  "sha256": "3b9bcdd64ce9071a223902f3560c5e3827d33a92dfb822143909cdea228186d1",
+  "committed": false,
+  "concept_image": {
+   "file": "models/hero-b-02/concept.png",
+   "sha256": "b1b9ddce3755c34037bb8c661bb7995f549c94b7bd41bb165edae5c4c17bc8c9",
+   "committed": false,
+   "use": "没有用（只用源 GLB 的反照率）"
+  }
+ },
+ "generation": {
+  "prompt": "Full body front view, strict A-pose: both arms straight, held diagonally down and out at 45 degrees from the body, wide gap between arms and torso, palms turned inward facing the body, fingers straight and together, empty hands, legs slightly apart. Stylized low-poly toon game character, young adult man, slim athletic build, slim heroic adult proportions 8 heads tall, very long legs that make up more than half of the body height, short torso, high waist, small head (not chibi). Short swept ash-silver hair with a cool lavender tint, side-parted fringe over the forehead, clean-shaven, warm peach skin, calm face, small dark eyes, straight brows. Thick teal-green scarf wrapped tightly around the neck like a turtleneck collar, with no hanging ends at all. Deep indigo-violet short-sleeved leather jacket, worn open over a plain cream linen shirt, sleeves end just above the elbow; the jacket front is short and stops at the high belt, while two long coattails hang down behind the legs to the knees. Brown leather bracers covering the whole forearm, thin gold band at each wrist. Dark brown leather belt with a small rectangular gold buckle. Dark navy trousers, slightly loose, gathered at the ankle, round brown leather knee pads on both knees. Short dark-brown leather ankle boots. Symmetric outfit. Clean flat colour blocks, soft simple shading, matte, no text, no logos. Centered, plain white background, even lighting. Long legs, hips at half of body height, slim heroic 8-heads-tall proportions, head small relative to body.",
+  "negative_prompt": null,
+  "seed": 814,
+  "text_to_image": {
+   "model": "Z-Image Turbo",
+   "weights": [
+    "z_image_turbo_int8_convrot.safetensors",
+    "qwen_3_4b_fp8_mixed.safetensors",
+    "ae.safetensors"
+   ]
+  },
+  "image_to_3d": {
+   "model": "TRELLIS.2",
+   "weights": [
+    "birefnet.safetensors",
+    "dino_v3_L_naf_fp32.safetensors",
+    "moge_2_vitl_normal_fp16.safetensors",
+    "trellis_2_int8_convrot.safetensors",
+    "trellis_2_shape_vae_bf16.safetensors",
+    "trellis_2_texture_vae_bf16.safetensors"
+   ]
+  },
+  "target_faces": 40000,
+  "texture_size": 2048,
+  "comfyui_version": "0.43.0",
+  "generated_at": "2026-11-26T14:27:58-0800",
+  "comfyui": {
+   "repo": "https://github.com/Comfy-Org/ComfyUI",
+   "release": "v0.43.0 (windows portable, nvidia)",
+   "commit": "426f5eea52a7ece1dd599fff4cb6cd1f352ddd24",
+   "license": "GPL-3.0"
+  },
+  "nodes": "全部是 ComfyUI 内置节点（comfy_extras/nodes_trellis2.py、nodes_bg_removal.py、nodes_mesh_postprocess.py），没有自定义节点",
+  "nvdiffrast": "未安装、未使用",
+  "weight_sources": {
+   "birefnet.safetensors": {
+    "hf": "Comfy-Org/BiRefNet",
+    "rev": "884af709e9b795d89dafbf97f29c8d6a2386f5c6",
+    "base": "ZhengPeng7/BiRefNet",
+    "license": "MIT"
+   },
+   "dino_v3_L_naf_fp32.safetensors": {
+    "hf": "Comfy-Org/Pixal3D",
+    "rev": "f37641be376725d324c56626007cc477f1249a69",
+    "base": "Meta DINOv3 ViT-L（Comfy-Org 转换）",
+    "license": "DINOv3 License (https://ai.meta.com/resources/models-and-libraries/dinov3-license/)"
+   },
+   "moge_2_vitl_normal_fp16.safetensors": {
+    "hf": "Comfy-Org/MoGe",
+    "rev": "1484985258ba7ef45c314144fcf0e90924ffbf44",
+    "base": "Ruicheng MoGe-2 ViT-L（normal 版）",
+    "license": "MIT"
+   },
+   "trellis_2_int8_convrot.safetensors": {
+    "hf": "Comfy-Org/TRELLIS.2",
+    "rev": "430a9d09b2416687018c8fe8edced2ad4858a439",
+    "base": "microsoft/TRELLIS.2-4B",
+    "license": "MIT"
+   },
+   "trellis_2_shape_vae_bf16.safetensors": {
+    "hf": "Comfy-Org/Pixal3D",
+    "rev": "f37641be376725d324c56626007cc477f1249a69",
+    "base": "microsoft/TRELLIS.2-4B",
+    "license": "MIT"
+   },
+   "trellis_2_texture_vae_bf16.safetensors": {
+    "hf": "Comfy-Org/Pixal3D",
+    "rev": "f37641be376725d324c56626007cc477f1249a69",
+    "base": "microsoft/TRELLIS.2-4B",
+    "license": "MIT"
+   },
+   "z_image_turbo_int8_convrot.safetensors": {
+    "hf": "Comfy-Org/Z-Image-Turbo",
+    "rev": "6fc90a3b1b653e935a0d175e260736de25b84df5",
+    "base": "Tongyi-MAI/Z-Image-Turbo",
+    "license": "Apache-2.0"
+   },
+   "qwen_3_4b_fp8_mixed.safetensors": {
+    "hf": "Comfy-Org/Z-Image-Turbo",
+    "rev": "6fc90a3b1b653e935a0d175e260736de25b84df5",
+    "base": "Qwen3-4B (Z-Image Turbo 文本编码器)",
+    "license": "Apache-2.0"
+   },
+   "ae.safetensors": {
+    "hf": "Comfy-Org/Z-Image-Turbo",
+    "rev": "6fc90a3b1b653e935a0d175e260736de25b84df5",
+    "base": "Z-Image Turbo VAE",
+    "license": "Apache-2.0"
+   }
+  }
+ },
+ "licences": {
+  "outputs": "组件的许可证都不限制生成物（见 cinder-ai-src/README.md 和 game-workspace notes/ai3d/licence-audit.md）；DINOv3 License 要求注明 Built with DINOv3",
+  "tools_only": "ComfyUI GPL-3.0、UniRig 内嵌的 michelangelo GPL-3.0 只在本地当工具跑，不随游戏分发"
+ },
+ "skinning": {
+  "file": "rigtest/unirig/hero-b-02/model_rigged.glb",
+  "sha256": "b6f43a70c5bd792df3b94028066e1655351106fe53f283d361dad41a59755702",
+  "committed": false,
+  "tool": "UniRig（skin-only，使用 devbox 拟合的骨架）",
+  "unirig": {
+   "repo": "https://github.com/VAST-AI-Research/UniRig",
+   "commit": "6793c6640ff01c8fb389f3993434124bb43d2933",
+   "license": "MIT（内嵌 michelangelo 为 GPL-3.0，仅本地当工具运行）",
+   "windows_patch": "PR #70（HurtzDonutStudios，提交 bc95f6e，未合并）：flash_attn 换成 PyTorch SDPA、Windows DLL 路径、CPU 回退；全文见 scripts/unirig_pr70_windows.patch"
+  },
+  "weights": {
+   "hf": "VAST-AI/UniRig",
+   "revision": "36842e2b5947e9e60f89275b83208c8e74071c63",
+   "file": "skin/articulation-xl/model.ckpt",
+   "sha256": "9d40cf42fb9d4c10d8b373d9f4f557c6fbbc5ebacae7ae6b3dce5a0d8a18bc33",
+   "license": "MIT"
+  },
+  "params": {
+   "seed": 12345,
+   "faces_target_count": 50000,
+   "voxel_skin": {
+    "grid": 196,
+    "backend": "open3d（没装 pyrender）"
+   },
+   "precision": "bf16-mixed",
+   "note": "网格面数低于 5 万，UniRig 直接用原网格，没有简化（权重转移误差 0）"
+  }
+ },
+ "processing": {
+  "tool": "art/ai/hero_rig.py + art/ai/hero_fit.py + art/ai/glbw.py",
+  "blender": "5.2.4 LTS",
+  "numpy": "2.3.4",
+  "mode": "hybrid",
+  "spec": {
+   "name": "b02h",
+   "source": {
+    "name": "hero-b-02",
+    "file": "model.glb",
+    "sha256": "3b9bcdd64ce9071a223902f3560c5e3827d33a92dfb822143909cdea228186d1"
+   },
+   "fit": {},
+   "tris": {
+    "hi": 10000,
+    "lo": 7600
+   },
+   "weights": {
+    "mode": "hybrid",
+    "glb": "rigtest/unirig/hero-b-02/model_rigged.glb",
+    "sha256": "b6f43a70c5bd792df3b94028066e1655351106fe53f283d361dad41a59755702"
+   },
+   "colour": {
+    "grade": {
+     "sat": 0.72,
+     "tint": [
+      0.9,
+      0.95,
+      1.08
+     ],
+     "remap": [
+      {
+       "src": [
+        222,
+        165,
+        152
+       ],
+       "dst": [
+        224,
+        182,
+        162
+       ],
+       "r": 40
+      },
+      {
+       "src": [
+        148,
+        150,
+        157
+       ],
+       "dst": [
+        160,
+        156,
+        198
+       ],
+       "r": 45
+      },
+      {
+       "src": [
+        77,
+        93,
+        95
+       ],
+       "dst": [
+        38,
+        148,
+        144
+       ],
+       "r": 38
+      },
+      {
+       "src": [
+        238,
+        238,
+        240
+       ],
+       "dst": [
+        200,
+        192,
+        182
+       ],
+       "r": 70
+      },
+      {
+       "src": [
+        28,
+        25,
+        38
+       ],
+       "dst": [
+        46,
+        50,
+        84
+       ],
+       "r": 26
+      },
+      {
+       "src": [
+        60,
+        45,
+        40
+       ],
+       "dst": [
+        50,
+        48,
+        74
+       ],
+       "r": 26,
+       "y": [
+        0.38,
+        0.56
+       ]
+      }
+     ]
+    }
+   },
+   "shape": {
+    "knee_flatten": 0.9,
+    "head_scale": 1.15
+   },
+   "resemblance": "a generic young adventurer: swept silver hair, teal scarf, open short-sleeve indigo-violet jacket with a long split back coattail, cream shirt, dark trousers with round knee pads, brown boots. The prompt names no game or IP; no match seen to a known game character's design, colours or emblems.",
+   "face": {
+    "band": [
+     1.712,
+     1.778
+    ],
+    "dark": 0.16,
+    "xmax": 0.095,
+    "depth": 0.07
+   },
+   "pack": {
+    "weld": 8
+   }
+  },
+  "shape": {
+   "knee_r": {
+    "l": 0.0785,
+    "r": 0.0787
+   },
+   "shape": {
+    "knee_flatten": 0.9,
+    "head_scale": 1.15
+   },
+   "height_before": 1.9,
+   "height_after_unscaled": 1.955
+  },
+  "fit": {
+   "height": 1.9,
+   "scale": 1.845715,
+   "offset": [
+    0.00017,
+    0.924202,
+    -0.008128
+   ]
+  },
+  "decimate": {
+   "hi": {
+    "target": 10000,
+    "tris": 10000,
+    "ratio": 0.25,
+    "source_tris": 40000
+   },
+   "lo": {
+    "target": 7600,
+    "tris": 7600,
+    "ratio": 0.19,
+    "source_tris": 40000
+   }
+  },
+  "weights": {
+   "hi": {
+    "band": 0,
+    "force": 1698,
+    "mismatch": 130,
+    "kept": 3148
+   },
+   "lo": {
+    "band": 0,
+    "force": 1298,
+    "mismatch": 100,
+    "kept": 2378
+   }
+  },
+  "coat": {
+   "hi": {
+    "faces": 370,
+    "cut_faces": 0,
+    "seam_edges": 0,
+    "tris": 10000
+   },
+   "lo": {
+    "faces": 290,
+    "cut_faces": 0,
+    "seam_edges": 0,
+    "tris": 7600
+   }
+  },
+  "fist": {
+   "hi": {
+    "angles": [
+     1.25,
+     1.25,
+     0.35
+    ],
+    "verts": 132
+   },
+   "lo": {
+    "angles": [
+     1.25,
+     1.25,
+     0.35
+    ],
+    "verts": 108
+   }
+  }
+ },
+ "outputs": {
+  "hero.glb": "29610895c91c76d3ca7951ef58a6d7388bd8dcc1714d575b092eba5b118d36b5",
+  "hero_lo.glb": "621a07903ed410868d53d6ed1b3cc6930dd5803b97577cd099bae3e73b599cf9"
+ },
+ "resemblance": "a generic young adventurer: swept silver hair, teal scarf, open short-sleeve indigo-violet jacket with a long split back coattail, cream shirt, dark trousers with round knee pads, brown boots. The prompt names no game or IP; no match seen to a known game character's design, colours or emblems.",
+ "not_committed_note": "概念图 concept.png、源 GLB、UniRig 的权重 GLB 只在私有的 cinder-ai-src 里",
+ "ids": [
+  "chars/aihero_hi",
+  "chars/aihero_lo"
+ ]
+}

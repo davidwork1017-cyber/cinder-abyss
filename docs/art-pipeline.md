@@ -192,3 +192,35 @@ npm run build:art && git status --short assets/ca js/assets   # 没有输出 = �
 - **贴图**：首领类别在 `art/budgets.json` 里允许一张自己的反照率贴图（`albedo`：JPEG，边长不超过 512，材质名 `ai_golem_albedo`）；`packBoss` 打包时每个角记 UV、贴图原样放进包里（data URL），游戏端（`rigFromGlb` / `bossMap`）按贴图上色。显存按共用贴图算（512 是 1.33 MB）。
 - **减面版**：`tools/asset-sources.json` 里 `boss-golem` 包的 `lo`：两份网格打进同一个包，游戏端低画质用 `golem_lo`（`BOSS_SPEC.golem.lo`），骨架、动作、挂点一样。
 - **单独构建 / 看图**：`npm run build:art -- --only ca/boss_golem,ca/boss_golem_lo`；直接跑 `blender -b --factory-startup --python-exit-code 1 --python art/ai/golem_rig.py -- --spec art/ai/golem/a01.json --out <目录> --modes vc,tex` 出两种外观和 `build.json`（各步的数）。上面的 `--turn` 转台图只认脚本首领。
+
+## AI 生成的技能件（ai3d-skills 起）
+
+技能放出来的实心小件从 2026-11-27 起用 AI 生成的模型（用户要求，冰系先上）。这些件一次施放要画几十个，都是实例化的，所以不带贴图，只做成几十到一百多个三角形、一面一色的小网格。来源、许可证见 `assets/README.md` 的「AI 生成」。
+
+| 件 | 用在哪 | 坐标约定（照被顶替的旧几何体） |
+| --- | --- | --- |
+| `crystal` 冰晶 | 形状批：冰脊、坠凌的冰牙、重凌外沿、冰系命中、霜屑、掉落碎晶，所有用冰晶形状的地方 | 底在 y = 0、尖在 y = 1，横向半径约 0.32；源模型两头尖，下面 0.6 埋进地里 |
+| `icicle` 冰凌 | 形状批：坠凌 / 重凌落下的那根 | 尖在 y = 1（顺着速度朝下），底在 y = 0 |
+| `ichip` 冰碴 | 形状批：冰系的碎块 | 中心在原点，半径约 1（和碎石一样） |
+| `cluster` 冰簇 | 形状批：冰凌落地时脚边那一簇 | 底在 y = 0、高 1，横向半径 0.5 |
+| `pylon` / `pylonBase` 雷桩 | 形状批：雷桩的晶柱和底座（两个实例，各一种颜色） | 底在 y = 0、高 0.9；xz 按米，y 乘柱高 |
+| `shardKv` 冰棱 | 刻式件 shard：冰棱环身、冰爆的冰刺环、标记 | 中心在原点、长轴 ±0.8、横向半径 0.3；低画质用原来的 8 面八面体 |
+| `shardPf` / `shardPfLo` 冰棱 | 投射物零件 shard：法杖的冰片、凛冬箭和霜织者的冰棱 | 长轴沿 +z，从 −0.95 到 1.55；低画质用 36 面的减面版 |
+
+绊雷（`ca/gear_mine`）走布景件那条路：`art/catalog.py` 里是 `gen='ai'`、`mode='vc'`，占地和三角形数都不超过原来的脚本件。
+
+处理：`art/ai/pieces.py`（无头 Blender）读 `art/ai/pieces.json` 列的来源记录 `assets/ai/skill-<件>/provenance.json`，按 `processing.outputs` 一件件出：
+
+1. 导入、去碎块（和布景件共用 `art/ai/importer.py`）；`drop_islands_above` 可以去掉高处整块飘着的岛（雷桩顶上的球，游戏里另画发光的球）；`rot_deg` 摆正，`pca` 把最长的方向转到 +Z、尖的那头朝上；
+2. 每个输出件按自己的 `fit` 缩放摆放（`base` / `center` / `span`），可以再转一次（`rot_deg`）；
+3. 减面：`hull` 的件取凸包，再按角度合并棱面，二分到三角形数刚好不超预算，得到平整的大棱面；不是凸的件（冰簇、雷桩）用 Decimate · Collapse；
+4. 取色：低模每个面取 4 个点，到高模上找最近点、插值 UV、读反照率，按用法烘成三种之一：
+   - `tone`：形状批的色阶，0 暗边、0.26–0.74 带明暗的主色、1 亮面；朝光的程度和反照率亮度混着算，亮面只占面积的一小块（`hot`），暗边一块（`dark`）；
+   - `shade`：刻式件每面的明暗倍数，光照还是着色器算；
+   - `color`：投射物零件每面的线性 RGB，游戏端再照原来的办法烘一遍朝向明暗；
+5. `split`：一件拆成两个（形状批里一个实例只有一种颜色），比如雷桩按高度拆成晶柱和底座；
+6. 全部写进 `js/assets/skill-pieces.js`（`window.CA_SKILL_PIECES`，经典脚本，`index.html` 在 `js/vfx.js` 前面同步引入）。
+
+全量的 `npm run build:art` 最后会跑它；单独跑：`CA_AI_INBOX=<源模型目录> blender -b --factory-startup --python-exit-code 1 --python art/ai/pieces.py`（devbox 上用 `cc-slot batch` 包一层）。源文件不在的机器上保留已经提交的 `skill-pieces.js`；同一个 Blender 版本重复构建逐字节相同。check-art 查每件的三角形数（`art/budgets.json` 的 `pieces`）、形状批的件不超过槽位、逐面数组和面数对得上、每件都对得上来源记录、来源记录里没有个人信息。
+
+游戏端的形状批（`js/vfx.js`）改成槽位布局：原来所有形状合在一个几何体里，每个实例都要跑完全部 401 个三角形的顶点，不管它画的是哪个形状。现在每个形状的顶点放进一张 RGBA32F 的数据纹理，几何体只有一个槽位那么多顶点（150 个三角形），顶点着色器按 `gl_VertexID` 和实例的形状号取顶点。还是一次 draw，每个实例从 401 个三角形降到 150 个；原有形状的三角形一个不差。没有顶点纹理、着色器链接失败，或者网址带 `vshape=merged` 时，退回原来的合并几何体（只有原来的 7 个形状，新形状号映射回冰晶 / 碎石，雷桩照原来的三根晶柱加三块暗石画）。

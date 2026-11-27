@@ -63,6 +63,60 @@ function checkAi(a, bad) {
     }
   }
 }
+// ai3d-skills：AI 技能件（js/assets/skill-pieces.js，art/ai/pieces.py 生成）：每件的三角形数在 art/budgets.json 的 pieces 预算内，
+// 形状批里的件不超过槽位（slot），雷桩两段合计不超过 pylonTotal；逐面数组和面数对得上、数都是有限数、色阶在 0–1；
+// 每件都能对上 art/ai/pieces.json 列的来源记录（字段齐全、没有个人信息、目录里不放 PNG / 概念图），清单里的件和来源记录的输出一一对应
+const SHAPE_PIECES = ['crystal', 'icicle', 'ichip', 'cluster', 'pylon', 'pylonBase'];
+function checkPieces(bad) {
+  const B = rd('art/budgets.json').pieces || {};
+  const f = path.join(root, 'js/assets/skill-pieces.js');
+  if (!fs.existsSync(f)) return bad('skill-pieces', '缺 js/assets/skill-pieces.js');
+  const t = fs.readFileSync(f, 'utf8');
+  let D;
+  try {
+    D = JSON.parse(t.slice(t.indexOf('{'), t.lastIndexOf('}') + 1));
+  } catch (e) {
+    return bad('skill-pieces', 'js/assets/skill-pieces.js 解析不了：' + e.message);
+  }
+  const want = {};
+  for (const pr of rd('art/ai/pieces.json').provenance) {
+    const pf = path.join(root, pr);
+    if (!fs.existsSync(pf)) {
+      bad('skill-pieces', '缺来源记录 ' + pr);
+      continue;
+    }
+    const txt = fs.readFileSync(pf, 'utf8'), P = JSON.parse(txt);
+    const need = [['source.sha256', P.source && P.source.sha256], ['generation.prompt', P.generation && P.generation.prompt], ['generation.seed', P.generation && P.generation.seed], ['processing.outputs', P.processing && P.processing.outputs], ['licence_audit', P.licence_audit]];
+    for (const [k, v] of need) if (v === undefined || v === null || v === '') bad(P.id || pr, pr + ' 缺 ' + k);
+    if (!Array.isArray(P.components) || !P.components.length || P.components.some((c) => !c.name || !c.licence || !c.rev)) bad(P.id || pr, pr + '：components 要列出每个组件的名字、版本、许可证');
+    for (const re of PRIVATE) if (re.test(txt)) bad(P.id || pr, pr + ' 里有机器路径 / 用户名 / 邮箱一类的个人信息（' + re + '）');
+    for (const g of fs.readdirSync(path.dirname(pf), { recursive: true })) if (/concept|\.png$|\.glb$/i.test(String(g))) bad(P.id || pr, 'assets/ai/ 下不放概念图 / PNG / 源 GLB：' + g);
+    for (const o of (P.processing && P.processing.outputs) || []) {
+      want[o.key] = P.id;
+      if (o.split) want[o.split.below] = P.id;
+    }
+  }
+  for (const k of Object.keys(want)) if (!D[k]) bad('skill-pieces', '来源记录里的输出 ' + k + ' 不在 js/assets/skill-pieces.js 里（重新跑 art/ai/pieces.py）');
+  const tri = {};
+  for (const [k, r] of Object.entries(D)) {
+    const id = 'piece/' + k;
+    if (!want[k]) bad(id, '没有来源记录（art/ai/pieces.json 列的来源记录里没有这个输出）');
+    else if (r.src !== want[k]) bad(id, 'src ' + r.src + ' 和来源记录 ' + want[k] + ' 不一致');
+    if (!Array.isArray(r.p) || r.p.length % 9 || r.p.some((x) => !Number.isFinite(x))) {
+      bad(id, 'p 要是每面 9 个有限数');
+      continue;
+    }
+    const n = r.p.length / 9, per = r.t || r.s || r.c;
+    tri[k] = n;
+    if (!per || per.length !== (r.c ? n * 3 : n)) bad(id, '逐面数组（t / s / c）的长度和面数 ' + n + ' 对不上');
+    else if (per.some((x) => !Number.isFinite(x) || x < 0 || x > (r.s ? 2 : 1))) bad(id, '逐面数组有越界的数');
+    if (B[k] === undefined) bad(id, 'art/budgets.json 的 pieces 里没有这一件的预算');
+    else if (n > B[k]) bad(id, n + ' 个三角形，超过预算 ' + B[k]);
+  }
+  for (const k of SHAPE_PIECES) if (tri[k] > (B.slot || 150)) bad('piece/' + k, '形状批的件不能超过槽位 ' + (B.slot || 150) + ' 个三角形（现在 ' + tri[k] + '）');
+  if ((tri.pylon || 0) + (tri.pylonBase || 0) > (B.pylonTotal || 150)) bad('piece/pylon', '雷桩两段合计 ' + ((tri.pylon || 0) + (tri.pylonBase || 0)) + ' 个三角形，超过 ' + (B.pylonTotal || 150));
+  return tri;
+}
 function jpegWidth(buf) {
   let i = 2;
   while (i + 9 < buf.length && buf[i] === 0xff) {
@@ -243,7 +297,52 @@ export function checkArt() {
       }
     }
   }
+  checkAiHero(budgets, bad);
+  checkPieces(bad);
   return { fails, rows, count: man.assets.length };
+}
+
+// AI 生成的主角（ai3d-hero）：assets/ai/hero/hero.glb（高 / 中）、hero_lo.glb（低）。和来源记录里的 sha256 一致；三角形在 hero 预算内，
+// 低档不比 Adventurer 重；材质 / 贴图数、高度；带蒙皮、骨骼是同一组 UE / UAL 名、每个顶点最多 4 根骨骼且权重和为 1；
+// js/assets/chars.js 里的 aihero_hi / aihero_lo 就是这两份文件（重新打包逐字节相同）
+function checkAiHero(budgets, bad) {
+  const dir = path.join(root, 'assets/ai/hero');
+  if (!fs.existsSync(path.join(dir, 'provenance.json'))) return;
+  const cat = budgets.categories.hero, prov = JSON.parse(fs.readFileSync(path.join(dir, 'provenance.json'), 'utf8'));
+  const charsSrc = fs.readFileSync(path.join(root, 'js/assets/chars.js'), 'utf8');
+  const chars = JSON.parse(charsSrc.slice(charsSrc.indexOf('= {') + 2, charsSrc.lastIndexOf(';')));
+  const adv = stats(readGlb(path.join(root, 'assets/quaternius-modular-men/Adventurer.glb')));
+  let bones0 = null;
+  for (const [fn, key] of [['hero.glb', 'aihero_hi'], ['hero_lo.glb', 'aihero_lo']]) {
+    const id = 'ai/hero/' + fn, f = path.join(dir, fn);
+    if (!fs.existsSync(f)) { bad(id, '文件不在'); continue; }
+    const buf = fs.readFileSync(f), sha = crypto.createHash('sha256').update(buf).digest('hex');
+    if (!prov.outputs || prov.outputs[fn] !== sha) bad(id, 'sha256 和 provenance.json 记的不一致（重新生成以后要一起更新来源记录）');
+    if (!chars.models || chars.models[key] !== buf.toString('base64')) bad(id, 'js/assets/chars.js 里的 ' + key + ' 不是这份文件（重新跑 node tools/pack-assets.mjs）');
+    const g = readGlb(buf), s = stats(g), h = s.max[1] - s.min[1];
+    if (s.tris > cat.tris) bad(id, '三角形 ' + s.tris + ' 超过 hero 预算 ' + cat.tris);
+    if (key === 'aihero_lo' && s.tris > adv.tris) bad(id, '低档 ' + s.tris + ' 个三角形，比 Adventurer（' + adv.tris + '）重');
+    if (s.materials > cat.materials) bad(id, '材质 ' + s.materials + ' 个，超过 ' + cat.materials);
+    if (s.textures > cat.textures) bad(id, '贴图 ' + s.textures + ' 张，超过 ' + cat.textures);
+    if (h < cat.h[0] || h > cat.h[1]) bad(id, '高度 ' + h.toFixed(3) + ' 不在 ' + cat.h.join('–'));
+    if (!s.bones.length) bad(id, '没有蒙皮');
+    const bs = s.bones.slice().sort().join(',');
+    if (bones0 === null) bones0 = bs;
+    else if (bs !== bones0) bad(id, '高 / 低两档的骨骼不是同一组');
+    for (const need of ['pelvis', 'spine_02', 'spine_03', 'neck_01', 'Head', 'upperarm_l', 'lowerarm_l', 'hand_l', 'middle_01_l', 'upperarm_r', 'lowerarm_r', 'hand_r', 'middle_01_r', 'thigh_l', 'calf_l', 'foot_l', 'thigh_r', 'calf_r', 'foot_r'])
+      if (s.bones.indexOf(need) < 0) bad(id, '缺骨骼 ' + need + '（world.js 的 playerAI 要用）');
+    for (const pr of g.json.meshes[0].primitives) {
+      const W = accessor(g, pr.attributes.WEIGHTS_0);
+      let over = 0, sum = 0;
+      for (const w of W) {
+        if (w.filter((x) => x > 0).length > 4) over++;
+        if (Math.abs(w.reduce((a, b) => a + b, 0) - 1) > 0.006) sum++;
+      }
+      if (over) bad(id, over + ' 个顶点超过 4 根骨骼');
+      if (sum) bad(id, sum + ' 个顶点权重和不是 1');
+      if (pr.attributes.COLOR_0 === undefined) bad(id, '没有 COLOR_0（一角一色）');
+    }
+  }
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
