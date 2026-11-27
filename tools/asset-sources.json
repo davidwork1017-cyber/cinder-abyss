@@ -20,7 +20,8 @@
     "g_cover_frost": { "src": "generated", "page": "tools/gen-ground-textures.mjs（程序化生成）", "class": "cover", "kinds": ["albedo", "arh"] },
     "g_cover_storm": { "src": "generated", "page": "tools/gen-ground-textures.mjs（程序化生成）", "class": "cover", "kinds": ["albedo", "arh"] },
     "g_cover_abyss": { "src": "generated", "page": "tools/gen-ground-textures.mjs（程序化生成）", "class": "cover", "kinds": ["albedo", "arh"] },
-    "g_cover_rift": { "src": "generated", "page": "tools/gen-ground-textures.mjs（程序化生成）", "class": "cover", "kinds": ["albedo", "arh"] }
+    "g_cover_rift": { "src": "generated", "page": "tools/gen-ground-textures.mjs（程序化生成）", "class": "cover", "kinds": ["albedo", "arh"] },
+    "frost_waystone": { "src": "ai", "page": "assets/ai/frost_waystone/provenance.json（AI 生成的布景件，art/ai/importer.py 处理）", "class": "ai", "kinds": ["albedo"], "skipLow": true }
   },
   "sources": {
     "ual": {
@@ -37,7 +38,7 @@
     "rock-grey": { "textures": ["Rock035"] },
     "ground": { "textures": ["g_decals"] },
     "kit-ash": { "kit": "ash" },
-    "boss-golem": { "boss": "golem" },
+    "boss-golem": { "boss": "golem", "lo": "golem_lo" },
     "boss-lord": { "boss": "lord" },
     "boss-behemoth": { "boss": "behemoth" },
     "boss-weaver": { "boss": "weaver" },
@@ -45,7 +46,7 @@
     "boss-warden": { "boss": "warden" },
     "zone-ash": { "textures": ["p_mud", "p_burn", "p_rock", "g_cover_ash"], "with": ["kit-ash"] },
     "kit-frost": { "kit": "frost" },
-    "zone-frost": { "textures": ["p_ice", "p_snow", "p_frock", "g_cover_frost"], "with": ["kit-frost"] },
+    "zone-frost": { "textures": ["p_ice", "p_snow", "p_frock", "g_cover_frost", "frost_waystone"], "with": ["kit-frost"] },
     "kit-storm": { "kit": "storm" },
     "zone-storm": { "textures": ["monastery_stone_floor", "rocky_trail", "g_cover_storm"], "with": ["kit-storm"] },
     "kit-abyss": { "kit": "abyss" },

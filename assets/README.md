@@ -1,4 +1,4 @@
-# 外部素材（全部 CC0）
+# 外部素材（CC0，另有 AI 生成的件：一件布景、一只首领的外观）
 
 | 目录 | 来源 | 许可证 |
 | --- | --- | --- |
@@ -6,6 +6,7 @@
 | `ambientcg/` | ambientCG 贴图，https://ambientcg.com | CC0（`ambientcg/LICENSE.txt`） |
 | `generated/` | `tools/gen-ground-textures.mjs` 按固定种子程序化生成的地面覆盖层（`g_cover_*`）和贴花图集（`g_decals`）；`tools/gen-paint-textures.mjs` 按固定种子画的平铺贴图（`p_mud` 龟裂焦土、`p_burn` 焦痕碎石、`p_rock` 棱面石头，第 0 区的路面 / 粗糙地面 / 虚空地面和岩石三向投影；`p_ice` 冰面、`p_snow` 带雪的冻泥、`p_frock` 层状岩，第 1 区的同样几处；种子写在 `tools/paint-tex.mjs` 每张图的 `seed` 里：p_mud 211、p_burn 307、p_rock 101、p_ice 401、p_snow 503、p_frock 607），清单 `generated/manifest.json` 记着生成器、种子、原始像素和 JPEG 的 sha256 | 原创（我们自己画的，不是第三方素材） |
 | `ca/` | 自产布景件：`art/` 下的 Blender 生成脚本按固定种子生成（`npm run build:art`，见 `docs/art-pipeline.md`），清单 `ca/manifest.json` 记着每件的生成器、参数、种子和 sha256；`ship` 为 true 的件打进 `js/assets/kit-<区>.js` | 原创（我们自己的脚本生成，不是第三方素材） |
+| `ai/` | AI 生成的布景件（试点，2026-11-26 起；见下面「AI 生成」）：用户用文生图 → 图生 3D 生成源模型，`art/ai/importer.py` 处理成游戏用的件，每件一个目录（来源记录 `provenance.json` + 反照率贴图） | 组件许可证见下面「AI 生成」；输出不受限制 |
 | `story/` | 开场故事的画格（`js/story.js` 放的时候才加载）：`tools/story/bake.mjs` 用游戏自己的引擎摆拍（角色、区域、首领都是游戏里现成的，用到的第三方模型和贴图就是上面这些 CC0 包），再加墨线 / 平涂分阶 / 网点烘成分层 webp，见 `tools/story/README.md` | 原创（游戏画面的渲染图，不是第三方素材） |
 | `kaykit-dungeon-remastered/` | KayKit Dungeon Remastered 1.0，Kay Lousberg，https://kaylousberg.itch.io/kaykit-dungeon-remastered | CC0（`LICENSE.txt`）；2026-11-22（models-drop）起不再打进游戏，源文件和许可证留作记录 |
 | `kaykit-halloween-bits/` | KayKit Halloween Bits 1.0，Kay Lousberg，https://kaylousberg.itch.io/halloween-bits | CC0（`LICENSE.txt`）；2026-11-22（models-drop）起不再打进游戏，源文件和许可证留作记录 |
@@ -30,3 +31,30 @@
   `node tools/convert-chars.mjs`（无头 Chrome + three r128 的 FBXLoader / GLTFLoader，`tools/vendor/` 里是转换用的 r128 原版文件）转成同目录下精简的 `.glb`
   （只留骨骼、蒙皮网格、要用的动作；Adventurer 的背包不转），再由 `pack-assets.mjs` 打进 `js/assets/chars.js`。游戏端在 `js/world.js` 的「C 模型」一节同步解析，
   把网格重新摆到程序化骨架的静止姿态、蒙皮到程序化关节上，原有动作照常驱动；`chars.js` 缺失或解析失败时用程序化角色。
+
+## AI 生成
+
+2026-11-26 起用 AI 生成模型（用户批准）：先是一件静态布景（试点），之后熔渣巨像的外观也换成 AI 生成的模型，骨架、动作和招式都没动，只换了网格和贴图。
+
+| 件 | 用在哪 | 来源记录 |
+| --- | --- | --- |
+| `ca/frost_waystone`（路标石：风化的石柱立在碎石和积雪的基座上） | 霜骨沼泽岸边，每区 3–6 块，低画质不显示 | `ai/frost_waystone/provenance.json` |
+| `ca/boss_golem`（熔渣巨像：玄武岩块拼成的巨像，胸口是拱形铁栅炉膛，肩上两根短烟囱）、`ca/boss_golem_lo`（低画质的减面版） | 第 0 区首领，`js/assets/boss-golem.js`；低画质用减面版 | `ca/boss/golem.provenance.json` |
+
+- **生成流程**：ComfyUI 0.43.0，只用内置节点。Z-Image Turbo 文生图，TRELLIS.2 图生 3D，另外用到 BiRefNet、DINOv3、MoGe-2。巨像的蒙皮用 UniRig（只算权重，骨架是我们自己拟合的巨像骨架）。提示词、种子、每个组件的版本都在各自的来源记录里。
+- **处理**：
+  - 布景件：`art/ai/importer.py`（`gen='ai'`）摆正、去碎块、减面到 `art/budgets.json` 的 `aiprop`，反照率贴图在 `ai/<件>/albedo.jpg`。
+  - 巨像：`art/ai/golem_rig.py`（`gen='golem_ai'`）把源模型对到巨像骨架上，减面到首领预算以内（高 7845、低 3837 个三角形），四肢和关节用 UniRig 的权重，头、烟囱、肩甲这些整块的地方按几何区域改成刚性，反照率贴图 512 带在 GLB 里，按游戏镜头的灰度调亮。
+  - 两条路都由 `npm run build:art` 调用；源文件不在的机器上保留已提交的生成物。
+- **许可证**：生成时用到的每个组件都读过许可证原文：
+  - ComfyUI：GPL-3.0，只是工具，输出不受约束；
+  - Z-Image Turbo、Qwen3-4B 文本编码器、VAE（和 FLUX.1-schnell 的 ae 逐字节相同）：Apache-2.0；
+  - TRELLIS.2、BiRefNet、MoGe-2：MIT；
+  - DINOv3：DINOv3 License；它带的 NAF 上采样器：Apache-2.0；
+  - UniRig：代码和权重都是 MIT（里面带的 michelangelo 是 GPL-3.0，只在本地当工具跑）；训练数据 Articulation-XL2.0 是 CC-BY-4.0，对我们的输出没有义务。
+
+  这些组件都不限制输出、不禁止商用，也不要求在输出上署名。nvdiffrast（只许研究或评估用途）不在这条流程里；Puppeteer 的蒙皮用到 NVIDIA PartField（只许非商业研究用途），不用。换生成流程、换权重或者商业发行之前，要重新审一遍。
+- **凭据**：许可证审查表和每份许可证原文（第一行是来源和版本）在编排者的笔记 `notes/ai3d/` 里，不进仓库；每件的来源记录里记着结论。
+- **不进仓库的东西**：源 GLB、概念图、UniRig 的权重 GLB（都只记 sha256）。仓库里只有处理后的游戏用件、反照率贴图和来源记录。
+- **审核**：和脚本件 / 脚本首领一样看灰度、风格和预算（首领另看出手帧：挂点落在预警里），另外做一次相似度检查：不能像任何已有游戏的素材或 IP，提示词里也不提别的游戏或 IP。
+
