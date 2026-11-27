@@ -564,19 +564,19 @@
    "textures": 0,
    "bounds": {
     "min": [
-     -0.144,
-     -0.201,
-     -0.067
+     -0.153,
+     -0.214,
+     -0.071
     ],
     "max": [
-     0.147,
-     1.1,
-     0.067
+     0.156,
+     1.167,
+     0.071
     ]
    },
-   "h": 1.301,
-   "r": 0.147,
-   "y0": -0.201,
+   "h": 1.381,
+   "r": 0.156,
+   "y0": -0.214,
    "source": {
     "script": "art/ai/importer.py",
     "gen": "ai",
@@ -593,7 +593,7 @@
    },
    "lod": "hi",
    "mode": "fc",
-   "sha256": "e654fa5fa60c464fd21b4f4658a470822cfab68a4336b10df603934ab02cd26a"
+   "sha256": "121311a142000a619889f2fc24a8abf7c1b5b1bade9dda3f9be9c4aa64bfae2e"
   },
   {
    "id": "ca/aiwpn_blade_lo",
@@ -608,19 +608,19 @@
    "textures": 0,
    "bounds": {
     "min": [
-     -0.131,
-     -0.212,
-     -0.076
+     -0.139,
+     -0.225,
+     -0.08
     ],
     "max": [
-     0.125,
-     1.099,
-     0.075
+     0.133,
+     1.166,
+     0.08
     ]
    },
-   "h": 1.311,
-   "r": 0.131,
-   "y0": -0.212,
+   "h": 1.391,
+   "r": 0.139,
+   "y0": -0.225,
    "source": {
     "script": "art/ai/importer.py",
     "gen": "ai",
@@ -637,7 +637,7 @@
    },
    "lod": "lo",
    "mode": "fc",
-   "sha256": "0f6eb3fe19986902a0ca0ed3cf6a66bcdcc54b440a964123a1e71a314168c01c"
+   "sha256": "2b3a5fcea4d86e61bd53c8bd177604d95da4e9c94b6af1d44377f51e88df31c1"
   },
   {
    "id": "ca/aiwpn_gatling",
@@ -683,7 +683,7 @@
    "lod": "hi",
    "mode": "fc",
    "part": "body",
-   "sha256": "8006fdd652e3b197fe7f993d03da2215558e3924707f75ca6495800c9f2f89d4"
+   "sha256": "1cf8d3d47389c4431da81c7194d83e7dad68fb5d71f42debf0c9ac81d384ba80"
   },
   {
    "id": "ca/aiwpn_gatling_barrel",
@@ -729,7 +729,7 @@
    "lod": "hi",
    "mode": "fc",
    "part": "barrel",
-   "sha256": "73a6da400488cfb838011df48ae87aa66618eeaf129ebacc134599c743ad73a3"
+   "sha256": "39e1eeb3732174d93f16180b0b140d990e3d530b677fd3ca96237f8f779aea91"
   },
   {
    "id": "ca/aiwpn_gatling_barrel_lo",
@@ -775,7 +775,7 @@
    "lod": "lo",
    "mode": "fc",
    "part": "barrel",
-   "sha256": "f4edd0a3a35e2b212a01947d297cef809355fb8ee3937b547459d0f242b8af72"
+   "sha256": "3463bfb1fc6337f0f03fa13dd8ff24f21b03b86ee0d5ee82242e1747ae65c1ce"
   },
   {
    "id": "ca/aiwpn_gatling_lo",
@@ -821,7 +821,7 @@
    "lod": "lo",
    "mode": "fc",
    "part": "body",
-   "sha256": "566d127029bf236d91756dd358a7f7e4b654d534f6f268fb17bdf9b3ae599f89"
+   "sha256": "a4f4997cec97964886a49c03ce9e194eae6d31e07542b55426f8e957f9ffbf13"
   },
   {
    "id": "ca/aiwpn_hammer",
