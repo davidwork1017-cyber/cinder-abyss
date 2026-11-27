@@ -204,6 +204,7 @@ npm run build:art && git status --short assets/ca js/assets   # 没有输出 = �
 | `ichip` 冰碴 | 形状批：冰系的碎块 | 中心在原点，半径约 1（和碎石一样） |
 | `cluster` 冰簇 | 形状批：冰凌落地时脚边那一簇 | 底在 y = 0、高 1，横向半径 0.5 |
 | `pylon` / `pylonBase` 雷桩 | 形状批：雷桩的晶柱和底座（两个实例，各一种颜色） | 底在 y = 0、高 0.9；xz 按米，y 乘柱高 |
+| `turret` / `turretHead` / `turretLens` 熔光炮台 | 形状批：炮台的炮座和三条腿、炮头和炮管（暗铁）、余烬色的镜片 / 面板（三个实例，整座跟着炮管朝向转） | 底在 y = 0、高 1.35，炮管朝 +z；炮口位置记在 `turretLens.muzzle`，射线从那里起 |
 | `shardKv` 冰棱 | 刻式件 shard：冰棱环身、冰爆的冰刺环、标记 | 中心在原点、长轴 ±0.8、横向半径 0.3；低画质用原来的 8 面八面体 |
 | `shardPf` / `shardPfLo` 冰棱 | 投射物零件 shard：法杖的冰片、凛冬箭和霜织者的冰棱 | 长轴沿 +z，从 −0.95 到 1.55；低画质用 36 面的减面版 |
 
@@ -218,7 +219,7 @@ npm run build:art && git status --short assets/ca js/assets   # 没有输出 = �
    - `tone`：形状批的色阶，0 暗边、0.26–0.74 带明暗的主色、1 亮面；朝光的程度和反照率亮度混着算，亮面只占面积的一小块（`hot`），暗边一块（`dark`）；
    - `shade`：刻式件每面的明暗倍数，光照还是着色器算；
    - `color`：投射物零件每面的线性 RGB，游戏端再照原来的办法烘一遍朝向明暗；
-5. `split`：一件拆成两个（形状批里一个实例只有一种颜色），比如雷桩按高度拆成晶柱和底座；
+5. `split`：一件拆成两个（形状批里一个实例只有一种颜色），比如雷桩按高度拆成晶柱和底座；`presplit`：按颜色在高模上先拆再分别减面（炮台的暗铁炮座、炮头和余烬色镜片；`split_y` 把暗色那块再按高度拆成上下两块），TRELLIS 的源模型常是内外两层壳，所以先体素重建成一层外表面（`voxel`），每个面按最近的原面判颜色；减面卡住时（硬边面板件）在 Collapse 的结果上按角度合并共面的面；
 6. 全部写进 `js/assets/skill-pieces.js`（`window.CA_SKILL_PIECES`，经典脚本，`index.html` 在 `js/vfx.js` 前面同步引入）。
 
 全量的 `npm run build:art` 最后会跑它；单独跑：`CA_AI_INBOX=<源模型目录> blender -b --factory-startup --python-exit-code 1 --python art/ai/pieces.py`（devbox 上用 `cc-slot batch` 包一层）。源文件不在的机器上保留已经提交的 `skill-pieces.js`；同一个 Blender 版本重复构建逐字节相同。check-art 查每件的三角形数（`art/budgets.json` 的 `pieces`）、形状批的件不超过槽位、逐面数组和面数对得上、每件都对得上来源记录、来源记录里没有个人信息。

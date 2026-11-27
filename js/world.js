@@ -28833,6 +28833,21 @@
   }
   const _tuQ = new T.Quaternion(), _tuE = new T.Euler(), _tuP = new T.Vector3(), _tuS = new T.Vector3(), _tuC = new T.Color();
   // 熔光炮台：三条短腿 + 矮六棱炮座 + 一根横着的炮管（形状批）、炮口一小团余烬光；有目标时沿炮管喷一道细射线
+  // ai3d-turret：AI 生成的炮台（形状批的 turret 炮座 + turretHead 炮头 + turretLens 镜片 / 面板，三个实例；原来的拼件是 9 个，低画质 7 个）。整座跟着 ang 转（炮管朝 +z），
+  // 射线从镜片的位置起（CA_SKILL_PIECES.turretLens.muzzle，炮台本地坐标）；退回合并几何体（没有槽位布局）时照旧画拼件
+  const TU_AI = window.CA_SKILL_PIECES && window.CA_SKILL_PIECES.turret && window.CA_SKILL_PIECES.turretHead && window.CA_SKILL_PIECES.turretLens && window.CA_SKILL_PIECES.turretLens.muzzle ? window.CA_SKILL_PIECES.turretLens.muzzle : null;
+  function drawTurretAI(h, dt, sc, sn, cs, lo, kl) {
+    const fire = h.on && h.len > 0;
+    tuPose(h.x, 0, h.z, 0, h.ang, 0, sc, sc, sc);
+    _tuC.set(0x94806c).convertSRGBToLinear(); // 暖一点的铁色（灰度要比地面高一档才立得住，见 sheet 的灰度对照；射线仍是最亮的东西）
+    vsNow(VSH.turret, _tuC.r * kl, _tuC.g * kl, _tuC.b * kl, 0.1, 0.5, 0); // 低画质（没有后期、灯光平）压一档，和射线、地面拉开
+    vsNow(VSH.turretHead, _tuC.r * kl, _tuC.g * kl, _tuC.b * kl, 0.1, 0.5, 0);
+    _tuC.set(0xc0662a).convertSRGBToLinear(); // 余烬色的镜片 / 面板：平时亮芯很少，开火时热一点（射线仍是最亮的东西）
+    vsNow(VSH.turretLens, _tuC.r, _tuC.g, _tuC.b, fire ? 0.3 : 0.1, 0.4, 0);
+    // 炮口：镜片前一点（本地 +z 再往前 0.06 米）
+    const mz0 = (TU_AI[2] + 0.06) * sc, mx0 = TU_AI[0] * sc;
+    return turretBeam(h, dt, sc, sn, cs, lo, kl, h.x + mx0 * cs + mz0 * sn, TU_AI[1] * sc, h.z - mx0 * sn + mz0 * cs);
+  }
   function tuPose(x, y, z, rx, ry, rz, sx, sy, sz) {
     _tuE.set(rx, ry, rz, 'YXZ');
     _tuQ.setFromEuler(_tuE);
@@ -28849,6 +28864,7 @@
       pose(h.x, 0.05, h.z, -HALF_PI, 0, 0, 0.62 * sc, 0.62 * sc, 1);
       vsNow(VSH.ring, 0.42 * kl, 0.14 * kl, 0.03 * kl, 0.2, 0.3, 0.75);
     }
+    if (G.vfx.shapeSlots && TU_AI) return drawTurretAI(h, dt, sc, sn, cs, lo, kl);
     // 腿：三块压扁的碎石（暗铁），往外撇
     for (let i = 0; i < 3; i++) {
       const a = (i / 3) * TAU + h.ang + 0.5;
@@ -28875,7 +28891,11 @@
       }
     }
     // 炮口：小团余烬光（开火时亮一些、一跳一跳）
-    const mx = bx + sn * bl * 0.9, mz = bz + cs * bl * 0.9;
+    return turretBeam(h, dt, sc, sn, cs, lo, kl, bx + sn * bl * 0.9, by, bz + cs * bl * 0.9);
+  }
+  // 炮口的光团 + 射线（拼件炮台和 AI 炮台共用；mx / by / mz 是炮口的世界坐标）
+  function turretBeam(h, dt, sc, sn, cs, lo, kl, mx, by, mz) {
+    const fire = h.on && h.len > 0;
     h.k += ((fire ? 1 : 0) - h.k) * Math.min(1, dt * 12);
     const fl = 0.85 + 0.15 * Math.sin(wtime * 41 + h.side * 2);
     mBill(mx, by, mz, (0.22 + 0.18 * h.k) * fl * sc);

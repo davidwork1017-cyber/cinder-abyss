@@ -66,7 +66,7 @@ function checkAi(a, bad) {
 // ai3d-skills：AI 技能件（js/assets/skill-pieces.js，art/ai/pieces.py 生成）：每件的三角形数在 art/budgets.json 的 pieces 预算内，
 // 形状批里的件不超过槽位（slot），雷桩两段合计不超过 pylonTotal；逐面数组和面数对得上、数都是有限数、色阶在 0–1；
 // 每件都能对上 art/ai/pieces.json 列的来源记录（字段齐全、没有个人信息、目录里不放 PNG / 概念图），清单里的件和来源记录的输出一一对应
-const SHAPE_PIECES = ['crystal', 'icicle', 'ichip', 'cluster', 'pylon', 'pylonBase'];
+const SHAPE_PIECES = ['crystal', 'icicle', 'ichip', 'cluster', 'pylon', 'pylonBase', 'turret', 'turretHead', 'turretLens'];
 function checkPieces(bad) {
   const B = rd('art/budgets.json').pieces || {};
   const f = path.join(root, 'js/assets/skill-pieces.js');
@@ -94,6 +94,8 @@ function checkPieces(bad) {
     for (const o of (P.processing && P.processing.outputs) || []) {
       want[o.key] = P.id;
       if (o.split) want[o.split.below] = P.id;
+      if (o.presplit) want[o.presplit.key] = P.id;
+      if (o.presplit && o.presplit.upper_key) want[o.presplit.upper_key] = P.id;
     }
   }
   for (const k of Object.keys(want)) if (!D[k]) bad('skill-pieces', '来源记录里的输出 ' + k + ' 不在 js/assets/skill-pieces.js 里（重新跑 art/ai/pieces.py）');
@@ -115,6 +117,8 @@ function checkPieces(bad) {
   }
   for (const k of SHAPE_PIECES) if (tri[k] > (B.slot || 150)) bad('piece/' + k, '形状批的件不能超过槽位 ' + (B.slot || 150) + ' 个三角形（现在 ' + tri[k] + '）');
   if ((tri.pylon || 0) + (tri.pylonBase || 0) > (B.pylonTotal || 150)) bad('piece/pylon', '雷桩两段合计 ' + ((tri.pylon || 0) + (tri.pylonBase || 0)) + ' 个三角形，超过 ' + (B.pylonTotal || 150));
+  if ((tri.turret || 0) + (tri.turretHead || 0) + (tri.turretLens || 0) > (B.turretTotal || 380)) bad('piece/turret', '炮台三段合计超过 ' + (B.turretTotal || 380));
+  if (D.turretLens && !(Array.isArray(D.turretLens.muzzle) && D.turretLens.muzzle.length === 3)) bad('piece/turretLens', '缺炮口位置 muzzle（游戏端从这里起射线）');
   return tri;
 }
 function jpegWidth(buf) {

@@ -77,7 +77,7 @@ def _fit(bm, fit):
     else:
         a0, a1 = fit['lo'], fit['hi']
     sa = (a1 - a0) / L
-    sr = fit['r'] / rad
+    sr = sa if fit.get('keep_aspect') else fit['r'] / rad  # keep_aspect：横向和长轴同一个比例（不压扁 / 不拉宽，r 不用）
     S = np.ones(3)
     S[ai] = sa
     S[oth] = sr
@@ -193,6 +193,126 @@ def _bake_color(cols, o):
     return np.round(np.clip(c * g.get('gain', 1.0), 0, 1), 4)
 
 
+def _decimate_to(me, target, key):
+    """减面到 target 以内：importer._decimate 一次最多修 4 轮比例，开口多的件（按颜色拆开的半块）常常还超；超了就按实测把目标往下压再来（最多 8 次，确定性）"""
+    t = target
+    for _ in range(8):
+        dl = {}
+        lm = importer._decimate(me, t, dl, 'decimate')
+        n = sum(len(p.vertices) - 2 for p in lm.polygons)
+        if n <= target:
+            return lm, dl
+        if _ == 2:
+            # Collapse 卡住了（这种硬边面板件常见）：在它的结果上按角度合并共面的面（limited dissolve）再三角化，角度二分到刚好不超预算
+            bm0 = bmesh.new()
+            bm0.from_mesh(lm)
+            def at(ang):
+                b = bm0.copy()
+                bmesh.ops.dissolve_limit(b, angle_limit=ang, verts=list(b.verts), edges=list(b.edges))
+                bmesh.ops.triangulate(b, faces=list(b.faces), quad_method='BEAUTY', ngon_method='BEAUTY')
+                return b
+            a0, a1 = math.radians(0.5), math.radians(50)
+            for _k in range(24):
+                am = (a0 + a1) / 2
+                b = at(am)
+                m = len(b.faces)
+                b.free()
+                if m > target:
+                    a0 = am
+                else:
+                    a1 = am
+            b = at(a1)
+            if len(b.faces) <= target:
+                out_me = bpy.data.meshes.new('pc_planar')
+                b.to_mesh(out_me)
+                b.free()
+                bm0.free()
+                bpy.data.meshes.remove(lm)
+                dl['planar_deg'] = round(math.degrees(a1), 3)
+                print('CA_PIECE_PLANAR', key, 'collapse', n, '->', len(out_me.polygons), 'angle', dl['planar_deg'], flush=True)
+                return out_me, dl
+            b.free()
+            bm0.free()
+        bpy.data.meshes.remove(lm)
+        t = max(4, int(t * target / n * 0.97))
+    raise RuntimeError(key + '：减面到 %d 以内没成功（最后 %d）' % (target, n))
+
+
+def _presplit(o, hb, hi_uv, px, P, fitlog, log, out, stats):
+    """按颜色拆成两块再分别减面（炮台：暗铁的身子 / 余烬色的镜片和面板）。减完再拆的话，一百多个面的大面把小块的颜色平均掉了，镜片和面板会消失。
+    TRELLIS 的源模型常是内外两层壳：直接减面会把两层压成重叠的面，减不下去。所以先体素重建（voxel 米）成一层封闭的外表面，
+    每个面按离它最近的原面判暖色（R > k·B 且 R > min，线性），再拆成两块各自减面。
+    presplit = {key: 暖色那块的 key, tris: 它的预算, k / min: 暖色判据, voxel: 体素边长（米）, muzzle: 记炮口位置（最靠前的暖色面中心，取前 muzzle 米以内）}"""
+    ps = o['presplit']
+    hb.faces.ensure_lookup_table()
+    warm_hi = []
+    for i, f in enumerate(hb.faces):
+        uv = sum(hi_uv[i]) / len(hi_uv[i])
+        c = importer.s2l(importer._sample(px, uv[None, :])[0].astype(np.float64))
+        warm_hi.append(bool(c[0] > ps.get('k', 1.6) * c[2] and c[0] > ps.get('min', 0.12)))
+    # 体素重建整件
+    mv = bpy.data.meshes.new('pc_vox')
+    hb.to_mesh(mv)
+    ob = bpy.data.objects.new('pc_vox', mv)
+    bpy.context.scene.collection.objects.link(ob)
+    md = ob.modifiers.new('vox', 'REMESH')
+    md.mode = 'VOXEL'
+    md.voxel_size = ps.get('voxel', 0.012)
+    for q in bpy.context.scene.objects:
+        q.select_set(q is ob)
+    bpy.context.view_layer.objects.active = ob
+    bpy.ops.object.modifier_apply(modifier='vox')
+    bpy.data.objects.remove(ob)
+    vb = bmesh.new()
+    vb.from_mesh(mv)
+    bpy.data.meshes.remove(mv)
+    bmesh.ops.triangulate(vb, faces=list(vb.faces), quad_method='FIXED', ngon_method='EAR_CLIP')
+    isl = importer._islands(vb)
+    big = max(isl, key=len)
+    drop = [f for g in isl if g is not big and len(g) < ps.get('min_island', 0.01) * len(vb.faces) for f in g]
+    if drop:
+        bmesh.ops.delete(vb, geom=drop, context='FACES')
+        bmesh.ops.delete(vb, geom=[v for v in vb.verts if not v.link_faces], context='VERTS')
+    bvh = BVHTree.FromBMesh(hb)
+    vb.faces.ensure_lookup_table()
+    warm = [warm_hi[bvh.find_nearest(f.calc_center_median())[2]] for f in vb.faces]
+    print('CA_PIECE_VOX', o['key'], 'faces', len(vb.faces), 'islands', len(isl), 'dropped', len(drop), 'warm', sum(warm), flush=True)
+    # split_y：暗色那块再按高度拆成上下两块（各自一个形状、各自的预算：炮台的炮座 + 腿 / 炮头 + 炮管），面多一倍、棱更利落
+    ymax = max(v.co.y for v in vb.verts)
+    hi_part = [f.calc_center_median().y > ps['split_y'] * ymax for f in vb.faces] if ps.get('split_y') else [False] * len(vb.faces)
+    parts = [(o['key'], lambda i: not warm[i] and not hi_part[i], o['tris'], False)]
+    if ps.get('split_y'):
+        parts.append((ps['upper_key'], lambda i: not warm[i] and hi_part[i], ps['upper_tris'], False))
+    parts.append((ps['key'], lambda i: warm[i], ps['tris'], True))
+    for key, sel, target, want in parts:
+        pb = vb.copy()
+        pb.faces.ensure_lookup_table()
+        bmesh.ops.delete(pb, geom=[pb.faces[i] for i in range(len(warm)) if not sel(i)], context='FACES')
+        bmesh.ops.delete(pb, geom=[v for v in pb.verts if not v.link_faces], context='VERTS')
+        mp = bpy.data.meshes.new('pc_part')
+        pb.to_mesh(mp)
+        pb.free()
+        lm, dl = _decimate_to(mp, target, key)
+        low = np.array([[tuple(lm.vertices[i].co) for i in p.vertices] for p in lm.polygons if len(p.vertices) == 3], dtype=np.float64)
+        low = low[_areas(low) > 1e-9]
+        cols = _face_colors(low, hb, hi_uv, px)
+        rec = dict(p=[round(float(x), 4) for x in low.reshape(-1)], t=[float(x) for x in _bake_tone(low, cols, o)], src=P['id'])
+        if want and ps.get('muzzle'):
+            ctr = low.mean(axis=1)
+            up = ctr[ctr[:, 1] > 0.5 * low[:, :, 1].max()]
+            zmax = up[:, 2].max()
+            rec['muzzle'] = [round(float(x), 4) for x in up[up[:, 2] > zmax - ps['muzzle']].mean(axis=0)]
+            print('CA_PIECE_MUZZLE', key, rec['muzzle'], flush=True)
+        out[key] = rec
+        Pf = low.reshape(-1, 3)
+        stats[key] = dict(src=P['source']['name'], tris=len(low), target=target, bake='tone', fit=o['fit'], scale=fitlog, presplit=dict(warm=want, decimate=dl),
+                          lo=[round(float(x), 3) for x in Pf.min(axis=0)], hi=[round(float(x), 3) for x in Pf.max(axis=0)], clean=log)
+        print('CA_PIECE ' + json.dumps(dict(key=key, **stats[key]), ensure_ascii=False), flush=True)
+        bpy.data.meshes.remove(lm)
+        bpy.data.meshes.remove(mp)
+    vb.free()
+
+
 def process(prov_rel, out, stats):
     P = importer.load_prov(dict(prov=prov_rel))
     spec = P['processing']
@@ -242,6 +362,10 @@ def process(prov_rel, out, stats):
             for u in t:
                 u[1] = 1.0 - u[1]  # Blender 的 v 朝上 → glTF 的 v 朝下（和 _albedo_of 的行序一致）
             hi_uv.append(t)
+        if o.get('presplit'):
+            _presplit(o, hb, hi_uv, px, P, fitlog, log, out, stats)
+            hb.free()
+            continue
         me = bpy.data.meshes.new('pc_src')
         dec_target, hull_deg = o['tris'], None
         if o.get('hull'):
@@ -308,7 +432,11 @@ def process(prov_rel, out, stats):
             # 一件拆成两个（形状批里一个实例只有一种颜色）：面的重心 y 低于 at 的给 below 那个 key（雷桩的底座），其余留给 key（晶柱）
             sp = o['split']
             cy = low[:, :, 1].mean(axis=1)
-            sel = cy < sp['at']
+            if sp.get('by') == 'warm':
+                # 按颜色拆：反照率偏暖（R > k·B 且够亮）的面给 below 那个 key（炮台的余烬色镜片 / 面板），其余留给 key（暗铁的身子）
+                sel = (cols[:, 0] > sp.get('k', 1.6) * cols[:, 2]) & (cols[:, 0] > sp.get('min', 0.12))
+            else:
+                sel = cy < sp['at']
             for key, m in ((sp['below'], sel), (o['key'], ~sel)):
                 r2 = dict(src=P['id'], p=[round(float(x), 4) for x in low[m].reshape(-1)])
                 for f in ('t', 's'):
@@ -316,6 +444,13 @@ def process(prov_rel, out, stats):
                         r2[f] = [x for x, k in zip(rec[f], m) if k]
                 if 'c' in rec:
                     r2['c'] = [round(float(x), 4) for x in np.array(rec['c']).reshape(-1, 3)[m].reshape(-1)]
+                if sp.get('muzzle') and key == sp['below']:
+                    # 炮口：拆出来的暖色面里最靠前（+z）的那一片镜片的中心（游戏端从这里起射线）
+                    ctr = low[m].mean(axis=1)
+                    zmax = ctr[:, 2].max()
+                    front = ctr[(ctr[:, 2] > zmax - sp['muzzle']) & (ctr[:, 1] > 0.5 * low[:, :, 1].max())]
+                    r2['muzzle'] = [round(float(x), 4) for x in front.mean(axis=0)]
+                    print('CA_PIECE_MUZZLE', key, r2['muzzle'], flush=True)
                 out[key] = r2
                 print('CA_PIECE_SPLIT', key, int(m.sum()), flush=True)
         else:
