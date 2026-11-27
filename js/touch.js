@@ -732,9 +732,7 @@
       labels: q('[data-tt="labels"]'),
       fOn: null,
     };
-    // 提示卡在触屏下只显示两行，点一下展开 / 收起
-    const coach = document.getElementById('coach');
-    if (coach) coach.addEventListener('click', () => T.on && coach.classList.toggle('t-open'));
+    // 提示卡：点一下就收起（hint-once，ui.js 的 coachTap 接着），这里不再展开 / 收成一行
     // 收成一行的主线追踪条：点一下展开 3 秒（UI-R B4b）
     const quest = document.getElementById('quest');
     if (quest)
@@ -1265,19 +1263,6 @@
     }
     const pp = document.getElementById('pp-remind');
     dom.tree.classList.toggle('dot', !!(pp && pp.classList.contains('on')));
-    // 打起来了（首领醒着，或 8 m 内有醒着的敌人）：提示卡亮了 4 秒后收成一行、变淡，不盖着战斗；点一下照样展开
-    const co = document.getElementById('coach');
-    if (co) {
-      const shown = co.classList.contains('on');
-      if (!shown || co.dataset.hint !== dom.coHint) {
-        dom.coHint = co.dataset.hint;
-        dom.coT = 0;
-      }
-      if (shown && !co.classList.contains('t-min')) {
-        dom.coT = fighting() ? (dom.coT || 0) + dt : 0;
-        if (dom.coT >= 4) co.classList.add('t-min');
-      }
-    }
     // 主线追踪条（UI-R B4b）：画面矮（< 360）又用 L 档按钮，或者打起来了，收成一行（只留目标，不压按钮簇）；
     // 点一下展开 3 秒；目标换成新的一步时也先展开 3 秒（打着也一样），再收起。打完停 2 秒才展开回来
     const qe = document.getElementById('quest');

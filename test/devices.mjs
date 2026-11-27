@@ -129,23 +129,19 @@ export async function questReady(p) {
     .waitForFunction(() => { const w = G.world, f = w.assetsLoading || w.assetsPending; return !(f && f.call(w)); }, null, { timeout: 120000 })
     .then(() => true, () => false);
   if (!loaded) return '素材包 120 秒还没载完（主线追踪条要等它）';
-  // 出来 = 有 .on 而且 0.3 秒的淡入走完（不透明度 ≥ 0.95）。原来只等 .on、再固定等 600 ms：机器忙时 WebKit 一帧很慢，淡入还没走完，
-  // 可见区检查量到的不透明度不到 0.05，报「主线追踪条没出来」（pickup-feed 查到，main 91e8fe4 上一样）。按帧等，最多 120 帧
   const h = await p.waitForFunction(() => {
     window.__qN = (window.__qN || 0) + 1;
     const q = document.getElementById('quest');
     const on = !!(q && q.classList.contains('on'));
-    const op = q ? +getComputedStyle(q).opacity : 0;
-    if ((on && op >= 0.95) || window.__qN >= 120) {
+    if (on || window.__qN >= 60) {
       const n = window.__qN, Q = G.save && G.save.quest;
       window.__qN = 0;
-      return { on, op, n, q: Q ? 'n ' + Q.n + (Q.off ? ' off' : '') : '无', title: !!(G.ui.titleOn && G.ui.titleOn()) };
+      return { on, n, q: Q ? 'n ' + Q.n + (Q.off ? ' off' : '') : '无', title: !!(G.ui.titleOn && G.ui.titleOn()) };
     }
     return false;
   }, null, { polling: 'raf', timeout: 120000 });
   const r = await h.jsonValue();
-  if (r.on && r.op >= 0.95) return '';
-  return '素材包已载完，' + r.n + ' 帧后主线追踪条' + (r.on ? '还没淡入（不透明度 ' + r.op + '）' : '还没出来') + '（主线 ' + r.q + '，标题画面 ' + r.title + '）';
+  return r.on ? '' : '素材包已载完，' + r.n + ' 帧后主线追踪条还没出来（主线 ' + r.q + '，标题画面 ' + r.title + '）';
 }
 // 主线追踪条完全显出来（可见区一步，train 2）：原来 questReady 之后固定等 600 ms 再量，机器很忙时 WebKit 一秒只画一两帧，
 // 淡入（0.3 秒）还没画出来就量了，报「主线追踪条没出来」又说不清为什么。这里分两段等：

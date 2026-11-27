@@ -1685,9 +1685,16 @@
       return uiSeenMem;
     }
   }
-  const uiSeen = (tab) => !!uiSeenMap()[tab];
+  // 设置里关了「新手提示」：每页的一次性说明也不出（[?] 里的说明照常能看）
+  const uiSeen = (tab) => !hintsOn() || !!uiSeenMap()[tab];
+  function uiSeenClear() {
+    uiSeenMem = {};
+    try {
+      localStorage.removeItem(UI_SEEN_KEY);
+    } catch (e) {}
+  }
   function uiSeenMark(tab) {
-    if (!PAGE_HINTS[tab] || uiSeen(tab)) return;
+    if (!PAGE_HINTS[tab] || uiSeenMap()[tab]) return;
     const m = uiSeenMap();
     m[tab] = 1;
     uiSeenMem = m;
@@ -5109,13 +5116,16 @@
       render();
     },
     'tut-reset'() {
+      // 从头再看一遍：看过的记录清空、「新手提示」开关打开（写成 true，所有角色共用），每页的一次性说明也重新出
       G.save.tut = {};
+      G.save.opts.hints = true;
+      uiSeenClear();
       G.persist();
       coach.cur = null;
+      coach.state = '';
       coach.gapT = 0;
       coach.vet = false; // 玩家自己要求从头再看一遍：基础操作的提示也照出
-      coach.snooze = {};
-      coach.shows = {};
+      coach.ever = { moved: 0, cast: [false, false, false, false, false], rolled: false };
       el.coach.className = '';
       ui.tutMsg = '已重置，提示会在用得上的时候再次出现';
       G.sfx('click');
@@ -5310,6 +5320,13 @@
       render();
     },
 
+    // 设置「新手提示」开关（hint-once）：一动就写进 opts.hints（之后不再按等级算默认）；关掉时亮着的那条在 updateCoach 里收起
+    hints() {
+      G.save.opts.hints = !hintsOn();
+      G.persist();
+      G.sfx('click');
+      render();
+    },
     // 地图页「显示主线」开关（quest D2）：存在 save.quest.off，默认开
     quest() {
       const Q = G.save.quest;
@@ -6625,7 +6642,9 @@
         // vf-vfx3：区域氛围（飘雪、余烬、远处的雷……），默认开
         setSw('环境特效', '各区飘雪、余烬、远雷这类背景效果', o.ambience !== false, 'data-tact="opt" data-opt="ambience"')) +
       // 触屏操作（mobile M1）：自动 = 手机、平板上打开；存在这台设备上（不进存档）。手机版 M2 的几项只在触屏模式下显示
-      setGrp('操作', (G.touch ? setRow('触屏操作', '自动：手机、平板上打开', setSeg(SET_T, G.touch.mode, 'touchmode', 'm')) : '') + (touchOn() ? touchSettings() : '')) +
+      setGrp('操作', (G.touch ? setRow('触屏操作', '自动：手机、平板上打开', setSeg(SET_T, G.touch.mode, 'touchmode', 'm')) : '') + (touchOn() ? touchSettings() : '') +
+        // hint-once：新手提示开关（所有角色共用）。关了只剩改版说明；帮助页「重新显示新手提示」会把它打开
+        setSw('新手提示', '操作和系统说明，每条只出一次', hintsOn(), 'data-tact="hints"')) +
       setGrp('拾取',
         setRow('普通物品', '魔法、稀有物品总是自动拾取', setSeg(SET_N, normMode(), 'normmode', 'mode')) +
         setSw('折叠普通物品的名牌', '地上只留一个小点，悬停或按住 Alt 展开', !!o.hideNormal, 'data-tact="opt" data-opt="hideNormal"') +
@@ -7085,7 +7104,7 @@
       menu.devInfo = false;
       G.sfx('click');
       renderMenu();
-    } else if (k === 'quality' || k === 'opt' || k === 'normmode' || k === 'quest') {
+    } else if (k === 'quality' || k === 'opt' || k === 'normmode' || k === 'quest' || k === 'hints') {
       ACT[k](d); // 和存档选项走同一套：立即生效并存档
       renderMenu();
     } else if (MENU_ACT[k]) MENU_ACT[k](d);
@@ -8282,12 +8301,17 @@
     minT: 0, // 当前这条至少要亮多久（秒，按字数算）——哪怕玩家一眨眼就做到了，也得留出读完的时间
     fightT: 0, // 需要清静的提示亮着的时候，已经连续打了多久
     epoch: -1, vet: false, // 这份存档读进来时是不是老角色（3 级以上）：只在读档 / 删档时判定一次
-    snooze: {}, shows: {}, // 提示 id → 先别出、到这个时刻再说 / 已经出现过几次
+    visT: 0, // 当前这条最多亮多久（秒，按字数算：一行 6 秒、两行 8 秒，改版说明最多 12 秒）
+    // 这份存档读进来以后玩家自己已经做过的事（走了多远、用过哪几个键、翻滚过没有）：会了的基础提示不再出
+    ever: { moved: 0, cast: [false, false, false, false, false], rolled: false },
+    tutRef: null, // 上次见到的 save.tut（换了一份就从头记，见 updateCoach）
+    defEp: -2, defOn: true, // 「新手提示」开关没动过时的默认（读档那一刻按这份存档算一次，见 hintsOn）
     summonPing: false, // 第一次拾到召唤宝石 / 第一次施放召唤：等着出召唤提示（看过之后不再记）
   };
-  const COACH_DONE_MS = 2000; // 「做到了」之后再留多久
-  const COACH_GAP_MS = 1500; // 两条提示之间的间隔
-  const COACH_GAP_FIGHT_MS = 3500; // 战斗中的间隔更长：不在打架的时候连珠炮似的换提示
+  const COACH_DONE_MS = 1200; // 「做到了」之后再留多久
+  const COACH_MIN_S = 2.5; // 做到了也至少亮这么久（秒），一眼扫完
+  const COACH_GAP_MS = 30000; // 两条提示之间至少隔 30 秒：不一条接一条地出（紧急提示不等）
+  const COACH_FIGHT_S = 1.2; // 需要清静的提示亮着时打起来了：连续打这么久就收起
   const curTotal = () => {
     let n = 0;
     for (const id of G.CUR_IDS) n += G.save.cur[id] || 0;
@@ -8315,11 +8339,16 @@
     if (!G.save.tut.summon) coach.summonPing = true;
   }
 
-  // when：什么时候该出现；done(b)：玩家做到了（b 是出现那一刻的快照）；max：最多停留的秒数（只算游戏进行中的时间）
-  // basic：基础操作，读档时已经 3 级以上的老角色直接跳过；need：要先看过哪一条；panel：打开对应页签时在面板里接着提示
-  // urgent：稍纵即逝的时机——条件一满足就立刻顶掉正在显示的那条（被顶掉的不算看过，之后还会再出）。
+  // 每条只出一次：一出现就记进 save.tut（做没做到、被顶掉、被点掉、打起来收起都一样），之后不再出。
+  // when：什么时候该出现；done(b)：玩家做到了（b 是出现那一刻的快照），做到了就提前收起；
+  // 亮多久按字数算（coachShow 的 visT：一行 6 秒、两行 8 秒），点一下卡片立刻收起；两条之间至少隔 COACH_GAP_MS。
+  // max：旧的停留上限，现在只在比 visT 还短时起作用（处决、首领门口这种稍纵即逝的）
+  // basic：基础操作，读档时已经 3 级以上的老角色直接跳过；known：玩家自己已经会了（这份存档读进来以后做过）就直接记为看过、不出；
+  // need：要先看过哪一条；panel：打开对应页签时在面板里接着提示
+  // urgent：稍纵即逝的时机——条件一满足就立刻顶掉正在显示的那条（不等间隔；被顶掉的那条也算看过了）。
   //   排在前面的更要紧：后面的紧急提示顶不掉前面的
-  // calm：和战斗无关、需要腾出手来做的事（看掉落、开面板）——身边有敌人时不出，亮着的时候打起来了就先收起（不算看过）
+  // calm：和战斗无关、需要腾出手来做的事（看掉落、开面板）——身边有敌人时不出，亮着的时候打起来了就收起
+  // note：改版说明（读旧存档时说一次改了什么），不是新手教学：设置里关掉「新手提示」也照出（每条一次），最多亮 12 秒
   const HINTS = [
     {
       id: 'execute', urgent: true, max: 10,
@@ -8339,14 +8368,14 @@
     },
     {
       // 旧存档第一次读进来（武器补上了伤害）：说一次攻击技能改为吃武器伤害
-      id: 'wmig', calm: true, max: 14,
+      id: 'wmig', calm: true, note: true, max: 14,
       html: '<b>武器改版</b>：攻击技能的伤害改取自<b>手中武器</b>，旧武器已按等级折算。杖和魂幡的武器伤害低，走攻击路线请换刃、双匕、战锤、太刀或长弓。每种武器自带一招 <kbd>R</kbd> 键<b>武器技</b>',
       when: () => !!G.weaponMigrated,
       done: () => false,
     },
     {
       // 成长改版前的老角色第一次读进来：天赋盘扩大、宝石 / 武器 / 词缀不再封顶
-      id: 'growth', calm: true, max: 16,
+      id: 'growth', calm: true, note: true, max: 16,
       get html() {
         const free = G.passivePoints().free;
         const n = Object.keys(G.TREE).length - 1;
@@ -8359,7 +8388,7 @@
     },
     {
       // 读档时有辅助对技能的哪种刻式都用不上了（标签改过）：已经取下放回宝石栏，说一声去了哪
-      id: 'sockdrop', calm: true, max: 20,
+      id: 'sockdrop', calm: true, note: true, max: 20,
       get html() {
         const L = (G.sockDropped || []).filter((d) => G.SUPPORTS[d.sup] && G.SKILLS[d.id]);
         return '<b>辅助宝石</b>：' + L.map((d) => '「' + G.SUPPORTS[d.sup].name + '」').join('、') + '对所镶的技能不再适用，已取下放回宝石栏（<kbd>G</kbd>）';
@@ -8369,7 +8398,7 @@
     },
     {
       // 武器普攻改版（右键固定是武器普攻、裂石击删除）之前的存档第一次读进来：说清右键变了什么、原来的东西去了哪
-      id: 'basicmig', calm: true, max: 20,
+      id: 'basicmig', calm: true, note: true, max: 20,
       get html() {
         const kn = ['左键', '右键', 'Q', 'E'];
         let h = '<b>武器普攻改版</b>：<kbd>右键</kbd>固定为武器自己的普攻（近战是连招，不耗魔力）。';
@@ -8387,6 +8416,7 @@
     },
     {
       id: 'move', basic: true, max: 40,
+      known: () => coach.ever.moved > 5,
       get html() {
         return touchOn() ? '在左下拖动<b>摇杆</b>移动，沿着路一直往前走' : '<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移动，沿着路一直往前走';
       },
@@ -8395,6 +8425,7 @@
     },
     {
       id: 'attack', basic: true, need: 'move', max: 60,
+      known: () => coach.ever.cast[0] && coach.ever.cast[1],
       // 右键是武器普攻（刃起手是「挥斩」连招，杖类是「灵弹」/「疾咒」），左键是起手的掷焰
       get html() {
         const bid = G.weaponBasic ? G.weaponBasic() : null;
@@ -8408,6 +8439,7 @@
     },
     {
       id: 'dodge', basic: true, need: 'attack', max: 40,
+      known: () => coach.ever.rolled,
       get html() {
         return (touchOn() ? '点<b>翻</b>键' : '<kbd>空格</kbd>') + ' 翻滚，途中无敌。滚出地上的<b class="c-red">红色区域</b>';
       },
@@ -8429,6 +8461,7 @@
     {
       // 第一次能用 R：手里的武器有武器技、它没在冷却、身边有醒着的敌人
       id: 'wskill', need: 'attack', max: 30,
+      known: () => coach.ever.cast[W_SLOT],
       get html() {
         const id = curWSkill();
         const sk = id ? G.SKILLS[id] : null;
@@ -8445,7 +8478,7 @@
     },
     {
       // 第一次拿上枪械或弓：右键变成武器普攻、R 被量表卡住
-      id: 'ranged', max: 26,
+      id: 'ranged', calm: true, max: 26,
       get html() {
         const rw = rangedNow();
         const gun = rw && rw.family === 'gun';
@@ -8478,7 +8511,7 @@
     },
     {
       // 远程改版前的存档里有长弓：读档时改成了鹰眼长弓（箭雨换成了一矢穿心）
-      id: 'bowmig', calm: true, max: 16,
+      id: 'bowmig', calm: true, note: true, max: 16,
       html: '<b>远程改版</b>：长弓分为追猎弓、鹰眼长弓、符文弓，你的长弓已改为<b>鹰眼长弓</b>（伤害与词缀不变）。' +
         '命中积攒<b class="c-gold">专注</b>，满了按 <kbd>R</kbd> 放「一矢穿心」',
       when: () => G.bowMigrated > 0,
@@ -8486,28 +8519,28 @@
     },
     {
       // 刻式第二版之前的存档：A / B 整个重做了，免费那一次还给了每个技能
-      id: 'variant2', calm: true, max: 16,
+      id: 'variant2', calm: true, note: true, max: 16,
       html: '<b>刻式重做</b>：A / B 刻式都换成了新打法，原选择按位置保留。每个技能可<b class="c-gold">免费重选一次</b>（<kbd>G</kbd>）',
       when: () => G.variantRedone > 0,
       done: () => false,
     },
     {
       // 渊式之前的存档：身上戴着的渊契原来直接改技能打法，读档时换成了这个技能的渊式（G.rqMigrated，见 game.js 的 sanitize）
-      id: 'rqvar', calm: true, max: 16,
+      id: 'rqvar', calm: true, note: true, max: 16,
       html: '<b>渊式</b>：改技能打法的渊契换成了技能的第三种刻式，已替你选上；摘下渊契退回原来的刻式（<kbd>G</kbd>）',
       when: () => G.rqMigrated > 0,
       done: () => false,
     },
     {
       // 旋涡斩加了「每下最多 9 个」之前、选着旋涡斩的老存档：提示一次（见 game.js 的 wsNote）
-      id: 'wsnerf', calm: true, max: 14,
+      id: 'wsnerf', calm: true, note: true, max: 14,
       html: '<b>旋涡斩</b>：每下最多绞到离你最近的 9 个敌人，怪聚成一团时伤害约 −40%；分散的怪和单体不变',
       when: () => G.whirlNerfed > 0,
       done: () => false,
     },
     {
       // 黑洞加了「每跳最多伤到最近的 N 个」之前、学了黑洞的老存档：提示一次（见 game.js 的 bhNote）；按这一刻生效的刻式说
-      id: 'bhnerf', calm: true, max: 14,
+      id: 'bhnerf', calm: true, note: true, max: 14,
       get html() {
         return G.holeNerfNote(G.variantOf('blackhole'));
       },
@@ -8516,21 +8549,21 @@
     },
     {
       // 魂潮狂热改成 12 秒 +15% 之前、拿着魂幡的老存档：提示一次（见 game.js 的 stNote）
-      id: 'stfz', calm: true, max: 14,
+      id: 'stfz', calm: true, note: true, max: 14,
       html: '<b>魂潮</b>：狂热改为 12 秒、攻击与移动速度 +15%，按冷却放时一直都在，平均和原来一样',
       when: () => G.frenzyNerfed > 0,
       done: () => false,
     },
     {
       // 铁水弹 / 雷楔 / 霜霰弹改成装填（imbue）之前学过它们的老存档：提示一次（见 game.js 的 imbNote）
-      id: 'imbnote', calm: true, max: 14,
+      id: 'imbnote', calm: true, note: true, max: 14,
       html: '<b>铁水弹、雷楔、霜霰弹</b>改成了装填：按一下开着，枪和弓打出的子弹、箭都带上这种元素。宝石和等级都留着，换刻式免费一次',
       when: () => G.imbueRedone > 0,
       done: () => false,
     },
     {
       // 渊式独骸加了「每刀最多砍到 N 个」之前、选着独骸的老存档：提示一次（见 game.js 的 dhNote）；个数读数据，百分比是同装备实测（16 只挤成一团）
-      id: 'dhnerf', calm: true, max: 14,
+      id: 'dhnerf', calm: true, note: true, max: 14,
       get html() {
         return G.kingNerfNote();
       },
@@ -8539,7 +8572,7 @@
     },
     {
       // 渊式回旋加了「每程最多伤到 N 个」之前、选着回旋的老存档：提示一次（见 game.js 的 hxNote）；只有怪排成一线、一程穿过 N 个以上时才少
-      id: 'hxnerf', calm: true, max: 14,
+      id: 'hxnerf', calm: true, note: true, max: 14,
       get html() {
         return G.boomNerfNote();
       },
@@ -8548,7 +8581,7 @@
     },
     {
       // 旧版双生坠：读档时升成四行（见 game.js 的 migrateTwin）
-      id: 'sxmig', calm: true, max: 16,
+      id: 'sxmig', calm: true, note: true, max: 16,
       html: '<b>双生坠升级</b>：多了暴击伤害和总伤害两行，原有两行按原来的成色换算到新数值；效果改为「余响」',
       when: () => G.twinMigrated > 0,
       done: () => false,
@@ -8558,7 +8591,7 @@
       get id() {
         return (G.NEW_ZONE_NOTICE && G.NEW_ZONE_NOTICE.id) || 'zone5';
       },
-      calm: true, max: 16,
+      calm: true, note: true, max: 16,
       get html() {
         return (G.NEW_ZONE_NOTICE && G.NEW_ZONE_NOTICE.html) || '<b>新区域</b>：烬渊深处之后新增一个区域。<kbd>M</kbd> 打开地图';
       },
@@ -8567,7 +8600,7 @@
     },
     {
       // 熄烛冠巅峰改版之前的存档里有熄烛冠：读档时原地升级（见 game.js 的 migrateXizhu），提示一次
-      id: 'xzmig', calm: true, max: 14,
+      id: 'xzmig', calm: true, note: true, max: 14,
       html: '<b>熄烛冠已升级</b>：原有词缀按原品质提到新数值（冰霜抗性改为生命回复），新增一条「暗域增伤」，机制换成「暗域」',
       when: () => G.xizhuMigrated > 0,
       done: () => false,
@@ -8662,15 +8695,32 @@
     },
   ];
 
+  // 「新手提示」开关：设置里动过就是 opts.hints（所有角色共用）；没动过（老存档、新设备都没有这个键）按这份存档算默认——
+  // 10 级以上、进过轮回层级或打通过烬渊深处的老手默认关，其余默认开。只在读档那一刻算一次，玩着玩着升到 10 级也不会突然关掉
+  function hintsDefault(S) {
+    return !(S && ((S.level | 0) >= 10 || (S.maxTier | 0) >= 1 || (S.cleared && typeof S.cleared.abyss === 'number')));
+  }
+  function hintsOn() {
+    const o = G.save && G.save.opts;
+    if (o && typeof o.hints === 'boolean') return o.hints;
+    if (coach.defEp !== G.saveEpoch) {
+      coach.defEp = G.saveEpoch;
+      coach.defOn = hintsDefault(G.save);
+    }
+    return coach.defOn;
+  }
   function coachShow(h, now) {
     const P = G.player;
+    if (coach.cur && coach.cur.note && coach.cur !== h) coachNoteDone(coach.cur.id); // 被紧急提示顶掉的改版说明也算看完
     coach.cur = h;
     coach.state = 'show';
     coach.t = 0;
     coach.fightT = 0;
-    coach.shows[h.id] = (coach.shows[h.id] || 0) + 1;
-    // 至少亮够读完的时间：去掉标签后按字数算，4 ~ 8 秒
-    coach.minT = G.clamp(1.5 + h.html.replace(/<[^>]*>/g, '').length * 0.06, 4, 8);
+    // 亮多久：去掉标签后按字数算，一行（≈ 45 字以内）6 秒、两行 8 秒；改版说明字多，最多 12 秒。
+    // max 比这还短的（处决、首领门口）照 max；minT 是做到了也至少亮的时间
+    const n = h.html.replace(/<[^>]*>/g, '').length;
+    coach.visT = Math.min(h.note ? G.clamp(3 + n / 12, 6, 12) : G.clamp(3 + n / 15, 6, 8), h.max || 99);
+    coach.minT = Math.min(COACH_MIN_S, coach.visT);
     coach.moved = 0;
     coach.cast = [false, false, false, false, false];
     coach.rolled = false;
@@ -8684,9 +8734,35 @@
     el.coach.dataset.hint = h.id;
     el.coach.className = 'on';
     G.sfx('pickup');
+    coachSeen(h.id); // 出现即算看过：以后不再出（存档立刻写下，刷新也不会再来一遍）
   }
+  // 收起当前这条（到时间、被点掉、打起来了、开关关了）：下一条至少隔 COACH_GAP_MS
+  function coachHide(now) {
+    const h = coach.cur;
+    if (h && h.note) coachNoteDone(h.id);
+    coach.cur = null;
+    coach.state = '';
+    coach.gapT = now + COACH_GAP_MS;
+    el.coach.className = '';
+    if (h && ui.isOpen && h.panel && h.panel.tab === ui.tab) render(); // 面板里的那一句也收掉
+  }
+  // 点一下提示卡：立刻收起（触屏、鼠标都是）
+  function coachTap(e) {
+    if (!coach.cur) return;
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    coachHide(performance.now());
+  }
+  // 出现即记：save.tut[id] 立刻写下并存档（刷新也不再出）
   function coachSeen(id) {
     G.save.tut[id] = 1;
+    G.persist();
+  }
+  // 改版说明收起时：清掉存档里「这条说明还没看过」的标记（读档时这些标记都先看 save.tut，出现那一刻已经不会再出了；
+  // 放到收起时再清，是为了刚读档、说明正亮着时内存里的存档和刚存下的一样）
+  function coachNoteDone(id) {
     if (id === 'sxmig') {
       G.save.twinMig = false;
       G.twinMigrated = 0;
@@ -8725,7 +8801,6 @@
       G.save.hxNote = false;
       G.boomNerfed = 0;
     }
-    G.persist();
   }
   // 渊式独骸 / 回旋改版提示里的百分比（同装备实测，rulea-fix：独骸 16 只挤成一团；回旋 怪沿飞行方向排得密的那张图）
   G.NERF_PCT = { king: 35, boom: 30 }; // 独骸 1091 → 693 / 1005 → 693（−36 / −31%）；回旋只在怪沿飞行方向排得密的那张图上少：−10%（截断口径）～ −31%（稳态口径），其余不变
@@ -8752,40 +8827,57 @@
     coach.last = now;
     if (ui.intro || menu.pause) return;
 
-    // 累计：走了多远、用过哪几个键、有没有翻滚过
+    // 换了一份存档（读档 / 删档 / 新开）：重新判断是不是老角色，玩家「已经会了」的记录也从头记。
+    // 只在这一刻判定——本次从 1 级玩上来的新角色，中途升到 3 级也照样把基础提示看完
+    if (coach.epoch !== G.saveEpoch) {
+      coach.epoch = G.saveEpoch;
+      coach.vet = G.save.level >= 3;
+      coach.summonPing = false;
+      if (coach.cur) coachHide(now);
+    }
+    // 看过的记录换了一份（读档、「重新显示新手提示」，测试里直接换 save.tut）：从头来——亮着的那条收起，「已经会了」从头记，也不用等间隔
+    if (coach.tutRef !== G.save.tut) {
+      coach.tutRef = G.save.tut;
+      coach.ever = { moved: 0, cast: [false, false, false, false, false], rolled: false };
+      if (coach.cur) {
+        coach.cur = null;
+        coach.state = '';
+        el.coach.className = '';
+      }
+      coach.gapT = 0;
+    }
+
+    // 累计：走了多远、用过哪几个键、有没有翻滚过（这一条亮着时的 / 读档以来的）
     if (coach.px !== null && !st.paused) {
       const d = Math.hypot(P.x - coach.px, P.z - coach.pz);
-      if (d < 2) coach.moved += d;
+      if (d < 2) {
+        coach.moved += d;
+        coach.ever.moved += d;
+      }
     }
     coach.px = P.x;
     coach.pz = P.z;
     if (P.cast) {
       coach.cast[P.cast.slot] = true;
+      coach.ever.cast[P.cast.slot] = true;
       if (!coach.summonPing && isSummon(P.cast.id)) summonPing();
     }
     if (!coach.summonPing && minionCount() > 0 && !G.save.tut.summon) summonPing(); // 自动召唤不经过 P.cast：看到召唤物就算第一次召唤
     if (coach.summonPing && G.save.tut.summon) coach.summonPing = false; // 已经看过（或测试里统一标成看过）
-    if (P.roll.t > 0) coach.rolled = true;
+    if (P.roll.t > 0) coach.rolled = coach.ever.rolled = true;
     if (coach.cur0 < 0) coach.cur0 = curTotal();
 
-    // 换了一份存档（读档 / 删档 / 新开）：重新判断是不是老角色。
-    // 只在这一刻判定——本次从 1 级玩上来的新角色，中途升到 3 级也照样把基础提示看完
-    if (coach.epoch !== G.saveEpoch) {
-      coach.epoch = G.saveEpoch;
-      coach.vet = G.save.level >= 3;
-      coach.snooze = {};
-      coach.shows = {};
-      coach.summonPing = false;
-    }
+    const on = hintsOn();
+    const may = (c) => !G.save.tut[c.id] && (on || c.note); // 关掉「新手提示」时只剩改版说明
 
     // 稍纵即逝的提示（处决、濒死喝药、首领门口）：条件满足时不等间隔，直接顶掉正在显示的那条
     let urgent = null;
-    if (now - coach.urgT > 200 && !st.paused && !P.dead) {
+    if (on && now - coach.urgT > 200 && !st.paused && !P.dead) {
       coach.urgT = now;
       const holding = coach.cur && coach.cur.urgent && coach.state === 'show' ? HINTS.indexOf(coach.cur) : 1e9;
       for (let i = 0; i < HINTS.length && i < holding; i++) {
         const c = HINTS[i];
-        if (c.urgent && !G.save.tut[c.id] && c !== coach.cur && c.when()) {
+        if (c.urgent && may(c) && c !== coach.cur && c.when()) {
           urgent = c;
           break;
         }
@@ -8799,52 +8891,30 @@
     const h = coach.cur;
     if (h) {
       if (coach.state === 'done') {
-        if (now >= coach.hideAt) {
-          coach.cur = null;
-          coach.gapT = now + (inFight() ? COACH_GAP_FIGHT_MS : COACH_GAP_MS);
-          el.coach.className = '';
-        }
+        if (now >= coach.hideAt) coachHide(now);
         return;
       }
-      if (G.save.tut[h.id]) {
-        // 存档里已经标成看过（比如刚换了存档）：直接收起
-        coach.cur = null;
-        el.coach.className = '';
+      if (!on && !h.note) {
+        // 刚在设置里关掉了：亮着的这条立刻收起
+        coachHide(now);
         return;
       }
       if (!st.paused) coach.t += dt;
-      // 需要清静的提示：打起来了就先收起来，不算看过，等这一仗打完再出
+      // 需要清静的提示：打起来了就收起（已经算看过）
       if (h.calm && !st.paused && inFight()) {
         coach.fightT += dt;
-        if (coach.fightT > 1.2) {
-          coach.cur = null;
-          coach.snooze[h.id] = now + 2500;
-          coach.gapT = now + 600;
-          el.coach.className = '';
+        if (coach.fightT > COACH_FIGHT_S) {
+          coachHide(now);
           return;
         }
       } else coach.fightT = 0;
-      const ok = !!h.done(coach.base);
-      if (ok) {
-        // 做到了：立刻记为看过、打上「做到了」，但卡片要留到读得完为止
-        coachSeen(h.id);
+      if (h.done(coach.base)) {
+        // 做到了：打上「做到了」，留一下（至少亮够 minT）就收起
         coach.state = 'done';
         coach.hideAt = now + Math.max(COACH_DONE_MS, (coach.minT - coach.t) * 1000);
         el.coach.className = 'on done';
         if (ui.isOpen && h.panel && h.panel.tab === ui.tab) render(); // 面板里的那一句也收掉
-      } else if (coach.t > (h.max || 30)) {
-        if (h.panel && coach.shows[h.id] < 3) {
-          // 要开面板才做得了的事，玩家一直没顾上：先收起、过一阵再提醒，不占着提示位，也不当作已经看过
-          coach.cur = null;
-          coach.snooze[h.id] = now + 60000;
-          coach.gapT = now + COACH_GAP_MS;
-          el.coach.className = '';
-        } else {
-          coachSeen(h.id);
-          coach.state = 'done';
-          coach.hideAt = now;
-        }
-      }
+      } else if (coach.t > coach.visT) coachHide(now);
       return;
     }
     if (now < coach.gapT || now - coach.pollT < 250) return;
@@ -8853,20 +8923,23 @@
     const tut = G.save.tut;
     let fight = -1; // 用到的时候才算
     for (const c of HINTS) {
-      if (tut[c.id]) continue;
+      if (!may(c)) continue;
       if (c.basic && coach.vet) {
-        tut[c.id] = 1; // 老角色不需要基础操作提示
+        tut[c.id] = 1; // 老角色不需要基础操作提示（不单独存档：跟着下一次正常存档写进去）
         continue;
       }
       if (c.need && !tut[c.need]) continue;
-      if (coach.snooze[c.id] > now) continue;
+      if (c.known && c.known()) {
+        tut[c.id] = 1; // 玩家自己已经会了：不用再教（同上，不单独存档）
+        continue;
+      }
       if (c.calm) {
         if (fight < 0) fight = inFight() ? 1 : 0;
         if (fight) continue;
       }
       if (!c.when()) continue;
       coachShow(c, now);
-      break;
+      return;
     }
   }
 
@@ -8884,6 +8957,7 @@
     el.confirm = $('confirm');
     el.coach = $('coach');
     el.coachBody = el.coach.querySelector('.co-body');
+    el.coach.addEventListener('click', coachTap); // 点一下提示卡就收起
     el.title = $('title');
     el.tMenu = $('t-menu');
     el.tView = $('t-view');
@@ -9142,6 +9216,11 @@
       const svg = document.getElementById('tree-svg');
       return svg ? Object.assign({}, treeFront(svg), { tv: ui.tv }) : null;
     },
-    hints: () => ({ current: coach.cur ? coach.cur.id : null, state: coach.state, all: HINTS.map((h) => h.id), veteran: coach.vet, minShow: coach.minT, shownFor: coach.t }),
+    // 测试用：把两条提示之间的间隔改成从现在起 ms 毫秒（0 = 下一轮就能出）
+    hintsGap: (ms) => {
+      coach.gapT = performance.now() + (ms || 0);
+      coach.pollT = 0;
+    },
+    hints: () => ({ current: coach.cur ? coach.cur.id : null, state: coach.state, all: HINTS.map((h) => h.id), notes: HINTS.filter((h) => h.note).map((h) => h.id), veteran: coach.vet, minShow: coach.minT, visFor: coach.visT, shownFor: coach.t, on: hintsOn(), explicit: typeof G.save.opts.hints === 'boolean', gapLeft: Math.max(0, coach.gapT - performance.now()) }),
   };
 })();
