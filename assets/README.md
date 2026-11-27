@@ -34,16 +34,15 @@
 
 ## AI 生成
 
-2026-11-26 起用 AI 生成模型（用户批准）：先是一件静态布景（试点），之后熔渣巨像的外观也换成 AI 生成的模型，骨架、动作和招式都没动，只换了网格和贴图。同一天用户要求武器也试一试：剑、长杖、战锤、机炮四种（手里拿的和掉在地上的），处理见下面。
+2026-11-26 起用 AI 生成模型（用户批准）：先是一件静态布景（试点），之后熔渣巨像的外观也换成 AI 生成的模型，骨架、动作和招式都没动，只换了网格和贴图。同一天用户要求武器也试一试：先试点剑、长杖、战锤、机炮四种，通过审核以后所有武器种类和七种装备掉落都换上了（手里拿的和掉在地上的），处理见下面。
 
 | 件 | 用在哪 | 来源记录 |
 | --- | --- | --- |
 | `ca/frost_waystone`（路标石：风化的石柱立在碎石和积雪的基座上） | 霜骨沼泽岸边，每区 3–6 块，低画质不显示 | `ai/frost_waystone/provenance.json` |
 | `ca/boss_golem`（熔渣巨像：玄武岩块拼成的巨像，胸口是拱形铁栅炉膛，肩上两根短烟囱）、`ca/boss_golem_lo`（低画质的减面版） | 第 0 区首领，`js/assets/boss-golem.js`；低画质用减面版 | `ca/boss/golem.provenance.json` |
-| `ca/aiwpn_blade`、`_lo`（单手直剑：叶形钢刃、中间一道光槽） | 试验开关 `&aiwpn=1`：手里（lo）和掉落（高 / 中 hi、低 lo） | `ai/wpn_blade/provenance.json` |
-| `ca/aiwpn_staff`、`_lo`（长杖：木杆、金环里嵌一块晶体） | 同上 | `ai/wpn_staff/provenance.json` |
-| `ca/aiwpn_hammer`、`_lo`（战锤：铁砧锤头、一条发光符带） | 同上 | `ai/wpn_hammer/provenance.json` |
-| `ca/aiwpn_gatling`、`_lo`、`ca/aiwpn_gatling_barrel`、`_lo`（机炮：黄铜机匣、六根枪管、侧面一道散热槽） | 同上 | `ai/wpn_gatling/provenance.json` |
+| `ca/aiwpn_<种>`、`_lo`：剑、长杖、短杖、战锤、太刀、机炮（另有枪管束 `_barrel`）、左轮、焚炉喷枪、鹰眼长弓、追猎弓、符文弓、冰弓 | 手里（lo，烘进主角骨架）和掉落（高 / 中 hi、低 lo），默认开，`&aiwpn=0` 关掉 | `ai/wpn_<种>/provenance.json` |
+| `ca/aiwpn_daggers`、`ca/aiwpn_lantern`、`ca/aiwpn_banner`（各带 `_lo`）：双匕、提灯、魂幡 | 只做掉落模型（手里照旧是脚本件；提灯的低画质掉落也是） | `ai/wpn_<种>/provenance.json` |
+| `ca/aiwpn_helm`、`body`、`gloves`、`boots`、`belt`、`ring`、`amulet`（各带 `_lo`）：头盔、胸甲、手套、靴子、腰带、戒指、护身符 | 装备的掉落模型 | `ai/gear_<栏位>/provenance.json` |
 
 - **生成流程**：ComfyUI 0.43.0，只用内置节点。Z-Image Turbo 文生图，TRELLIS.2 图生 3D，另外用到 BiRefNet、DINOv3、MoGe-2。巨像的蒙皮用 UniRig（只算权重，骨架是我们自己拟合的巨像骨架）。提示词、种子、每个组件的版本都在各自的来源记录里。
 - **处理**：
