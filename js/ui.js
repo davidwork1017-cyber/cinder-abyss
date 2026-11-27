@@ -8436,6 +8436,7 @@
   }
   function coachShow(h, now) {
     const P = G.player;
+    if (coach.cur && coach.cur.note && coach.cur !== h) coachNoteDone(coach.cur.id); // 被紧急提示顶掉的改版说明也算看完
     coach.cur = h;
     coach.state = 'show';
     coach.t = 0;
@@ -8463,6 +8464,7 @@
   // 收起当前这条（到时间、被点掉、打起来了、开关关了）：下一条至少隔 COACH_GAP_MS
   function coachHide(now) {
     const h = coach.cur;
+    if (h && h.note) coachNoteDone(h.id);
     coach.cur = null;
     coach.state = '';
     coach.gapT = now + COACH_GAP_MS;
@@ -8478,8 +8480,14 @@
     }
     coachHide(performance.now());
   }
+  // 出现即记：save.tut[id] 立刻写下并存档（刷新也不再出）
   function coachSeen(id) {
     G.save.tut[id] = 1;
+    G.persist();
+  }
+  // 改版说明收起时：清掉存档里「这条说明还没看过」的标记（读档时这些标记都先看 save.tut，出现那一刻已经不会再出了；
+  // 放到收起时再清，是为了刚读档、说明正亮着时内存里的存档和刚存下的一样）
+  function coachNoteDone(id) {
     if (id === 'sxmig') {
       G.save.twinMig = false;
       G.twinMigrated = 0;
@@ -8518,7 +8526,6 @@
       G.save.hxNote = false;
       G.boomNerfed = 0;
     }
-    G.persist();
   }
   // 渊式独骸 / 回旋改版提示里的百分比（同装备实测，rulea-fix：独骸 16 只挤成一团；回旋 怪沿飞行方向排得密的那张图）
   G.NERF_PCT = { king: 35, boom: 30 }; // 独骸 1091 → 693 / 1005 → 693（−36 / −31%）；回旋只在怪沿飞行方向排得密的那张图上少：−10%（截断口径）～ −31%（稳态口径），其余不变
@@ -8640,18 +8647,15 @@
     if (st.paused || P.dead) return; // 面板开着 / 倒地时不弹新的
     const tut = G.save.tut;
     let fight = -1; // 用到的时候才算
-    let quiet = false; // 这一轮有没有悄悄记下「已经会了」的：有就存一次档
     for (const c of HINTS) {
       if (!may(c)) continue;
       if (c.basic && coach.vet) {
-        tut[c.id] = 1; // 老角色不需要基础操作提示
-        quiet = true;
+        tut[c.id] = 1; // 老角色不需要基础操作提示（不单独存档：跟着下一次正常存档写进去）
         continue;
       }
       if (c.need && !tut[c.need]) continue;
       if (c.known && c.known()) {
-        tut[c.id] = 1; // 玩家自己已经会了：不用再教
-        quiet = true;
+        tut[c.id] = 1; // 玩家自己已经会了：不用再教（同上，不单独存档）
         continue;
       }
       if (c.calm) {
@@ -8662,7 +8666,6 @@
       coachShow(c, now);
       return;
     }
-    if (quiet) G.persist();
   }
 
   // ============================================================
