@@ -971,8 +971,8 @@
       // 红橙只留给路面上零星几片发光的裂缝（lava.patch）、余烬口、深渊底的熔岩缝和火星
       mats: [
         // tex-rest：三套都换成脚本画的平铺贴图（层状的玄武岩台面，缝低、熔岩光沿缝走；积灰的熔渣壳；柱状节理的暗岩）
-        { tex: 'p_basalt', tile: 5.5, con: 0.8, nrm: 0.9, rough: 1, k: 0.47, sat: 0.45, col: 0x57525c }, // tex-rest：k 0.6 → 0.47（画的贴图对比低，同样的 k 显得亮；按分离表定档，高档地面 25–35%、首领不比 main 差）
-        { tex: 'p_cinder', tile: 4.5, con: 0.8, nrm: 0.9, rough: 1, k: 0.39, sat: 0.4, col: 0x47424e }, // tex-rest：dark_rock_02 的暗一档 → 积灰的熔渣壳，k 0.5 → 0.39。zones-polish：原来是 Lava001（熔岩流的暗纹在路面上是一块块脏斑），换成同一种石板的暗一档：斑块读成颜色深一点的石板，靠崖、靠墙的路边也暗一些
+        { tex: 'p_basalt', tile: 5.5, con: 0.8, nrm: 0.9, rough: 1, k: 0.45, sat: 0.45, col: 0x57525c }, // tex-rest：k 0.6 → 0.45（画的贴图对比低，同样的 k 显得亮；按分离表定档，高档地面 25–35%、首领不比 main 差）
+        { tex: 'p_cinder', tile: 4.5, con: 0.8, nrm: 0.9, rough: 1, k: 0.37, sat: 0.4, col: 0x47424e }, // tex-rest：dark_rock_02 的暗一档 → 积灰的熔渣壳，k 0.5 → 0.37。zones-polish：原来是 Lava001（熔岩流的暗纹在路面上是一块块脏斑），换成同一种石板的暗一档：斑块读成颜色深一点的石板，靠崖、靠墙的路边也暗一些
         { tex: 'p_drock', tile: 6.5, con: 0.9, nrm: 1.0, rough: 1, k: 0.9, col: 0x3a3442 }, // 岩壁外的岩顶：岩石之间露出来的地方也要落在岩壁那一档（15–25%）
       ],
       lava: { mode: 1, color: 0xff6a22, k: 1.6, patch: [0, 0.72] },
