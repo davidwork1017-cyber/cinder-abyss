@@ -102,6 +102,12 @@ CATALOG = [
          bake=dict(ao=0.3, grad=0.6, gain=0.7), finish=dict(dust=0.0), cues=dict(second=False, val=0.2)),
     dict(id='ca/frost_plank', gen='frost_plank', seed=167, cat='kit', zone='frost', ship=True, replaces=None,
          bake=dict(ao=0.08, grad=0.01, wear=0.25, grime=0.1), finish=dict(dust=0.0), cues=dict(second=False, val=0.08, lichen=0)),
+    # ---- AI 生成的布景件（ai3d-pilot，试点一件）：gen='ai' 从源 GLB 导入（art/ai/importer.py），参数和来源都在 assets/ai/<slug>/provenance.json。
+    # 类别 aiprop（art/budgets.json）：lod=hi 给高 / 中画质（预算 tris），lod=lo 是低画质要显示时的减面档（预算 lodTris，同一张贴图的 UV）；
+    # 路标石低画质不显示（摆放一样、visible = false，和冰芦苇一样），所以只打 hi。反照率贴图 512，在 assets/ai/<slug>/，打进 zone-<区> 包（低档不解码）。
+    # 顶点色只烘 AO（明暗渐变压到最小、不加磨损 / 污垢：生成的贴图里已经画了）。按面量化到调色板的 vc 外观试过（审核时对照），读成一根黑柱子，没用 ----
+    dict(id='ca/frost_waystone', gen='ai', seed=1126, cat='aiprop', zone='frost', ship=True, replaces=None, args=dict(prov='assets/ai/frost_waystone/provenance.json', lod='hi', mode='albedo'),
+         bake=dict(ao=0.25, grad=0.01, wear=0.0, grime=0.0, gtint=0.0), finish=dict(dust=0.0, cues=False)),
     # ---- 余烛殿：4 个火盆台（玩法件），尺寸逐项照原来的程序化 crown/brazier，火苗另一个网格、碰撞不变 ----
     dict(id='ca/crown_brazier', gen='crown_brazier', seed=173, cat='prop', zone='crown', ship=True, replaces=None,
          bake=dict(ao=0.25, grad=0.4, wear=0.4), finish=dict(dust=0.0), cues=dict(second=False, val=0.2, lichen=0)),
@@ -116,8 +122,15 @@ CATALOG = [
          bake=dict(ao=0.3, grad=0.2, wear=0.45, grime=0.25), finish=dict(dust=0.0), cues=dict(second=False, val=0.14, lichen=0)),
     # ---- 首领（boss-design）：带骨架、蒙皮和动作，assets/ca/boss/<kind>.glb；id = ca/boss_<kind>，zone 写 boss，home = 打进哪一区的首领包（js/assets/boss-<kind>.js）。
     # 生成器在 art/ca/boss/<kind>.py（造型 + 骨架 + 软接缝），动作表在 art/ca/boss/<kind>_clips.py ----
-    dict(id='ca/boss_golem', gen='golem', seed=181, cat='boss', zone='boss', home='ash', ship=True, replaces=None,
-         bake=dict(ao=0.7, grad=0.9, wear=0.4, grime=0.3, gain=1.15), finish=dict(dust=0.12), cues=dict(second=True, val=0.3, lichen=0.1)),
+    # 熔渣巨像（ai3d-golem，用户 2026-11-26 批准）：外观换成 AI 生成的 golem-a-01（文生图 → 图生 3D，源文件不进仓库），art/ai/golem_rig.py 对到同一副骨架、
+    # 混合蒙皮（UniRig 的权重 + 按区域纠正）、反照率贴图 512；golem_lo = 低画质的减面版（同一个包，三角形不超过原来的 4096）。来源记录 assets/ca/boss/golem.provenance.json。
+    # 原来的脚本巨像（gen='golem'，art/ca/boss/golem.py，骨架和动作表仍从那里来）不再打包；要重新生成就把下面这行放回清单、两条 golem_ai 拿掉：
+    # dict(id='ca/boss_golem', gen='golem', seed=181, cat='boss', zone='boss', home='ash', ship=True, replaces=None,
+    #      bake=dict(ao=0.7, grad=0.9, wear=0.4, grime=0.3, gain=1.15), finish=dict(dust=0.12), cues=dict(second=True, val=0.3, lichen=0.1)),
+    dict(id='ca/boss_golem', gen='golem_ai', seed=501, cat='boss', zone='boss', home='ash', ship=True, replaces=None,
+         args=dict(spec='art/ai/golem/a01.json', texpx=512)),
+    dict(id='ca/boss_golem_lo', gen='golem_ai', seed=501, cat='boss', zone='boss', home='ash', ship=True, replaces=None,
+         args=dict(spec='art/ai/golem/a01.json', texpx=512, tris=4096)),
     dict(id='ca/boss_lord', gen='lord', seed=191, cat='boss', zone='boss', home='abyss', ship=True, replaces=None,
          bake=dict(ao=0.6, grad=0.7, wear=0.5, grime=0.2, gain=1.1), finish=dict(dust=0.0), cues=dict(second=False, val=0.22, lichen=0)),
     dict(id='ca/boss_behemoth', gen='behemoth', seed=207, cat='boss', zone='boss', home='rift', ship=True, replaces=None,

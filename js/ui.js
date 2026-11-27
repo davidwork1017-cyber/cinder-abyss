@@ -2519,8 +2519,8 @@
           const dur = sk.buff.dur * Math.max(0.1, 1 + ((G.player.S && G.player.S.buffDur) || 0) / 100);
           nums = num('增益持续', fmt1(dur) + ' 秒', 'hl') + gN + num('冷却', '无') + num('魔力消耗', '无') + num('暴击率', fmt1(ctx.crit) + '%') + num('等级', lvl ? 'Lv ' + lvl : '—');
         } else if (sk.basicOf) {
-          // 按普攻折算的（熔光射线、焚天炎爆）：蓄满一发 / 整招的伤害，冷却那格换成折合几秒普攻
-          nums = num(sk.charge ? '蓄满一发' : '整招伤害', fmtDmg(avg), 'hl') + gN + num('折合普攻', fmt1(sk.basicSec * (sk.useMult || 1)) + ' 秒') + num('魔力消耗', '无') + num('暴击率', fmt1(ctx.crit) + '%') + num('等级', lvl ? 'Lv ' + lvl : '—');
+          // 按普攻折算的（熔光炮台、焚天炎爆）：整招的伤害（炮台 = 两座打满全程的合计），冷却那格换成折合几秒普攻
+          nums = num(sk.turret ? '两座合计' : '整招伤害', fmtDmg(avg), 'hl') + gN + num('折合普攻', fmt1(sk.basicSec * (sk.useMult || 1)) + ' 秒') + num('魔力消耗', '无') + num('暴击率', fmt1(ctx.crit) + '%') + num('等级', lvl ? 'Lv ' + lvl : '—');
         } else {
           nums = num(sk.useMult > 1 ? '整招伤害' : '每次伤害', fmtDmg(avg), 'hl') + gN + num('冷却', '无') + num('魔力消耗', '无') + num('暴击率', fmt1(ctx.crit) + '%') + num('等级', lvl ? 'Lv ' + lvl : '—');
         }
@@ -2529,8 +2529,8 @@
       const gk = wGrowKind(sk);
       const bsk = sk.basicOf && G.SKILLS[sk.basicOf];
       const grow = gk === 'attack' && bsk && ctx
-        ? '攻击型：按普攻折算——' + (sk.charge
-            ? '蓄满一发 = 机炮转满之后扫射 <b>' + fmt1(sk.basicSec) + ' 秒</b>（每秒约 <b>' + fmt1(G.basicShots(sk) / sk.basicSec) + '</b> 发'
+        ? '攻击型：按普攻折算——' + (sk.turret
+            ? '两座炮台打满 ' + sk.turret.dur + ' 秒 = 机炮转满之后扫射 <b>' + fmt1(sk.basicSec) + ' 秒</b>（每秒约 <b>' + fmt1(G.basicShots(sk) / sk.basicSec) + '</b> 发'
             : '火浪 = 喷枪持续喷射 <b>' + fmt1(sk.basicSec) + ' 秒</b>，火场烧满再加 <b>' + fmt1(sk.basicSec * ((sk.useMult || 1) - 1)) + ' 秒</b>（每秒约 <b>' + fmt1(G.basicShots(sk) / sk.basicSec) + '</b> 跳') +
           '），伤害取自武器' + (w ? ' <b>' + Math.round(w.min) + '–' + Math.round(w.max) + '</b>' : '') + '，等级随角色等级'
         : gk === 'attack'
@@ -6694,7 +6694,7 @@
   function menuCredits() {
     return (
       '<div class="m-credits">' + CREDITS.map((c) => '<div class="m-cr"><b>' + c[0] + '</b><span>' + c[1] + ' · CC0</span></div>').join('') + '</div>' +
-      '<p class="m-note">以上素材均以 CC0 授权公开，在此致谢。渲染用 three.js r128（MIT 许可）。其余美术、音效与玩法均为原创。</p>'
+      '<p class="m-note">以上素材均以 CC0 授权公开，在此致谢。渲染用 three.js r186（MIT 许可）。部分场景模型由 AI 根据我们的文字描述生成，经脚本处理后使用。其余美术、音效与玩法均为原创。</p>'
     );
   }
   const MENU_VIEW = {

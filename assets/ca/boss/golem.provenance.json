@@ -1,0 +1,420 @@
+{
+ "_comment": "熔渣巨像的 AI 生成外观（ai3d-golem，用户 2026-11-26 批准上线）的来源记录。源 GLB、概念图、UniRig 的权重 GLB 都不进仓库，只记 sha256（存放在私有的 cinder-ai-src）；npm run build:art 按 art/catalog.py 的 golem_ai 两件、art/ai/golem/a01.json 的参数，用 art/ai/golem_rig.py 生成 assets/ca/boss/golem.glb（高 / 中）和 golem_lo.glb（低画质的减面版）；没有源文件的机器上保留已提交的 GLB。",
+ "ids": [
+  "ca/boss_golem",
+  "ca/boss_golem_lo"
+ ],
+ "source": {
+  "name": "golem-a-01",
+  "file": "models/golem-a-01/model.glb",
+  "sha256": "49823b8c7f3a1469dc6b8d56c34747fbcfd5636b4849d36171f77713389ab6e4",
+  "faces": 59992,
+  "verts": 43178,
+  "textures": "1024 JPEG（底色 / 金属粗糙度 / 法线，只用底色）",
+  "committed": false,
+  "concept_image": {
+   "file": "models/golem-a-01/concept.png",
+   "sha256": "2e3c7410ee81fa9fad90def5d9a6a6aa8ffff2fa89799e0699b6bcb53d2260b7",
+   "committed": false,
+   "use": "正面近似正交投影到朝前、从正前方看得见的表面上，补回反照率里没烘进去的熔岩裂缝和炉栅的颜色；只进处理后的反照率贴图"
+  }
+ },
+ "generation": {
+  "prompt": "a single original slag-and-basalt stone golem giant, iron-grated furnace chest with glowing molten core, two short chimneys on the shoulders, huge fists, long arms reaching the knees, short thick legs, dark rock with orange lava cracks, clearly separated joints with visible gaps between body parts, stylized low-poly, toon shading, hand-painted flat colors, front view, symmetrical A-pose, arms held 35 degrees away from body, legs apart, no weapon, full body in frame, pure white background, even lighting, no text",
+  "negative_prompt": null,
+  "seed": 501,
+  "text_to_image": {
+   "model": "Z-Image Turbo",
+   "weights": [
+    "z_image_turbo_int8_convrot.safetensors",
+    "qwen_3_4b_fp8_mixed.safetensors",
+    "ae.safetensors"
+   ]
+  },
+  "image_to_3d": {
+   "model": "TRELLIS.2",
+   "weights": [
+    "birefnet.safetensors",
+    "dino_v3_L_naf_fp32.safetensors",
+    "moge_2_vitl_normal_fp16.safetensors",
+    "trellis_2_int8_convrot.safetensors",
+    "trellis_2_shape_vae_bf16.safetensors",
+    "trellis_2_texture_vae_bf16.safetensors"
+   ]
+  },
+  "target_faces": 60000,
+  "texture_size": 1024,
+  "comfyui_version": "0.43.0",
+  "generated_at": "2026-11-26T07:30:46-0800",
+  "comfyui": {
+   "repo": "https://github.com/Comfy-Org/ComfyUI",
+   "release": "v0.43.0 (windows portable, nvidia)",
+   "commit": "426f5eea52a7ece1dd599fff4cb6cd1f352ddd24",
+   "license": "GPL-3.0"
+  },
+  "nodes": "全部是 ComfyUI 内置节点（comfy_extras/nodes_trellis2.py、nodes_bg_removal.py、nodes_mesh_postprocess.py），没有自定义节点",
+  "nvdiffrast": "未安装、未使用",
+  "weight_sources": {
+   "birefnet.safetensors": {
+    "hf": "Comfy-Org/BiRefNet",
+    "rev": "884af709e9b795d89dafbf97f29c8d6a2386f5c6",
+    "base": "ZhengPeng7/BiRefNet",
+    "license": "MIT"
+   },
+   "dino_v3_L_naf_fp32.safetensors": {
+    "hf": "Comfy-Org/Pixal3D",
+    "rev": "f37641be376725d324c56626007cc477f1249a69",
+    "base": "Meta DINOv3 ViT-L（Comfy-Org 转换）",
+    "license": "DINOv3 License (https://ai.meta.com/resources/models-and-libraries/dinov3-license/)"
+   },
+   "moge_2_vitl_normal_fp16.safetensors": {
+    "hf": "Comfy-Org/MoGe",
+    "rev": "1484985258ba7ef45c314144fcf0e90924ffbf44",
+    "base": "Ruicheng MoGe-2 ViT-L（normal 版）",
+    "license": "MIT"
+   },
+   "trellis_2_int8_convrot.safetensors": {
+    "hf": "Comfy-Org/TRELLIS.2",
+    "rev": "430a9d09b2416687018c8fe8edced2ad4858a439",
+    "base": "microsoft/TRELLIS.2-4B",
+    "license": "MIT"
+   },
+   "trellis_2_shape_vae_bf16.safetensors": {
+    "hf": "Comfy-Org/Pixal3D",
+    "rev": "f37641be376725d324c56626007cc477f1249a69",
+    "base": "microsoft/TRELLIS.2-4B",
+    "license": "MIT"
+   },
+   "trellis_2_texture_vae_bf16.safetensors": {
+    "hf": "Comfy-Org/Pixal3D",
+    "rev": "f37641be376725d324c56626007cc477f1249a69",
+    "base": "microsoft/TRELLIS.2-4B",
+    "license": "MIT"
+   },
+   "z_image_turbo_int8_convrot.safetensors": {
+    "hf": "Comfy-Org/Z-Image-Turbo",
+    "rev": "6fc90a3b1b653e935a0d175e260736de25b84df5",
+    "base": "Tongyi-MAI/Z-Image-Turbo",
+    "license": "Apache-2.0"
+   },
+   "qwen_3_4b_fp8_mixed.safetensors": {
+    "hf": "Comfy-Org/Z-Image-Turbo",
+    "rev": "6fc90a3b1b653e935a0d175e260736de25b84df5",
+    "base": "Qwen3-4B (Z-Image Turbo 文本编码器)",
+    "license": "Apache-2.0"
+   },
+   "ae.safetensors": {
+    "hf": "Comfy-Org/Z-Image-Turbo",
+    "rev": "6fc90a3b1b653e935a0d175e260736de25b84df5",
+    "base": "Z-Image Turbo VAE",
+    "license": "Apache-2.0"
+   }
+  }
+ },
+ "rigging": {
+  "tool": "UniRig（只做蒙皮，用我们拟合好的 28 根骨骼的巨像骨架）",
+  "weights_glb": {
+   "file": "rigtest/unirig/golem-a-01/model_rigged.glb",
+   "sha256": "a3650c57ef8d3430b1896a1f7f057c057a2cdc3b46f2c7007f96ea12fe3106a0",
+   "committed": false
+  },
+  "unirig": {
+   "repo": "https://github.com/VAST-AI-Research/UniRig",
+   "commit": "6793c6640ff01c8fb389f3993434124bb43d2933",
+   "license": "MIT（内嵌 michelangelo 为 GPL-3.0，仅本地当工具运行）",
+   "windows_patch": "PR #70（HurtzDonutStudios，提交 bc95f6e，未合并）：flash_attn 换成 PyTorch SDPA、Windows DLL 路径、CPU 回退；全文见 scripts/unirig_pr70_windows.patch"
+  },
+  "unirig_weights": {
+   "hf": "VAST-AI/UniRig",
+   "revision": "36842e2b5947e9e60f89275b83208c8e74071c63",
+   "file": "skin/articulation-xl/model.ckpt",
+   "sha256": "9d40cf42fb9d4c10d8b373d9f4f557c6fbbc5ebacae7ae6b3dce5a0d8a18bc33",
+   "license": "MIT"
+  },
+  "environment": {
+   "os": "Windows 11",
+   "gpu": "RTX 5070 Ti 16GB (sm_120)",
+   "python": "3.11.9",
+   "torch": "2.7.1+cu128",
+   "spconv": "spconv-cu124 2.3.8",
+   "torch_scatter": "2.1.2+pt27cu128",
+   "torch_cluster": "1.6.3+pt27cu128",
+   "bpy": "4.2.0",
+   "flash_attn": "不装，用 PR #70 的 SDPA shim"
+  },
+  "params": {
+   "seed": 12345,
+   "faces_target_count": 50000,
+   "voxel_skin": {
+    "grid": 196,
+    "backend": "open3d（没装 pyrender）"
+   },
+   "precision": "bf16-mixed"
+  },
+  "postprocess": [
+   "UniRig 输出在 [-1,1] 归一化空间，按包围盒缩放回原尺寸（系数 0.50065）",
+   "按 3 近邻反距离把权重从简化网格（24,970 顶点）转回原网格；平均误差 0.0014，最大误差 0.018（模型高约 1）",
+   "主导骨是 x_* 的顶点改成 100% 绑定该骨",
+   "每顶点最多 4 根骨头，丢弃 <0.001 的权重，再归一化"
+  ],
+  "skeleton_input": "art/ai/golem_fit.py 对 golem-a-01 拟合的骨架（名字 / 父子和 art/ca/boss/golem.py 一样，枢轴在这个模型自己的关节上），动作表 art/ca/boss/golem_clips.py 不变"
+ },
+ "licences": {
+  "audit": "编排者笔记 notes/ai3d/licence-audit.md：生成流程 CLEAR；UniRig 一节 OK（Puppeteer 因为 NVIDIA PartField 只许非商业研究用途，不用）",
+  "generation": "ComfyUI GPL-3.0（工具）、Z-Image Turbo / Qwen3-4B / VAE Apache-2.0、TRELLIS.2 / BiRefNet / MoGe-2 MIT、DINOv3 License（NAF Apache-2.0）：都不限制输出、不禁止商用、不要求在输出上署名",
+  "rigging": "UniRig 代码 MIT（内嵌的 michelangelo 是 GPL-3.0，只在本地当工具跑）、权重 MIT；训练数据 Articulation-XL2.0 是 CC-BY-4.0，对我们的输出（自己的网格、自己的骨架上预测的权重）没有义务",
+  "credit": "Built with DINOv3（自愿致谢）",
+  "re_review": "换生成流程 / 权重或者商业发行之前重新审一遍"
+ },
+ "processing": {
+  "script": "art/ai/golem_rig.py（+ art/ai/golem_fit.py）",
+  "spec": "art/ai/golem/a01.json",
+  "blender": "5.2.4 LTS",
+  "fit": {
+   "height": 5.03324,
+   "offset": [
+    0.000318,
+    2.516628,
+    -0.116808
+   ],
+   "scale": [
+    5.529428,
+    5.026753,
+    5.529428
+   ],
+   "src": {
+    "calf_l": [
+     0.66545,
+     0.95927,
+     -0.04887
+    ],
+    "calf_r": [
+     -0.66948,
+     0.95927,
+     -0.0417
+    ],
+    "clavicle_l": [
+     0.66,
+     4.0,
+     -0.11
+    ],
+    "clavicle_r": [
+     -0.66,
+     4.0,
+     -0.11
+    ],
+    "foot_l": [
+     0.82228,
+     0.30293,
+     0.02421
+    ],
+    "foot_r": [
+     -0.81924,
+     0.30293,
+     0.02359
+    ],
+    "hand_l": [
+     2.06154,
+     1.722,
+     0.11457
+    ],
+    "hand_r": [
+     -2.06096,
+     1.71889,
+     0.1119
+    ],
+    "head": [
+     0.0,
+     4.4,
+     -0.11
+    ],
+    "lowerarm_l": [
+     1.90244,
+     2.88,
+     -0.15417
+    ],
+    "lowerarm_r": [
+     -1.90332,
+     2.88,
+     -0.15346
+    ],
+    "neck_01": [
+     0.0,
+     4.3,
+     -0.11
+    ],
+    "pelvis": [
+     0.0,
+     1.75,
+     0.0
+    ],
+    "spine_01": [
+     0.0,
+     2.1,
+     -0.11
+    ],
+    "spine_02": [
+     0.0,
+     2.45,
+     -0.11
+    ],
+    "spine_03": [
+     0.0,
+     3.3,
+     -0.11
+    ],
+    "thigh_l": [
+     0.67441,
+     1.6358,
+     0.00243
+    ],
+    "thigh_r": [
+     -0.67508,
+     1.6358,
+     -0.00243
+    ],
+    "upperarm_l": [
+     1.74823,
+     3.62597,
+     -0.1456
+    ],
+    "upperarm_r": [
+     -1.74316,
+     3.61649,
+     -0.14652
+    ],
+    "x_chimney_l": [
+     0.99,
+     4.25,
+     -0.275
+    ],
+    "x_chimney_r": [
+     -0.99,
+     4.25,
+     -0.275
+    ],
+    "x_core": [
+     0.0,
+     3.0,
+     0.66
+    ],
+    "x_finger_l_01": [
+     1.82154,
+     1.352,
+     0.31457
+    ],
+    "x_finger_l_02": [
+     2.08154,
+     1.312,
+     0.37457
+    ],
+    "x_finger_l_03": [
+     2.34154,
+     1.352,
+     0.29457
+    ],
+    "x_grate": [
+     0.0,
+     3.1,
+     0.99
+    ],
+    "x_hammer": [
+     -2.10096,
+     1.49889,
+     0.1619
+    ]
+   },
+   "xz_scale": 1.1
+  },
+  "concept": {
+   "aspect_fig": 0.9349,
+   "aspect_mesh": 1.0371,
+   "fig_px": [
+    87,
+    54,
+    949,
+    976
+   ],
+   "k_albedo": 1.7264,
+   "sha256": "2e3c7410ee81fa9fad90def5d9a6a6aa8ffff2fa89799e0699b6bcb53d2260b7",
+   "strength": 1.0
+  },
+  "colour": {
+   "fire_corners": 437,
+   "grade": {
+    "lift": 2.5
+   },
+   "core": {
+    "c": [
+     0,
+     3.0,
+     0.8
+    ],
+    "frac": 0.02,
+    "note": "近白的炉芯只取离炉栅中心最近、面积 2% 的发光三角形（3 个）：游戏镜头里 ≥85% 亮度的像素 高 25 / 低 22（原来的巨像 47 / 43；vfx 规则：近白只占一小块）"
+   }
+  },
+  "golem": {
+   "decimate": {
+    "ratio": 0.126684,
+    "source_tris": 59992,
+    "target": 7600,
+    "tris": 7600
+   },
+   "tris": 7859,
+   "caps": 259,
+   "region_override": {
+    "force": 570,
+    "kept": 3075,
+    "mismatch": 283
+   },
+   "glow_tris": {
+    "tex": 75
+   },
+   "tex": {
+    "coverage": 0.9505,
+    "px": 512
+   }
+  },
+  "golem_lo": {
+   "decimate": {
+    "ratio": 0.061608,
+    "source_tris": 59992,
+    "target": 3696,
+    "tris": 3696
+   },
+   "tris": 3844,
+   "caps": 148,
+   "region_override": {
+    "force": 281,
+    "kept": 1507,
+    "mismatch": 126
+   },
+   "glow_tris": {
+    "tex": 61
+   },
+   "tex": {
+    "coverage": 0.9521,
+    "px": 512
+   }
+  },
+  "reproducible": "同一台机器、同一个 Blender 版本两次构建逐字节相同（命令行和 npm run build:art 出的 GLB 也一样）",
+  "tris_glb": {
+   "golem": 7845,
+   "golem_lo": 3837,
+   "note": "导出时去掉退化三角形，GLB 里的数比上面 bmesh 的面数少一点；清单和游戏里用的是这个"
+  }
+ },
+ "outputs": {
+  "assets/ca/boss/golem.glb": "99b162fb97b887fe388042c18624ec97952038f5032c86a79a4c9fb19ece6c6a",
+  "assets/ca/boss/golem_lo.glb": "ca42f6d8d0a7a50bcaae87190803ab3de42993935ec64a5307bf78c668225616"
+ },
+ "review": {
+  "resemblance": "通用的熔渣 / 玄武岩石巨像：方块头、拱形铁栅炉膛、肩上两根短烟囱、大拳头、腰带。提示词没有提任何游戏或作品；没有和已知游戏素材或 IP 的造型、配色、标志对得上的地方。",
+  "value": "游戏镜头灰度（遮罩法，boss-value 口径）高 38.6 / 低 40.7（首领的范围 38–45 / 40–47），身子比地面亮 7.9 / 8.6，≥85% 亮度的像素 25 / 22；提亮 2.5 是范围里最暗的一档（2.2 时高 35.5、低 37.6，出范围）",
+  "hits": "砸地 / 冲锋 / 冲击环出手那一帧的挂点和预警对得上：砸地离圆心 2.32 米（半径 4.6），冲锋离中线 1.71 米（半宽 1.7，原来的巨像 1.73 / 1.78），冲击环离中心 4.46 米",
+  "sim": "首领指纹 4fc99b3d / 112 次不变",
+  "footprint": "俯视占地半径 1.69（碰撞半径 1.9；fit.xz_scale = 1.1，水平放大、身高 5.03 不变）",
+  "low_tex": "低画质也用 512：256 的话 734×338 / 竖屏下胸口和肩上的熔岩裂缝看不出来（灰度只差 0.2），所以不降"
+ }
+}

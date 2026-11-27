@@ -2087,7 +2087,7 @@
   // 技能卡 / 宝石提示用；lvl 缺省取已学等级
   // 攻速折进伤害的攻击技能：有冷却、不是武器技（武器技各自按自己的武器定好了数值）
   G.cdAps = (sk) => !!(sk && sk.wm && sk.cd > 0 && !sk.weaponOnly && sk.kind !== 'summon' && !sk.round && !(sk.gunSec && G.roundGun && G.roundGun())); // 特殊弹 / 拿枪的绊雷按普攻折算，攻速已经算在发数里
-  // 按普攻折算的量表技（熔光射线：basicOf / basicSec）：一发 = 普攻转满之后扫射 basicSec 秒的发数。
+  // 按普攻折算的量表技（熔光炮台：basicOf / basicSec）：一发 = 普攻转满之后扫射 basicSec 秒的发数。
   // 每秒发数 = 武器攻速 × 攻击速度 ÷ 普攻的 time（不算辅助宝石：武器技镶不了辅助）；没拿着对应的武器时按 1.0 攻速算
   G.basicShots = function (sk) {
     const b = G.SKILLS[sk.basicOf || G.roundBasicId(sk)]; // 特殊弹（class-d2b1）按手里那把枪的右键折算
@@ -4331,9 +4331,11 @@
       ch.n++;
       ch.t = CHAIN_KEEP;
       if (ch.n > ch.best) ch.best = ch.n;
-      // 集火：玩家亲手打中的敌人成为召唤物的优先目标
-      state.focus = e;
-      state.focusT = FOCUS_KEEP;
+      // 集火：玩家亲手打中的敌人成为召唤物的优先目标（熔光炮台打中的不算：炮台自己也按集火目标挑人）
+      if (!inf.turret) {
+        state.focus = e;
+        state.focusT = FOCUS_KEEP;
+      }
       if (sk.rtype) rangedOnHit(e, ctx, hit, inf); // 远程普攻：热度的「最近打中过」、弓的专注
     }
 
@@ -5761,6 +5763,7 @@
   const RANGED_HOLD = { gatling: true, flamer: true }; // 这两种松手就停（不会因为轻点的缓冲多打一发）
   const MAX_FIELDS = 40;
   const rainsLive = []; // 坠凌：还在下的冰凌雨（只记有 sk.max 上限的那几种），换区时清掉
+  const turrets = []; // 熔光炮台（见 WS_FX.rgatling）：{ x, z, ang, t, tt, ctx, k, tgt, len, fx }
   const fields = []; // 地上的火：喷枪的余烬、焚天炎爆的火场 { kind, x, z, r, t, tick, tt, mult, ctx, key, hex }
   const VK = { gatling: 'bullet', revolver: 'slug', flamer: 'flamelet', huntbow: 'arrow', eagle: 'arrow', runebow: 'arrow', emberbow: 'emberarrow' };
 
@@ -6685,7 +6688,8 @@
     if (g.cdT > 0) g.cdT = Math.max(0, g.cdT - dt);
     const c = P.cast && P.cast.ranged ? P.cast : null;
     if (!c) g.firing = false;
-    if (!(c && c.rtype === 'gatling')) {
+    // 放熔光炮台的那一帧（武器技 meltray）不算停火：机炮的转速照旧
+    if (!(c && c.rtype === 'gatling') && !(P.cast && P.cast.id === 'meltray')) {
       g.spin = Math.max(0, g.spin - dt / 0.6);
       g.ramp = Math.max(0, g.ramp - dt * 2);
     }
@@ -6711,6 +6715,7 @@
       if (P.rbuff.t <= 0 || !rw || rw.type !== G.SKILLS[P.rbuff.id].wtype) endBuff();
     }
     if (P.rstate) updateWildfire(dt);
+    if (turrets.length) tickTurrets(dt);
     updateFields(dt);
     tickD2b(dt); // 特殊弹 / 提灯（class-d2b1）
     if (CB.marks.size) tickWandMarks();
@@ -6731,6 +6736,7 @@
     g.firing = false;
     endBuff();
     P.rstate = null;
+    clearTurrets(); // 熔光炮台
     fields.length = 0;
     rainsLive.length = 0; // 冰凌雨的同场计数
     resetWandMarks(); // 疾咒的咒痕
@@ -9688,7 +9694,7 @@
     return t && G.ROUND_GUN[t] ? t : null;
   }
   G.roundGun = roundGun;
-  // 特殊弹按哪一招普攻折算伤害（同熔光射线的 basicOf）：手里那把枪的右键；不是枪时 null（按 wm 乘手里武器的伤害）
+  // 特殊弹按哪一招普攻折算伤害（同熔光炮台的 basicOf）：手里那把枪的右键；不是枪时 null（按 wm 乘手里武器的伤害）
   // 绊雷（class-d2b2，gunSec）拿枪时也这样折算：一枚 = 这把枪右键连射 gunSec 秒；拿弓照常按 wm
   G.roundBasicId = function (sk) {
     if (!sk || !(sk.round || sk.gunSec)) return null;
@@ -11157,57 +11163,119 @@
   // =====================================================================
   // 远程武器的 R（量表技，见 data.js 的 meltray / firestorm / wildfire / volley / pierceheart / overflow / emberstorm）
   // =====================================================================
-  // 熔光射线：按住 R 蓄力（瞄准线跟准星），松手（或蓄满后再按 hold 秒）放出一道贯穿射线，一次结算直线上的所有敌人。
-  // 射线每帧交给 world.laser 画（可选，没有时画一道电弧顶上）
-  WS_FX.rgatling = function (ctx, c) {
+  // 熔光炮台（laser-beam）：在身体两侧各放下一座炮台，turret.dur 秒里各自朝目标喷持续的贯穿射线（数值和规则见 data.js 的 meltray）。
+  // 出手只占一帧，右键照常扫射；炮台记在 turrets 里，每帧由 tickTurrets 推进（tickRanged 里），换区域 / 重生（resetRanged）、你倒下时收起。
+  // 画面交给 world 的 W.turret（可选：没有时只用通用电弧画射线）
+  // 炮台落点：身体左右两侧（面朝方向的垂直方向）side 米、往后 back 米；那里走不了或者和你之间隔着墙，就往你身边收，实在不行就落在你脚下
+  function turretSpot(T, sd) {
     const W = G.world;
-    const sk = ctx.sk;
-    const hex = hexOf(sk.color);
-    c.dur = c.t + sk.charge + sk.hold + 0.2;
-    c.cancelT = c.dur;
-    c.data = { ang: c.aim, ch: 0, shot: false, beamT: 0, len: sk.len };
-    G.sfx('cast', { id: ctx.id });
-    c.tick = (cc, dt) => {
-      const d = cc.data;
-      if (!d.shot) {
-        d.ang = aimInfo().ang;
-        cc.aim = d.ang;
-        d.ch += dt;
-        const k = Math.min(1, d.ch / sk.charge);
-        const sn = Math.sin(d.ang), cs = Math.cos(d.ang);
-        const len = Math.max(1, rayLen(P.x, P.z, d.ang, sk.len, -0.3));
-        fxOpt('laser', P.x, P.z, sn, cs, len, { charge: k });
-        if (k >= 1 && !d.full) {
-          d.full = true;
-          fxOpt('gaugeFull', P.ent, 'heat');
-        }
-        if (!slotHeld(WS_SLOT) || d.ch >= sk.charge + sk.hold) {
-          // 放：一次结算整条线
-          d.shot = true;
-          d.k = sk.minK + (1 - sk.minK) * k;
-          d.len = len;
-          d.beamT = sk.beamT;
-          cc.dur = cc.t + sk.beamT + 0.15;
-          cc.cancelT = cc.dur;
-          if (!fxOpt('laser', P.x, P.z, sn, cs, len, { w: 1 + 1.6 * k })) W.bolt([{ x: P.x + sn * 0.8, z: P.z + cs * 0.8 }, { x: P.x + sn * len, z: P.z + cs * len }], hex, true);
-          const hits = enemiesInLine(P.x, P.z, d.ang, len, (sk.width * (0.6 + 0.4 * k)) / 2);
-          if (hits.length) wsStrike(ctx, hits, d.k, { ang: d.ang, w: k >= 1 ? sk.w : 1, kb: sk.kb * (0.5 + 0.5 * k), poise: sk.poise * d.k, stop: sk.stop * (0.4 + 0.6 * k), dir: d.ang });
-          else G.sfx('impact', { type: 'fire', w: 1, crit: false });
-          W.shake(0.2 + 0.3 * k);
-          state.stats.beamShots = (state.stats.beamShots || 0) + 1;
-          state.stats.beamHits = (state.stats.beamHits || 0) + hits.length;
-          state.stats.beamK = d.k;
-        }
-      } else {
-        // 射线余晖：粗细跟着蓄力，慢慢收细
-        d.beamT -= dt;
-        if (d.beamT > 0) {
-          const f = d.beamT / sk.beamT;
-          fxOpt('laser', P.x, P.z, Math.sin(d.ang), Math.cos(d.ang), d.len, { w: (0.4 + 2.2 * (d.k || 1)) * f });
-        } else G.world.stop && G.world.stop(P.ent, 0.15);
+    const a = P.face, sn = Math.sin(a), cs = Math.cos(a);
+    for (const k of [1, 0.6, 0.3]) {
+      const x = P.x + cs * T.side * sd * k - sn * T.back * k, z = P.z - sn * T.side * sd * k - cs * T.back * k;
+      if (W.walkable(x, z, 0.2) && losClear(P.x, P.z, x, z)) return { x, z };
+    }
+    return { x: P.x, z: P.z };
+  }
+  function turretOff(tu) {
+    const i = turrets.indexOf(tu);
+    if (i >= 0) turrets.splice(i, 1);
+    if (tu.fx && G.world.turretOff) G.world.turretOff(tu.fx);
+  }
+  function clearTurrets() {
+    while (turrets.length) turretOff(turrets[turrets.length - 1]);
+  }
+  // 这座炮台该打谁：你最近亲手打中的敌人优先（range 米内、看得见），否则 range 米内最近的醒着、看得见的敌人；都没有时 null
+  function turretTarget(tu, T) {
+    const ok = (e) => e && !e.dead && dist(e.x, e.z, tu.x, tu.z) - e.r <= T.range && losClear(tu.x, tu.z, e.x, e.z);
+    if (state.focusT > 0 && ok(state.focus)) return state.focus;
+    if (ok(tu.tgt) && tu.tgt.awake) return tu.tgt; // 已经在打的这个还能打：接着打，不在两个差不多近的敌人之间来回跳
+    let best = null, bd = 1e9;
+    for (const e of state.enemies) {
+      if (e.dead || !e.awake) continue;
+      const d = dist(e.x, e.z, tu.x, tu.z) - e.r;
+      if (d <= T.range && d < bd && losClear(tu.x, tu.z, e.x, e.z)) {
+        bd = d;
+        best = e;
       }
-    };
+    }
+    return best;
+  }
+  // faint：小而淡的数字（同一个敌人每隔一会儿才冒一个）；noFlash / dot：不闪白、不后仰、不甩命中火花（只是画面：一秒十跳加上机炮的子弹，
+  // 怪会一直是白的、一直在抖，命中火花还多占两次 draw call）——射线打到哪儿由射线尽头的光和火星交代
+  const TURRET_INFO = { w: 0, quiet: true, faint: true, noFlash: true, dot: true, turret: true };
+  function tickTurrets(dt) {
+    if (P.dead) {
+      clearTurrets();
+      return;
+    }
+    for (let i = turrets.length - 1; i >= 0; i--) {
+      const tu = turrets[i], ctx = tu.ctx, sk = ctx.sk, T = sk.turret;
+      tu.t -= dt;
+      if (tu.t <= 0) {
+        turretOff(tu);
+        continue;
+      }
+      // 每 0.1 秒重新挑一次目标（挑的时候要对每个敌人看视线，不每帧做）；目标死了当帧就换
+      tu.rt -= dt;
+      if (tu.rt <= 0 || !tu.tgt || tu.tgt.dead) {
+        tu.rt = 0.1;
+        tu.tgt = turretTarget(tu, T);
+      }
+      // 炮管转向目标：每秒最多 turn 弧度
+      if (tu.tgt) {
+        const want = Math.atan2(tu.tgt.x - tu.x, tu.tgt.z - tu.z);
+        let d = want - tu.ang;
+        d = Math.atan2(Math.sin(d), Math.cos(d));
+        const mx = T.turn * dt;
+        tu.ang += Math.abs(d) <= mx ? d : Math.sign(d) * mx;
+      }
+      const on = !!tu.tgt;
+      tu.len = on ? Math.max(0.6, rayLen(tu.x, tu.z, tu.ang, T.len, -0.3)) : 0;
+      if (tu.fx) {
+        tu.fx.ang = tu.ang;
+        tu.fx.len = tu.len;
+        tu.fx.on = on;
+        tu.fx.t = tu.t;
+      }
+      tu.tt -= dt;
+      if (tu.tt > 0) continue;
+      tu.tt += T.tick;
+      if (!on) continue;
+      // 一跳：沿炮管当前的朝向（不是目标的方向：转得慢的时候扫得到路上的敌人，也会打偏）结算整条线
+      const hits = enemiesInLine(tu.x, tu.z, tu.ang, tu.len, T.width / 2);
+      const info = TURRET_INFO;
+      info.ang = tu.ang;
+      info.kb = sk.kb;
+      info.poise = sk.poise;
+      for (const e of hits) G.hitEnemy(e, ctx, tu.k, info);
+      if (hits.length) {
+        state.stats.turretHits = (state.stats.turretHits || 0) + hits.length;
+        tu.sfxT = (tu.sfxT || 0) - T.tick;
+        if (tu.sfxT <= 0) {
+          tu.sfxT = 0.6;
+          G.sfx('impact', { type: lastHit.type, w: 0, crit: false });
+        }
+      }
+      state.stats.turretTicks = (state.stats.turretTicks || 0) + 1;
+    }
+  }
+  WS_FX.rgatling = function (ctx, c) {
+    const sk = ctx.sk, T = sk.turret;
+    clearTurrets(); // 还在的旧炮台收起，换成这一对
+    // 每一跳 = 两座炮台活满全程合起来打一个敌人时，整招（ctx 一击）的 1 / (n × dur / tick)
+    const ticks = T.n * Math.round(T.dur / T.tick);
+    for (let i = 0; i < T.n; i++) {
+      const sd = i % 2 ? -1 : 1;
+      const p = turretSpot(T, sd);
+      const tu = { x: p.x, z: p.z, ang: c.aim, t: T.dur, tt: T.tick * (0.5 + 0.25 * i), ctx, k: 1 / ticks, tgt: null, rt: 0, len: 0, fx: null };
+      tu.fx = G.world.turret ? G.world.turret(tu.x, tu.z, tu.ang, T.dur, { y: T.y, side: sd }) : null; // 只是画面句柄：模拟不读它
+      turrets.push(tu);
+    }
+    G.sfx('cast', { id: ctx.id });
+    G.world.shake(0.12);
+    state.stats.turretCasts = (state.stats.turretCasts || 0) + 1;
   };
+  G.turretList = () => turrets;
 
   // 焚天炎爆：以你为中心半径 radius 的火浪（墙后的不挨），之后留下半径 burn.r 的火场
   WS_FX.rflamer = function (ctx) {
