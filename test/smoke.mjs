@@ -1065,12 +1065,12 @@ const FUNC_BLOCKS = [
     },
   },
 ];
-// 固定分法：按 2026-11-26 整套跑（池里 4 个令牌全满）各块的步骤耗时之和配平（分钟）：
-// main 22.3 · title 7.7 · touch 12.3 · ui-t1 8.0 · ui-t2 22.4 · ui-desk 9.0 · tail 4.6（合计 86.3）
+// 固定分法：按各块实测的步骤耗时配平（分钟，2026-11-27 分片跑 4 次的中位数，池里有别人的任务）：
+// main 23.4 · title 7.5 · touch 12.0 · ui-t1 5.6 · ui-t2 19.0 · ui-desk 8.4 · tail 5.0（合计 81）。main 一块是下限
 const SHARDS = {
-  2: [['main', 'title', 'touch'], ['ui-t1', 'ui-t2', 'ui-desk', 'tail']], // 42.3 / 44.0
-  3: [['main', 'title'], ['touch', 'ui-t1', 'ui-desk'], ['ui-t2', 'tail']], // 30.0 / 29.3 / 27.0
-  4: [['main'], ['title', 'touch'], ['ui-t2'], ['ui-t1', 'ui-desk', 'tail']], // 22.3 / 20.0 / 22.4 / 21.6
+  2: [['main', 'touch', 'tail'], ['title', 'ui-t1', 'ui-t2', 'ui-desk']], // 40.4 / 40.6
+  3: [['main', 'tail'], ['title', 'touch', 'ui-t1'], ['ui-t2', 'ui-desk']], // 28.4 / 25.1 / 27.4
+  4: [['main'], ['title', 'touch'], ['ui-t2'], ['ui-t1', 'ui-desk', 'tail']], // 23.4 / 19.5 / 19.0 / 19.0
 };
 const SHARD = (() => {
   const i = process.argv.indexOf('--shard');

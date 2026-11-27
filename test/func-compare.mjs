@@ -1,7 +1,7 @@
 // 比两份 test:func 日志（整套跑 vs 分片合并的，或两次分片）：步骤集合、每步通过 / 失败、每步结果里打印的数字（test/README.md「分片」）。
 //   node test/func-compare.mjs <A.log> <B.log>
 // 打印：两边的步骤数、只在一边的步骤（同名的步骤按第几次出现区分）、判定不同的步骤、结果文字不同的步骤（ms 耗时先换成 N 再比），
-// 以及带指纹 / 哈希 / 随机数 / draw 的步骤两边的值。步骤集合或判定不同时退出码 1；只有结果文字不同时退出码 0，逐条列出来人工看。
+// 以及带指纹 / 哈希 / 随机数 / draw 的步骤两边的值、fp 行。步骤集合、判定或 fp 的 save / seed 不同时退出码 1；只有结果文字不同时退出码 0，逐条列出来人工看。
 import { readFileSync } from 'node:fs';
 
 const [fa, fb] = process.argv.slice(2);
@@ -53,11 +53,21 @@ for (const k of det) {
   console.log((norm(a) === norm(b) ? '  =  ' : '  ≠  ') + short(k, 50) + (hex(a) || hex(b) ? '  [' + hex(a) + (hex(a) === hex(b) ? '' : ' | ' + hex(b)) + ']' : ''));
   if (norm(a) !== norm(b)) console.log('      A：' + a + '\n      B：' + b);
 }
-// CINDER_FP=1 跑的：界面布局每个面板开头的状态指纹（fp 行）两边比一比
-const fps = (f) => new Map(readFileSync(f, 'utf8').split('\n').filter((l) => l.startsWith('fp ')).map((l) => [l.split(' ')[1], l.split(' ').slice(2).join(' ')]));
+// CINDER_FP=1 跑的：界面布局每个面板开头的状态指纹（fp 行）。save（内存里的存档）和 seed 要一样；ls 按真实时间自动存档，只作参考
+const fps = (f) => new Map(readFileSync(f, 'utf8').split('\n').filter((l) => l.startsWith('fp ')).map((l) => {
+  const w = l.split(' ');
+  const get = (k) => w[w.indexOf(k) + 1];
+  return [w[1], { core: 'save ' + get('save') + ' seed ' + get('seed'), ls: get('ls') }];
+}));
 const fa2 = fps(fa), fb2 = fps(fb);
+let fpBad = 0;
 if (fa2.size || fb2.size) {
-  console.log('\n界面布局开头的状态指纹（CINDER_FP）：');
-  for (const k of new Set([...fa2.keys(), ...fb2.keys()])) console.log((fa2.get(k) === fb2.get(k) ? '  =  ' : '  ≠  ') + k + '  A ' + (fa2.get(k) || '-') + (fa2.get(k) === fb2.get(k) ? '' : '  B ' + (fb2.get(k) || '-')));
+  console.log('\n界面布局开头的状态指纹（CINDER_FP；save 和 seed 要一样，ls 只作参考）：');
+  for (const k of new Set([...fa2.keys(), ...fb2.keys()])) {
+    const a = fa2.get(k), b = fb2.get(k), same = !!a && !!b && a.core === b.core;
+    if (!same) fpBad++;
+    console.log((same ? '  =  ' : '  ≠  ') + k + '  ' + (a ? a.core : '-') + (same ? '' : '  |  ' + (b ? b.core : '-')) + (a && b && a.ls !== b.ls ? '  (ls 不同)' : ''));
+  }
+  console.log('fp：' + (fa2.size === fb2.size && !fpBad ? '全部相同' : fpBad + ' 处不同'));
 }
-process.exit(onlyA.length || onlyB.length || verdict.length ? 1 : 0);
+process.exit(onlyA.length || onlyB.length || verdict.length || fpBad ? 1 : 0);
