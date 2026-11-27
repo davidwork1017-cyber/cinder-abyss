@@ -15,6 +15,19 @@ import { readGlb, stats, isIdentity, bakedMean, bakeGeo, packAi, packFc, packBos
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const rd = (p) => JSON.parse(fs.readFileSync(path.join(root, p), 'utf8'));
 
+// JPEG 的宽高（SOF 段）；不是 JPEG 返回 null
+function jpegSize(b) {
+  if (b[0] !== 0xff || b[1] !== 0xd8) return null;
+  let i = 2;
+  while (i + 9 < b.length) {
+    if (b[i] !== 0xff) return null;
+    const m = b[i + 1], len = (b[i + 2] << 8) | b[i + 3];
+    if (m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc) return { h: (b[i + 5] << 8) | b[i + 6], w: (b[i + 7] << 8) | b[i + 8] };
+    i += 2 + len;
+  }
+  return null;
+}
+
 // AI 生成的件（gen='ai'，ai3d-pilot）：来源记录 assets/ai/<slug>/provenance.json 齐全（提示词、种子、组件和许可证、源文件 sha256、处理参数）、
 // 和清单记的源文件 sha256 一致；仓库里不放概念图、不写机器路径 / 用户名；albedo 外观的贴图登记在 tools/asset-sources.json（ai 类）、文件在、边长不超预算
 const PRIVATE = [/[A-Za-z]:\\/, /\/home\//, /\/Users\//, /\\Users\\/, /@[a-z0-9-]+\.[a-z]{2,}/i];
@@ -71,8 +84,11 @@ export function checkArt() {
   // 打包进游戏的件：kit-<区> 包里的 key（直接读生成的包文件，确认上线的就是清单里这一份）
   const packed = {};
   // 首领包：js/assets/boss-<kind>.js 里的 boss.<kind>
+  // 减面版（tools/asset-sources.json 里首领包的 lo，ai3d-golem 起）和主模型在同一个包里
+  const srcPacks = rd('tools/asset-sources.json').packs || {};
   const bossPackOf = (kind) => {
-    const f = path.join(root, 'js/assets/boss-' + kind + '.js');
+    const pn = Object.keys(srcPacks).find((n) => srcPacks[n].boss === kind || srcPacks[n].lo === kind) || 'boss-' + kind;
+    const f = path.join(root, 'js/assets/' + pn + '.js');
     if (!fs.existsSync(f)) return null;
     const src = fs.readFileSync(f, 'utf8');
     return (JSON.parse(src.slice(src.indexOf('= {') + 2, src.lastIndexOf(';'))).boss || {})[kind] || null;
@@ -120,7 +136,8 @@ export function checkArt() {
     const r = Math.max(-s.min[0], s.max[0], -s.min[2], s.max[2]);
     let lum = NaN;
     try {
-      lum = bakedMean(g).lum;
+      // 自己带反照率贴图的首领：烘焙亮度按调色板算不出来（贴图不解码），表里写「—」
+      if (!(cat.albedo && (g.json.materials || []).some((m) => m.name === cat.albedo.material))) lum = bakedMean(g).lum;
     } catch (e) {
       bad(id, '算不出烘焙后的平均颜色：' + e.message);
     }
@@ -131,17 +148,26 @@ export function checkArt() {
     if (s.materials > cat.materials) bad(id, '材质 ' + s.materials + ' 个，上限 ' + cat.materials);
     if (s.textures > cat.textures || s.images > cat.textures) bad(id, '贴图 ' + Math.max(s.textures, s.images) + ' 张，上限 ' + cat.textures);
     // 只用共享调色板：材质名固定、图集和 assets/ca/palette.png 同一份字节
-    // AI 件的 albedo 外观：材质 ai_albedo、GLB 里不带图（反照率贴图在 tools/asset-sources.json 的 textures 里，见下面的 checkAi）
+    // 例外：AI 布景件的 albedo 外观（ai3d-pilot）材质 ai_albedo、GLB 里不带图（见下面的 checkAi）；
+    // 类别里写了 albedo 的首领（ai3d-golem）可以带一张自己的反照率贴图（JPEG、边长不超过 albedo.maxPx、材质名 albedo.material）
     const aiAlbedo = a.source && a.source.gen === 'ai' && a.mode === 'albedo';
     // AI 武器的 fc 外观（ai3d-weapons，art/ai/weapon.py）：材质 ai_fc、GLB 里不带图，颜色全在 COLOR_0（UV 全 0，不采样调色板）
     const aiFc = a.source && a.source.gen === 'ai' && a.mode === 'fc';
-    const wantMat = aiAlbedo ? 'ai_albedo' : aiFc ? 'ai_fc' : budgets.material;
-    for (const m of g.json.materials || []) if (m.name !== wantMat) bad(id, '材质名 ' + m.name + '，应为' + (aiAlbedo ? ' ai_albedo（AI 件的反照率外观）' : aiFc ? ' ai_fc（AI 武器的逐面颜色）' : '共享的 ' + budgets.material));
-    if ((aiAlbedo || aiFc) && (g.json.images || []).length) bad(id, 'AI 件的 ' + a.mode + ' 外观 GLB 里不该带图');
+    const alb = cat.albedo, ownTex = !!(alb && (g.json.materials || []).some((m) => m.name === alb.material));
+    const wantMat = aiAlbedo ? 'ai_albedo' : aiFc ? 'ai_fc' : ownTex ? alb.material : budgets.material;
+    for (const m of g.json.materials || []) if (m.name !== wantMat) bad(id, '材质名 ' + m.name + '，应为' + (aiAlbedo ? ' ai_albedo（AI 件的反照率外观）' : aiFc ? ' ai_fc（AI 武器的逐面颜色）' : '共享的 ' + budgets.material + (alb ? ' 或 ' + alb.material : '')));
+    if ((aiAlbedo || aiFc) && (g.json.images || []).length) bad(id, 'AI 件的 ' + a.mode + ' 外观 GLB 里不该带图（贴图走 tools/asset-sources.json 的 textures）');
     if (a.source && a.source.gen === 'ai') checkAi(a, bad);
     for (const im of g.json.images || []) {
       const bv = g.json.bufferViews[im.bufferView];
-      const ih = bv ? crypto.createHash('sha256').update(g.bin.subarray(bv.byteOffset || 0, (bv.byteOffset || 0) + bv.byteLength)).digest('hex') : null;
+      const bytes = bv ? g.bin.subarray(bv.byteOffset || 0, (bv.byteOffset || 0) + bv.byteLength) : null;
+      if (ownTex) {
+        const sz = bytes ? jpegSize(bytes) : null;
+        if (!sz) bad(id, '反照率贴图应是 JPEG（' + (im.name || '?') + '）');
+        else if (Math.max(sz.w, sz.h) > alb.maxPx) bad(id, '反照率贴图 ' + sz.w + '×' + sz.h + '，边长上限 ' + alb.maxPx);
+        continue;
+      }
+      const ih = bytes ? crypto.createHash('sha256').update(bytes).digest('hex') : null;
       if (ih !== palSha) bad(id, '贴图不是共享调色板图集（' + (im.name || im.uri || '?') + '）');
     }
     // 单位 / 尺度：高度在类别的合理范围里（按厘米导出会大 100 倍）
@@ -240,7 +266,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   for (const z of tx.zones) console.log('贴图显存 ' + z.zone.padEnd(6), '高 ' + z.mb.high.toFixed(1), '中 ' + z.mb.mid.toFixed(1), '低 ' + z.mb.low.toFixed(1) + ' MB' + (z.legacy ? '（legacy 封顶）' : ''));
   fails.push(...tx.fails);
   for (const r of rows)
-    console.log(r.id.padEnd(22), (r.cat + (r.ship ? '' : '*')).padEnd(9), String(r.tris).padStart(5) + ' / ' + String(r.budget).padEnd(6), 'h ' + r.h.toFixed(2).padStart(5), 'r ' + r.r.toFixed(2).padStart(5), 'mat ' + r.mats, 'tex ' + r.tex, '亮度 ' + r.lum.toFixed(3));
+    console.log(r.id.padEnd(22), (r.cat + (r.ship ? '' : '*')).padEnd(9), String(r.tris).padStart(5) + ' / ' + String(r.budget).padEnd(6), 'h ' + r.h.toFixed(2).padStart(5), 'r ' + r.r.toFixed(2).padStart(5), 'mat ' + r.mats, 'tex ' + r.tex, '亮度 ' + (Number.isNaN(r.lum) ? '—（贴图）' : r.lum.toFixed(3)));
   console.log('（* = 备选件，没打进游戏；亮度 = 烘焙后的面积加权平均线性亮度，口径见 docs/art-style.md 的调色板一节）');
   if (fails.length) {
     for (const f of fails) console.error('check-art FAIL ' + f);

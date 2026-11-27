@@ -136,8 +136,15 @@ CATALOG = [
          bake=dict(ao=0.3, grad=0.2, wear=0.45, grime=0.25), finish=dict(dust=0.0), cues=dict(second=False, val=0.14, lichen=0)),
     # ---- 首领（boss-design）：带骨架、蒙皮和动作，assets/ca/boss/<kind>.glb；id = ca/boss_<kind>，zone 写 boss，home = 打进哪一区的首领包（js/assets/boss-<kind>.js）。
     # 生成器在 art/ca/boss/<kind>.py（造型 + 骨架 + 软接缝），动作表在 art/ca/boss/<kind>_clips.py ----
-    dict(id='ca/boss_golem', gen='golem', seed=181, cat='boss', zone='boss', home='ash', ship=True, replaces=None,
-         bake=dict(ao=0.7, grad=0.9, wear=0.4, grime=0.3, gain=1.15), finish=dict(dust=0.12), cues=dict(second=True, val=0.3, lichen=0.1)),
+    # 熔渣巨像（ai3d-golem，用户 2026-11-26 批准）：外观换成 AI 生成的 golem-a-01（文生图 → 图生 3D，源文件不进仓库），art/ai/golem_rig.py 对到同一副骨架、
+    # 混合蒙皮（UniRig 的权重 + 按区域纠正）、反照率贴图 512；golem_lo = 低画质的减面版（同一个包，三角形不超过原来的 4096）。来源记录 assets/ca/boss/golem.provenance.json。
+    # 原来的脚本巨像（gen='golem'，art/ca/boss/golem.py，骨架和动作表仍从那里来）不再打包；要重新生成就把下面这行放回清单、两条 golem_ai 拿掉：
+    # dict(id='ca/boss_golem', gen='golem', seed=181, cat='boss', zone='boss', home='ash', ship=True, replaces=None,
+    #      bake=dict(ao=0.7, grad=0.9, wear=0.4, grime=0.3, gain=1.15), finish=dict(dust=0.12), cues=dict(second=True, val=0.3, lichen=0.1)),
+    dict(id='ca/boss_golem', gen='golem_ai', seed=501, cat='boss', zone='boss', home='ash', ship=True, replaces=None,
+         args=dict(spec='art/ai/golem/a01.json', texpx=512)),
+    dict(id='ca/boss_golem_lo', gen='golem_ai', seed=501, cat='boss', zone='boss', home='ash', ship=True, replaces=None,
+         args=dict(spec='art/ai/golem/a01.json', texpx=512, tris=4096)),
     dict(id='ca/boss_lord', gen='lord', seed=191, cat='boss', zone='boss', home='abyss', ship=True, replaces=None,
          bake=dict(ao=0.6, grad=0.7, wear=0.5, grime=0.2, gain=1.1), finish=dict(dust=0.0), cues=dict(second=False, val=0.22, lichen=0)),
     dict(id='ca/boss_behemoth', gen='behemoth', seed=207, cat='boss', zone='boss', home='rift', ship=True, replaces=None,

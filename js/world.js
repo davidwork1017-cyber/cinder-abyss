@@ -12093,6 +12093,7 @@
     g.setAttribute('aSkin', new T.Float32BufferAttribute(o.J, 4));
     g.setAttribute('aSkinW', new T.Float32BufferAttribute(o.W, 4));
     g.setAttribute('aSurf', new T.Float32BufferAttribute(o.S, 2));
+    if (o.U && o.U.length) g.setAttribute('uv', new T.Float32BufferAttribute(o.U, 2)); // ai3d-golem：带贴图的首领包才有
     g.boundingSphere = new T.Sphere(new T.Vector3(0, rig.height * 0.5, 0), rig.height * 0.5 + (rig.reach || 1.5));
     return g;
   }
@@ -12547,6 +12548,7 @@
     const bm = new T.MeshStandardMaterial({ color: lin(tintHex), vertexColors: true, roughness: 1, metalness: 0, envMap: rigEnvMap(), envMapIntensity: 0.9 });
     bm.defines.NB = rig.NB;
     if (rig.skin4) bm.defines.SKIN4 = 1;
+    if (rig.map) bossMapOn(bm, rig.map); // ai3d-golem：带贴图的首领包
     bm.flatShading = RIG_FLAT;
     bm.onBeforeCompile = function (sh) { injectLit(sh, ent); };
     bm.userData.e0 = rig.emis ? lin(rig.emis[0]) : new T.Color(0);
@@ -19928,6 +19930,8 @@
       // T35（全首领明暗）：缺省的暖色染色 + 暖色自发光在灰烬荒原的暖主光下把玄武岩烧成砂岩色（饱和度 0.54，六只首领里最高）、读着发亮。
       // 染色往冷灰里收、自发光换成很淡的中性暖灰：整身压暗一档（灰度均值 42 → ~39），还是暖的暗玄武岩，余烬缝不动
       emis: [0x443e3a, 0.14], tint: 0xd8dce4,
+      // ai3d-golem：外观换成 AI 生成的巨像（art/ai/golem_rig.py，带反照率贴图）；低画质用同一个包里的减面版 golem_lo（不超过原来的 4096 个三角形）
+      lo: 'golem_lo',
     },
     // boss-lord：烬渊之主。剑尖的挂点 = 静止姿态的剑尖（相对 x_sword 枢轴）；冠环（x_crown）在 post 里按时钟转（螺旋时转得快），和原来的程序化外观一样不进动作表
     lord: {
@@ -20017,9 +20021,15 @@
     for (let i = 0; i < 256; i++) { const c = i / 255; t[i] = c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); }
     return t;
   })();
+  // 低画质有减面版（BOSS_SPEC.lo，同一个包里）就用减面版；骨架、动作、挂点一样，只是网格和贴图小
+  const bossLod = (kind) => {
+    const sp = BOSS_SPEC[kind];
+    return sp && sp.lo && qualId === 'low' ? sp.lo : kind;
+  };
   const bossData = (kind) => {
     const sp = BOSS_SPEC[kind], st = sp && window.CA_ASSETS && window.CA_ASSETS[sp.pack];
-    return (st && st.boss && st.boss[kind]) || null;
+    const b = st && st.boss;
+    return (b && (b[bossLod(kind)] || b[kind])) || null;
   };
   let bossPackOff = false; // 测试用（W.debugBossPack）：当作包还没到
   const b64u8 = (s) => {
@@ -20027,6 +20037,26 @@
     for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
     return u;
   };
+  // ai3d-golem：首领包里的反照率贴图（JPEG data URL）→ 贴图（sRGB、不翻转：UV 是 glTF 的 v 朝下），每份数据只建一次
+  function bossMap(d) {
+    if (d._map) return d._map;
+    // 包加载时已经解码好的图（js/assets.js 的 decodePack）直接用；万一还没好，等它加载完再上传
+    // 反照率是 sRGB，但和地面 / 贴花一样不标 SRGBColorSpace（标了 r186 用硬件 sRGB 格式、在线性空间里过滤和生成 mipmap，细碎的暗裂缝会变浅）：
+    // 按原始数据过滤，采样后在着色器里解码（躯体材质设 DECODE_VIDEO_TEXTURE，见 bossMapOn）
+    const im = d._img || new Image(), tx = new T.Texture(im);
+    tx.flipY = false;
+    if (im.complete && im.naturalWidth) tx.needsUpdate = true;
+    else im.addEventListener('load', () => { tx.needsUpdate = true; });
+    if (!d._img) im.src = d.tex;
+    d._map = tx;
+    return tx;
+  }
+  // 躯体材质挂上首领的反照率贴图（建实体时 / 原地换模型时），采样后的 sRGB 解码用 DECODE_VIDEO_TEXTURE
+  function bossMapOn(m, map) {
+    m.map = map;
+    m.defines.DECODE_VIDEO_TEXTURE = '';
+    m.needsUpdate = true;
+  }
   function rigFromGlb(kind) {
     const d = bossData(kind), sp = BOSS_SPEC[kind];
     if (!d) return null;
@@ -20039,6 +20069,10 @@
     // 骨骼序号 → 关节序号（rigBuilder 按加入的顺序编号，和包里的骨骼顺序一样）
     const jOf = d.bones.map((bn) => rig.JI[bn[0]]);
     const body = cBuf(), glow = cBuf(), n = new T.Vector3(), e1 = new T.Vector3(), e2 = new T.Vector3();
+    // ai3d-golem：包里带反照率贴图（d.tex）和每角的 UV（d.uv，Uint16 / 65535）时躯体按贴图上色（颜色 = 贴图 × 角上的颜色，tools/glb.mjs 的 packBoss）；
+    // 调色板首领的包没有这两项，这一段不走
+    const UV = d.uv ? new Uint16Array(b64u8(d.uv).buffer) : null;
+    if (UV) body.U = [];
     for (let t = 0; t < d.nc; t += 3) {
       const a = CI[t], bb = CI[t + 1], c = CI[t + 2];
       e1.set(P[bb * 3] - P[a * 3], P[bb * 3 + 1] - P[a * 3 + 1], P[bb * 3 + 2] - P[a * 3 + 2]);
@@ -20060,6 +20094,7 @@
         } else {
           o.C.push(bossS2L[C8[k]], bossS2L[C8[k + 1]], bossS2L[C8[k + 2]]);
           o.S.push(sf[0], sf[1]);
+          if (UV) o.U.push(UV[(t + q) * 2] / 65535, UV[(t + q) * 2 + 1] / 65535);
         }
         for (let w = 0; w < 4; w++) {
           o.J.push(W8[v * 4 + w] ? jOf[J8[v * 4 + w]] : 0);
@@ -20070,9 +20105,11 @@
     rig.geoBody = cGeo(body, rig);
     rig.geoGlow = cGeo(glow, rig);
     rig.geoAux = null;
+    if (UV) rig.map = bossMap(d);
     rig.tris = (body.P.length + glow.P.length) / 9;
     rig.skin4 = true;
     rig.bossModel = kind;
+    rig.bossLod = bossLod(kind) in ((window.CA_ASSETS[sp.pack] || {}).boss || {}) ? bossLod(kind) : kind; // 用的是哪一份网格（golem / golem_lo），测试对清单用
     rig.hitJ = sp.hitJ.map((nm) => rig.J[nm]);
     // 没有脚的首领（熄烛者：袍子拖地滑行）不写 feet：不贴地，起伏、下沉都在动作里（和原来的程序化外观一样）
     rig.feet = sp.feet ? sp.feet.map((nm) => rig.JI[nm]) : null;
@@ -20201,7 +20238,8 @@
   const bossRigs = Object.create(null);
   function bossGlbRig(kind) {
     if (bossPackOff || window.CA_PROCEDURAL_CHARS || !BOSS_SPEC[kind]) return null;
-    if (kind in bossRigs) return bossRigs[kind];
+    const key = bossLod(kind); // 高 / 中 和低画质各建一份（减面版）
+    if (key in bossRigs) return bossRigs[key];
     if (!bossData(kind)) return null;
     let r = null;
     const t0 = performance.now();
@@ -20212,7 +20250,7 @@
       r = null;
     }
     if (r) r.buildMs = performance.now() - t0;
-    return (bossRigs[kind] = r);
+    return (bossRigs[key] = r);
   }
   // 还在用程序化外观、等着换新模型的首领
   const bossEnts = [];
@@ -20304,6 +20342,7 @@
     ent.coreK = 1;
     ent.meshBody.geometry = r.geoBody;
     if (ent.meshGlow) ent.meshGlow.geometry = r.geoGlow;
+    if (r.map) bossMapOn(ent.bodyMat, r.map); // ai3d-golem：带贴图的首领包
     for (const m of [ent.bodyMat, ent.glowMat, ent.depthMat]) {
       m.defines.SKIN4 = 1;
       m.needsUpdate = true;

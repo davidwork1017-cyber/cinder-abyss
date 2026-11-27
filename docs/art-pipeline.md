@@ -146,7 +146,7 @@ npm run build:art && git status --short assets/ca js/assets   # 没有输出 = �
 
 ## AI 生成的布景件（ai3d-pilot）
 
-只用于静态布景和摆件，首领、角色和带动作的东西照旧走上面的生成脚本。现在只有试点的一件（`ca/frost_waystone`）。许可证和来源的规矩见 `assets/README.md` 的「AI 生成」。
+这一节是静态布景和摆件；首领的 AI 外观（熔渣巨像）走另一条路，见下一节「AI 生成的首领外观」，角色和别的带动作的东西照旧走上面的生成脚本。现在只有试点的一件（`ca/frost_waystone`）。许可证和来源的规矩见 `assets/README.md` 的「AI 生成」。
 
 源模型由用户生成：文生图（Z-Image Turbo），再图生 3D（TRELLIS.2 或 Pixal3D），得到一个带 PBR 贴图的 GLB。用户把它上传到编排者的收件箱，不进仓库。导入走同一条流水线，没有另起一套：
 
@@ -177,6 +177,22 @@ npm run build:art && git status --short assets/ca js/assets   # 没有输出 = �
 
 开发和测试导入器不用真模型：拿 `assets/` 里的 CC0 GLB 细分到二三十万面、倾斜一下就能当输入，这份测试输入不提交。
 
+## AI 生成的首领外观（ai3d-golem 起）
+
+熔渣巨像（`ca/boss_golem`）从 2026-11-26 起用 AI 生成的模型（用户批准），清单里的 `gen` 是 `golem_ai`；原来的脚本巨像 `art/ca/boss/golem.py` 不再打包，骨架 `BONES` 和动作表 `golem_clips.py` 还是从那里来。来源、许可证见 `assets/README.md` 的「AI 生成」和 `assets/ca/boss/golem.provenance.json`。
+
+| 路径 | 内容 |
+| --- | --- |
+| `art/ai/golem_fit.py` | 对骨架（纯 numpy）：源网格等比缩放到米，按切片量出肩 / 肘 / 腕、胯 / 膝 / 踝，躯干、头、烟囱、炉栅的枢轴按候选参数写死；导出用的骨架就是这组枢轴（28 根名字和动作表不变） |
+| `art/ai/golem_rig.py` | 无头 Blender：减面 → 混合蒙皮（UniRig 的权重转到减面后的网格上，头 / 烟囱 / 肩甲这些整块的地方按几何区域改成刚性，每个顶点最多 4 根）→ 不相邻的两块之间拆开补口 → 在源网格上取色（概念图正面投影补裂缝和炉栅）→ 展 UV、烘反照率贴图 → 和脚本首领同一套 `rig.py` 导出 |
+| `art/ai/golem/a01.json` | 候选 golem-a-01 的参数：枢轴、切面、提亮、炉芯，源 GLB / 概念图 / 权重 GLB 的 sha256 |
+| `assets/ca/boss/golem.glb`、`golem_lo.glb` | 生成物：高 / 中用的 7845 个三角形，低画质的减面版 3837 个（不超过原来的 4096），都带一张 512 的反照率贴图 |
+
+- **源文件不进仓库**：源 GLB、概念图、权重 GLB 在私有的 `cinder-ai-src`（环境变量 `CA_AI_ROOT`，缺省 `~/dev/cinder-ai-src`）。没有这些文件的机器上 `npm run build:art` 保留已提交的两个 GLB（打印 `CA_AI_KEEP`），全量构建照样逐字节一致；文件的 sha256 和参数里记的对不上就报错。
+- **贴图**：首领类别在 `art/budgets.json` 里允许一张自己的反照率贴图（`albedo`：JPEG，边长不超过 512，材质名 `ai_golem_albedo`）；`packBoss` 打包时每个角记 UV、贴图原样放进包里（data URL），游戏端（`rigFromGlb` / `bossMap`）按贴图上色。显存按共用贴图算（512 是 1.33 MB）。
+- **减面版**：`tools/asset-sources.json` 里 `boss-golem` 包的 `lo`：两份网格打进同一个包，游戏端低画质用 `golem_lo`（`BOSS_SPEC.golem.lo`），骨架、动作、挂点一样。
+- **单独构建 / 看图**：`npm run build:art -- --only ca/boss_golem,ca/boss_golem_lo`；直接跑 `blender -b --factory-startup --python-exit-code 1 --python art/ai/golem_rig.py -- --spec art/ai/golem/a01.json --out <目录> --modes vc,tex` 出两种外观和 `build.json`（各步的数）。上面的 `--turn` 转台图只认脚本首领。
+
 ## AI 生成的武器（ai3d-weapons）
 
 试点四种：剑、长杖、战锤、机炮。源模型和布景件一样来自用户的文生图 → 图生 3D（TRELLIS.2，约 2 万面、1024 的 PBR 贴图），来源记录在 `assets/ai/wpn_<种>/provenance.json`，许可证的规矩同上。现在只在试验开关 `&aiwpn=1` 下出现。
@@ -194,4 +210,3 @@ npm run build:art && git status --short assets/ca js/assets   # 没有输出 = �
 - 手里的武器坐标 (x, y, z) 换算成武器关节的 (z, x, y)，和脚本件的握法一样（握把沿 +z、刃宽 / 枪背沿 +y），挂在原来的关节上，脚本件就不建了；
 - 掉落模型按脚本件掉落模型的握把高度和大小摆；
 - 包要在建主角骨架之前就到，所以 `index.html` 看到开关时同步引入；没到就照旧用脚本件。
-

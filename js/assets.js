@@ -254,6 +254,15 @@
       }
     }
     data.geo = null;
+    // 带反照率贴图的首领（ai3d-golem）：贴图在包加载时就解码好（G.assets.need 返回时已经能用），首领建骨架时直接上传、第一帧就有贴图（开场故事的烘焙逐字节可复现）
+    for (const key in data.boss || {}) {
+      const e = data.boss[key];
+      if (!e.tex || e._img) continue;
+      const im = new Image();
+      im.src = e.tex;
+      e._img = im;
+      jobs.push(im.decode().catch(() => {}));
+    }
     await Promise.all(jobs);
     texOfPack[name] = ids; // 模型都解析完才登记：decodeTex 只在这之后才会看到这个包的贴图
     // 模型解析完就丢掉 base64 原文（几何体已经留了一份）；贴图的原文已经挪进 texEntry

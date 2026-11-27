@@ -22,6 +22,7 @@ import ca.boss.weaver  # noqa: E402,F401
 import ca.boss.snuffer  # noqa: E402,F401
 import ca.boss.warden  # noqa: E402,F401
 from catalog import CATALOG, LINEUP_SEEDS  # noqa: E402
+from ai import golem_rig  # noqa: E402  AI 生成的首领外观（gen='golem_ai'，见 art/ai/golem_rig.py）
 
 
 def argv():
@@ -117,7 +118,26 @@ def build(o):
         core.reset_scene()
         t0 = time.perf_counter()
         extra = {}
-        if item['cat'] == 'boss':
+        if item['cat'] == 'boss' and item['gen'] == 'golem_ai':
+            # AI 生成的首领外观（art/ai/golem_rig.py）：源 GLB / 自动蒙皮的权重 GLB 不在仓库里（CA_AI_ROOT）。没有源文件的机器上保留已经提交的 GLB
+            #（全量构建照样逐字节一致）；源文件的 sha256 和参数里记的对不上就报错
+            path = os.path.join(out, 'boss', item['id'].split('_', 1)[1] + '.glb')
+            a = item['args']
+            stt = golem_rig.source_state(a['spec'])
+            if stt == 'mismatch':
+                raise RuntimeError(item['id'] + '：源 GLB / 权重 GLB 的 sha256 和 ' + a['spec'] + ' 里记的不一样')
+            if stt == 'missing':
+                if not os.path.exists(path):
+                    raise RuntimeError(item['id'] + '：没有源文件（设 CA_AI_ROOT），仓库里也没有生成物 ' + path)
+                print('CA_AI_KEEP %s（没有源文件，保留已提交的生成物）' % item['id'], flush=True)
+                info = golem_rig.glb_info(path)
+                tris, dt, extra = info['tris'], 0.0, dict(bones=info['bones'], clips=info['clips'], unused_bones=[], home=item.get('home'))
+            else:
+                log = golem_rig.run(dict(spec=a['spec'], tris=a.get('tris'), texpx=a.get('texpx'), modes='tex', name=item['id'].replace('/', '_'),
+                                         path=path, out=os.path.join(bpy.app.tempdir or '/tmp', 'golem_ai_' + item['id'].split('_', 1)[1])))
+                ex = log['export'][os.path.basename(path)]
+                tris, dt, extra = log['tris'], 0.0, dict(bones=ex['bones'], clips=sorted(golem_rig.CLIPS), unused_bones=ex['unused'], home=item.get('home'))
+        elif item['cat'] == 'boss':
             # 首领：assets/ca/boss/<kind>.glb（id = ca/boss_<kind>），带骨架和动作
             ob, arm, tris, dt, info = make_boss(item)
             path = os.path.join(out, 'boss', item['gen'] + '.glb')

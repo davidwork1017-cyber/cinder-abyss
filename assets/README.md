@@ -1,4 +1,4 @@
-# 外部素材（CC0，另有 AI 生成的布景件和武器试点）
+# 外部素材（CC0，另有 AI 生成的件：一件布景、一只首领的外观、武器试点）
 
 | 目录 | 来源 | 许可证 |
 | --- | --- | --- |
@@ -34,26 +34,33 @@
 
 ## AI 生成
 
-2026-11-26 起试点：先放一件静态布景，通过审核再扩展。同一天用户要求武器也试一试：剑、长杖、战锤、机炮四种（手里拿的和掉在地上的），目前只在试验开关 `&aiwpn=1` 下出现。首领、角色和带动作的东西照旧用 `art/` 下的生成脚本。
+2026-11-26 起用 AI 生成模型（用户批准）：先是一件静态布景（试点），之后熔渣巨像的外观也换成 AI 生成的模型，骨架、动作和招式都没动，只换了网格和贴图。同一天用户要求武器也试一试：剑、长杖、战锤、机炮四种（手里拿的和掉在地上的），处理见下面。
 
 | 件 | 用在哪 | 来源记录 |
 | --- | --- | --- |
 | `ca/frost_waystone`（路标石：风化的石柱立在碎石和积雪的基座上） | 霜骨沼泽岸边，每区 3–6 块，低画质不显示 | `ai/frost_waystone/provenance.json` |
+| `ca/boss_golem`（熔渣巨像：玄武岩块拼成的巨像，胸口是拱形铁栅炉膛，肩上两根短烟囱）、`ca/boss_golem_lo`（低画质的减面版） | 第 0 区首领，`js/assets/boss-golem.js`；低画质用减面版 | `ca/boss/golem.provenance.json` |
 | `ca/aiwpn_blade`、`_lo`（单手直剑：叶形钢刃、中间一道光槽） | 试验开关 `&aiwpn=1`：手里（lo）和掉落（高 / 中 hi、低 lo） | `ai/wpn_blade/provenance.json` |
 | `ca/aiwpn_staff`、`_lo`（长杖：木杆、金环里嵌一块晶体） | 同上 | `ai/wpn_staff/provenance.json` |
 | `ca/aiwpn_hammer`、`_lo`（战锤：铁砧锤头、一条发光符带） | 同上 | `ai/wpn_hammer/provenance.json` |
 | `ca/aiwpn_gatling`、`_lo`、`ca/aiwpn_gatling_barrel`、`_lo`（机炮：黄铜机匣、六根枪管、侧面一道散热槽） | 同上 | `ai/wpn_gatling/provenance.json` |
 
-- **生成流程**：ComfyUI 0.43.0，只用内置节点。Z-Image Turbo 文生图，TRELLIS.2 图生 3D，另外用到 BiRefNet、DINOv3、MoGe-2。提示词、种子、每个组件的版本都在 `provenance.json` 里。
+- **生成流程**：ComfyUI 0.43.0，只用内置节点。Z-Image Turbo 文生图，TRELLIS.2 图生 3D，另外用到 BiRefNet、DINOv3、MoGe-2。巨像的蒙皮用 UniRig（只算权重，骨架是我们自己拟合的巨像骨架）。提示词、种子、每个组件的版本都在各自的来源记录里。
+- **处理**：
+  - 布景件：`art/ai/importer.py`（`gen='ai'`）摆正、去碎块、减面到 `art/budgets.json` 的 `aiprop`，反照率贴图在 `ai/<件>/albedo.jpg`。
+  - 巨像：`art/ai/golem_rig.py`（`gen='golem_ai'`）把源模型对到巨像骨架上，减面到首领预算以内（高 7845、低 3837 个三角形），四肢和关节用 UniRig 的权重，头、烟囱、肩甲这些整块的地方按几何区域改成刚性，反照率贴图 512 带在 GLB 里，按游戏镜头的灰度调亮。
+  - 武器：`art/ai/weapon.py`（`gen='ai'`、外观 `fc`）逐面取色、发光区拆成单独的一层壳（按稀有度着色），不带贴图，见 `docs/art-pipeline.md`「AI 生成的武器」。
+  - 这几条路都由 `npm run build:art` 调用；源文件不在的机器上保留已提交的生成物。
 - **许可证**：生成时用到的每个组件都读过许可证原文：
   - ComfyUI：GPL-3.0，只是工具，输出不受约束；
   - Z-Image Turbo、Qwen3-4B 文本编码器、VAE（和 FLUX.1-schnell 的 ae 逐字节相同）：Apache-2.0；
   - TRELLIS.2、BiRefNet、MoGe-2：MIT；
-  - DINOv3：DINOv3 License；它带的 NAF 上采样器：Apache-2.0。
+  - DINOv3：DINOv3 License；它带的 NAF 上采样器：Apache-2.0；
+  - UniRig：代码和权重都是 MIT（里面带的 michelangelo 是 GPL-3.0，只在本地当工具跑）；训练数据 Articulation-XL2.0 是 CC-BY-4.0，对我们的输出没有义务。
 
-  这些组件都不限制输出、不禁止商用，也不要求在输出上署名。nvdiffrast（只许研究或评估用途）不在这条流程里。换生成流程或者商业发行之前，要重新审一遍。
-- **凭据**：许可证审查表和每份许可证原文（第一行是来源和版本）在编排者的笔记 `notes/ai3d/` 里，不进仓库；每件的 `provenance.json` 记着结论。
-- **不进仓库的东西**：源 GLB（只记 sha256）和概念图。仓库里只有处理后的游戏用件（`ca/<区>/<件>.glb`）、反照率贴图（`ai/<件>/albedo.jpg`）和来源记录。
-- **审核**：和脚本件一样看灰度、风格和预算（`art/budgets.json` 的 `aiprop`，武器是 `aiweapon`），另外做一次相似度检查：不能像任何已有游戏的素材或 IP，提示词里也不提别的游戏或 IP。
+  这些组件都不限制输出、不禁止商用，也不要求在输出上署名。nvdiffrast（只许研究或评估用途）不在这条流程里；Puppeteer 的蒙皮用到 NVIDIA PartField（只许非商业研究用途），不用。换生成流程、换权重或者商业发行之前，要重新审一遍。
+- **凭据**：许可证审查表和每份许可证原文（第一行是来源和版本）在编排者的笔记 `notes/ai3d/` 里，不进仓库；每件的来源记录里记着结论。
+- **不进仓库的东西**：源 GLB、概念图、UniRig 的权重 GLB（都只记 sha256）。仓库里只有处理后的游戏用件、反照率贴图和来源记录。
+- **审核**：和脚本件 / 脚本首领一样看灰度、风格和预算（首领另看出手帧：挂点落在预警里；武器是 `art/budgets.json` 的 `aiweapon`），另外做一次相似度检查：不能像任何已有游戏的素材或 IP，提示词里也不提别的游戏或 IP。
 - **武器和 DINOv3 §1.b.v**：这一条不许把 DINOv3 用于「与枪支或非法武器的开发或使用有关」的用途。用户 2026-11-26 定了：拿来做游戏美术不算禁止的用途，枪也可以做。商业发行前要重新审。武器的来源记录里有这一条（`licence_audit.dinov3_1bv`）。
 
