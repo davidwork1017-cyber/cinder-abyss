@@ -192,3 +192,18 @@ npm run build:art && git status --short assets/ca js/assets   # 没有输出 = �
 - **贴图**：首领类别在 `art/budgets.json` 里允许一张自己的反照率贴图（`albedo`：JPEG，边长不超过 512，材质名 `ai_golem_albedo`）；`packBoss` 打包时每个角记 UV、贴图原样放进包里（data URL），游戏端（`rigFromGlb` / `bossMap`）按贴图上色。显存按共用贴图算（512 是 1.33 MB）。
 - **减面版**：`tools/asset-sources.json` 里 `boss-golem` 包的 `lo`：两份网格打进同一个包，游戏端低画质用 `golem_lo`（`BOSS_SPEC.golem.lo`），骨架、动作、挂点一样。
 - **单独构建 / 看图**：`npm run build:art -- --only ca/boss_golem,ca/boss_golem_lo`；直接跑 `blender -b --factory-startup --python-exit-code 1 --python art/ai/golem_rig.py -- --spec art/ai/golem/a01.json --out <目录> --modes vc,tex` 出两种外观和 `build.json`（各步的数）。上面的 `--turn` 转台图只认脚本首领。
+
+### 雷霆监察者、衔星巨兽（ai3d-bosses）
+
+雷霆监察者（`ca/boss_warden`）和衔星巨兽（`ca/boss_behemoth`）也换成 AI 生成的模型，清单里的 `gen` 是 `boss_ai`；原来的脚本外观 `art/ca/boss/warden.py`、`behemoth.py` 不再打包，动作表 `warden_clips.py`、`behemoth_clips.py` 还是从那里来，骨架（名字、父骨骼、顺序）取上线的首领包。来源记录 `assets/ca/boss/warden.provenance.json`、`behemoth.provenance.json`。
+
+| 路径 | 内容 |
+| --- | --- |
+| `art/ai/boss_fit.py` | 对骨架（纯 numpy）：可选绕竖轴转（监察者 −90°，让眼朝前），等比缩放到身高、脚底贴地；枢轴按候选参数写死（看源网格的切片量的），没写的取上线骨架的静止位置；能输出给 UniRig 的骨架文本 |
+| `art/ai/boss_parts.py` | 区域规则（纯 numpy）：监察者按连通件 + 高度 / 半径 / 颜色给三角形贴标签，再给出「摆放」（护盾板挪到环绕半径上摆三块、环拷一道、眼匣往后错切）；程序化的眼皮 |
+| `art/ai/boss_rig.py` | 无头 Blender：减面 → 监察者按标签全刚性（不动的零件之间接缝上的顶点按面积分权重，挪过去 / 拷贝的零件各自一份顶点）；巨兽用 UniRig 的权重按区域纠正（脖子沿链分段、腿根只管肩 / 胯、背甲 / 星 / 下颌 / 头和角 / 蹄 / 尾尖刚性）→ 在源网格上取色（拷贝的零件按原来的位置取；按位置 / 色相局部调色，比如压暗巨兽的角、把监察者的领环改成金色；调亮带一道肩部，暗部提起来、亮部不顶上去）→ 展 UV、烘反照率贴图 → 近白的芯另挑（跳过减面后过大的三角形）→ 最后整体缩放（`post`）→ `rig.py` 导出。读 / 减面 / 取样 / 调色的底层函数直接调 `golem_rig.py`，巨像的产物不受影响 |
+| `art/ai/boss/warden_a01.json`、`behemoth_a02.json` | 候选的参数：转向、身高、枢轴、区域、发光规则、提亮、局部压暗、芯、整体缩放，源 GLB（和巨兽的权重 GLB）的 sha256 |
+| `assets/ca/boss/warden.glb`、`warden_lo.glb`、`behemoth.glb`、`behemoth_lo.glb` | 生成物：高 / 中不超过 8000 个三角形，低画质的减面版不超过原来的 4860 / 4240，都带一张 512 的反照率贴图 |
+
+- **挂点**：监察者的护手是竖着的，`BOSS_SPEC.warden.sock` 的武器 / 手挂点挪到拳头；巨兽的嘴短，吐息的口从下颌往前 0.45。挂点只管特效的出处，模拟不读。
+- **单独构建**：`npm run build:art -- --only ca/boss_warden,ca/boss_warden_lo,ca/boss_behemoth,ca/boss_behemoth_lo`；直接跑 `blender -b --factory-startup --python-exit-code 1 --python art/ai/boss_rig.py -- --spec art/ai/boss/warden_a01.json --out <目录> [--tris 4860]` 出 GLB、`albedo.jpg` 和 `build.json`。
