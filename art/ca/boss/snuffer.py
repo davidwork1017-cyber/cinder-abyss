@@ -10,7 +10,7 @@ import math
 
 from mathutils import Euler, Vector
 
-from .. import rig
+from .. import palette, rig
 from ..rig import g2b
 
 TAU = 2 * math.pi
@@ -325,6 +325,25 @@ def robe(k):
     return vs
 
 
+# T35：游戏镜头从上往下看，灰烬袍朝上的面（披肩顶、兜帽顶、背上、下摆的上沿）照的是余烛殿半球光的天空色（冷紫），
+# 冷石板灰的袍子在上面发蓝紫。朝上的面（法线 y > 0.5）换成同样亮度的玄武岩行（中性略暖的灰）：俯视读成中性的中灰披肩、暗的下摆，
+# 侧面（主光照的那几面）照旧是冷石板灰；提灯（熏黑的玻璃 / 铁）、烛冠不动。只改面的行和色带位置，不取随机数
+TOP_NY = 0.5
+
+
+def _top_neutral(k):
+    lum = lambda c: 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+    ra, rb = palette.ROW['ashrobe'], palette.ROW['basalt']
+    lb = [lum(palette.ramp(rb, i / 400)) for i in range(401)]
+    for f in k.bm.faces:
+        if f[k.L_pal] != ra + 1 or f[k.L_glow] > 0 or f.normal.z < TOP_NY:
+            continue
+        la = lum(palette.ramp(ra, f[k.L_tone]))
+        i = min(range(401), key=lambda j: abs(lb[j] - la))
+        f[k.L_pal] = rb + 1
+        f[k.L_tone] = i / 400
+
+
 def build(k):
     """搭形，返回 dict(skel, soft, custom, clips, height)"""
     robe(k)
@@ -475,5 +494,6 @@ def build(k):
         ('x_cape_01', 'spine_03', (0, 3.6, -0.4), (0, -1, 0), 0.3),
         ('x_cape_02', 'x_cape_01', (0, 2.3, -0.5), (0, -1, 0), 0.6),
     ]
+    _top_neutral(k)
     from .snuffer_clips import CLIPS
     return dict(skel=SKEL, soft=soft, custom=robe_weights, clips=CLIPS, height=5.0)

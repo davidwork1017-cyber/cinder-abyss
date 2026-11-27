@@ -310,9 +310,36 @@ def _norm(v):
 
 
 # ---------------------------------------------------------------- 造型
+# T35：短披是刚性绑在 spine_03 上的，落冰（双手举过头顶）时上臂从披肩的侧边穿出来。披肩盖在肩上的那一段（两侧、靠近肩的前后）
+# 部分跟着上臂走（最多 0.6）：手举起来时这一段布在肩头收拢、堆在臂根，不再被手臂穿过；背后、领口、胸前开口的布还是只跟着上身
+CAPE = set()
+
+
+def _vkey(p):
+    return (round(p[0], 3), round(p[1], 3), round(p[2], 3))
+
+
+def _smooth(a, b, x):
+    t = min(1.0, max(0.0, (x - a) / (b - a)))
+    return t * t * (3 - 2 * t)
+
+
+def cape_weights(p, bone):
+    """rig.skin 的 custom：只管短披（和它的下摆亮边）的顶点；p 是游戏坐标（已经按上身缩放过）"""
+    if bone != 'spine_03' or _vkey(p) not in CAPE:
+        return None
+    sd = 'l' if p[0] > 0 else 'r'
+    piv = PIV['upperarm_' + sd]
+    w = 0.6 * _smooth(0.22, 0.46, abs(p[0])) * (1.0 - _smooth(0.22, 0.5, abs(p[2] - piv[2])))
+    if w < 0.01:
+        return {'spine_03': 1.0}
+    return {'upperarm_' + sd: w, 'spine_03': 1.0 - w}
+
+
 def build(k):
-    """搭形，返回 dict(skel, soft, clips, height)"""
+    """搭形，返回 dict(skel, soft, custom, clips, height)"""
     XF[0] = 1.0
+    CAPE.clear()
     # ---- 蛛头胸：低平的一块甲壳（前窄后宽一点、背上平），六条腿都从它两侧长出来 ----
     csecs = [
         # (x, y, z, 半宽, 背高, 腹深, 方形度, 骨骼)
@@ -385,8 +412,10 @@ def build(k):
             r0 = 0.22 - 0.05 * a0
             up = _norm(_add((0, 1, 0), fem, -fem[1]))
             q0, q1 = _add(p0, up, r0 * 0.8), _add(p1, up, (0.22 - 0.05 * a1) * 0.8)
-            hull_frame(k, b1, [(-0.035, 0.0, -0.02), (0.035, 0.0, -0.02), (-0.035, 0.0, 0.02), (0.035, 0.0, 0.02), (-0.03, 1.0, -0.02), (0.03, 1.0, -0.02), (-0.03, 1.0, 0.02), (0.03, 1.0, 0.02)],
-                       q0, tuple(q1[i] - q0[i] for i in range(3)), hint=up, row='starglass', tone=0.55, jitter=0.0, glow=0.42)
+            # T35：原来 0.07 宽、发光 0.42，近景和低画质里像一道漏光的亮缝（发光面在游戏里最暗也有三成亮度，只调发光值压不下去）：
+            # 收窄到 0.044、不再发光，换成受光的暗冰色（俯视照样是六道往外放射的蓝线，元素读得出，只是不亮）
+            hull_frame(k, b1, [(-0.022, 0.0, -0.015), (0.022, 0.0, -0.015), (-0.022, 0.0, 0.015), (0.022, 0.0, 0.015), (-0.018, 1.0, -0.015), (0.018, 1.0, -0.015), (-0.018, 1.0, 0.015), (0.018, 1.0, 0.015)],
+                       q0, tuple(q1[i] - q0[i] for i in range(3)), hint=up, row='starglass', tone=0.4, jitter=0.0, glow=0)
         # 膝：暗的关节球 + 骨刺（往外、往上翘，0.45 m）
         blob(k, b2, kp, (0.2, 0.19, 0.2), n=12, row='char', tone=0.3)
         sp = _norm(_add(_add(d, (0, 0.38, 0)), (0, 0, -1.0), 0.4))
@@ -497,8 +526,9 @@ def build(k):
             yy = y - (k.r(0.0, 0.07) if i == 3 else 0) - (0.06 * abs(math.cos(th)) if i == 3 else 0)
             rr.append((math.sin(th) * r, yy, 0.45 + math.cos(th) * r * 0.78))
         rows.append(rr)
-    sheet(k, rows, row='slate', tone=0.44, thick=0.03, bind=lambda p, i, j: ('spine_03', False))
-    loft(k, 'spine_03', [_add(p, (0, -0.012, 0)) for p in rows[-1]], [0.022] * len(rows[-1]), sides=4, row='slate', tone=0.82, jitter=0.02, cap0=False, cap1=False)  # 下摆一道淡的亮边
+    cv, _ = sheet(k, rows, row='slate', tone=0.44, thick=0.03, bind=lambda p, i, j: ('spine_03', True))
+    cv += loft(k, 'spine_03', [_add(p, (0, -0.012, 0)) for p in rows[-1]], [0.022] * len(rows[-1]), sides=4, row='slate', tone=0.82, jitter=0.02, cap0=False, cap1=False, soft=True)  # 下摆一道淡的亮边
+    CAPE.update(_vkey((v.co.x, v.co.z, -v.co.y)) for v in cv)
 
     def veil_bone(p, i, j):
         return ('x_veil_01' if p[1] > 3.3 else 'x_veil_02' if p[2] > -0.2 else 'x_veil_03', i > 0)
@@ -540,4 +570,4 @@ def build(k):
         soft.append((nm + '02', nm + '01', kp, _norm(_add(fem, tib)), 0.2))
         soft.append((nm + '03', nm + '02', ap, _norm(_add(tib, tar)), 0.14))
     from .weaver_clips import CLIPS
-    return dict(skel=SKEL, soft=soft, clips=CLIPS, height=4.96)
+    return dict(skel=SKEL, soft=soft, custom=cape_weights, clips=CLIPS, height=4.96)

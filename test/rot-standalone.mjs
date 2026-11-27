@@ -62,7 +62,8 @@ export function rotFrameProbe([parts, paintSrc]) {
 export const PAINT_SRC = paintRect.toString();
 // 用法：const o = await page.evaluate(rotFrameProbe, [HUD_PARTS, PAINT_SRC])
 
-// 判定（node 里）：dev = 设备预设；保底可见区 = 布局视口（屏幕高 − 状态栏），这一块真机上一定画得出来
+// 判定（node 里）：dev = 设备预设；HUD 的界 = 屏幕高 − 底部横条（t45：真机「画面测试」截图证明 clientHeight 以下那一截画得出来；
+// rot-safe2 时是布局视口 = 屏幕高 − 状态栏）
 export function rotFrameJudge(o, dev, where) {
   const bad = [];
   const { W, H, paint } = o;
@@ -71,7 +72,7 @@ export function rotFrameJudge(o, dev, where) {
   const fb = o.body;
   if (Math.abs(fb.l) > 2 || Math.abs(fb.t) > 2 || Math.abs(fb.r - W) > 2 || Math.abs(fb.b - H) > 2) bad.push(where + ' 画面没盖满屏幕：' + JSON.stringify(fb));
   // 2. 点名的 HUD 整个在可见区里：画出来的范围 ∩ 保底可见区（布局视口），左右在屏幕里
-  const visB = Math.min(paint.bottom, dev.height - dev.sb + 0.5);
+  const visB = Math.min(paint.bottom, dev.height - dev.hb + 0.5);
   const inside = (bx) => bx[0] >= -0.5 && bx[2] <= W + 0.5 && bx[1] >= -0.5 && bx[3] <= visB;
   const lines = [];
   for (const p of o.parts) {
@@ -160,7 +161,7 @@ export function drawScreenOverlay([o, dev, guides]) {
   // 底部横条示意
   add('left:50%;width:140px;margin-left:-70px;bottom:8px;height:5px;border-radius:3px;background:rgba(255,255,255,.75)');
   if (guides) {
-    const visB = Math.min(o.paint.bottom, dev.height - dev.sb);
+    const visB = Math.min(o.paint.bottom, dev.height - dev.hb);
     add('left:0;right:0;top:0;height:' + dev.sb + 'px;background:repeating-linear-gradient(45deg,rgba(255,40,40,.35) 0 6px,transparent 6px 12px);border-bottom:2px solid #f33');
     add('left:0;right:0;bottom:0;height:' + dev.hb + 'px;background:repeating-linear-gradient(45deg,rgba(255,160,0,.35) 0 6px,transparent 6px 12px);border-top:2px solid #fa0');
     add('left:1px;right:1px;top:1px;height:' + (visB - 2) + 'px;border:2px dashed #3f6');
@@ -169,4 +170,50 @@ export function drawScreenOverlay([o, dev, guides]) {
     if (o.glB && o.glB < o.H - 1) add('left:0;right:0;top:' + (o.glB - 1) + 'px;height:0;border-top:2px dashed #f0f', '<span style="position:absolute;right:6px;top:2px;color:#f0f;font-size:11px">画布底 y=' + Math.round(o.glB) + '</span>');
   }
   document.documentElement.appendChild(ov);
+}
+
+// 画面测试的七条色带（t45）：截一张图，在屏幕底那一截（clientHeight 到屏幕底）每条取四个点（左右各一列 × 离底 4 / 12 px，躲开中间的字），看颜色对不对。
+// 真机截图（2026-11-26，标题画面）里叠加层那条是空的：标题画面把叠加层藏了。画面测试开着时现在放出来。
+// 标题画面的暗色渐变盖在 html / body 底色、画布、叠加层上（竖着的屏幕底边在 cw 时是渐变最淡的一头），所以只比颜色的比例
+export const PROBE_HUES = [
+  ['固定底', ([r, g, b]) => r > 120 && r > g * 1.6 && r > b * 1.6],
+  ['html 绝对', ([r, g, b]) => r > 120 && g > b * 2 && r > g * 1.3],
+  ['body 100lvh', ([r, g, b]) => r > 120 && g > b * 2 && g > r * 0.7],
+  ['html 底色', ([r, g, b]) => r > g * 2 + 8 && b > g * 2 + 8],
+  ['body 底色', ([r, g, b]) => g > r * 2 + 8 && b > r * 2 + 8],
+  ['画布', ([r, g, b]) => g > r * 2 + 8 && g > b * 2 + 8],
+  ['叠加层', ([r, g, b]) => b > r * 2 + 8 && b > g * 1.5 + 4],
+];
+export async function probeBand(p, dev) {
+  const buf = await p.screenshot();
+  return p.evaluate(async ([b64, dpr]) => {
+    const img = new Image();
+    img.src = 'data:image/png;base64,' + b64;
+    await img.decode();
+    const c = document.createElement('canvas');
+    c.width = img.width;
+    c.height = img.height;
+    const g = c.getContext('2d');
+    g.drawImage(img, 0, 0);
+    // 和 touch.js 的 probeGeom 一样的摆法（竖着的屏幕坐标）
+    const sw = window.screen.width, sh = window.screen.height, top = Math.min(document.documentElement.clientHeight, sh - 62);
+    const x0 = Math.round(sw * 0.125), cw = Math.floor((sw - 2 * x0) / 7);
+    const out = [];
+    for (let i = 0; i < 7; i++) {
+      const pts = [];
+      for (const x of [x0 + i * cw + 4, x0 + i * cw + cw - 7]) for (const y of [sh - 4, sh - 12]) pts.push(Array.from(g.getImageData(Math.round(x * dpr), Math.round(y * dpr), 1, 1).data).slice(0, 3));
+      out.push(pts);
+    }
+    return { top, out };
+  }, [buf.toString('base64'), dev.dpr]);
+}
+// 判定：only = 只查这几条的下标（缺省七条都查）
+export function probeBandJudge(r, where, only) {
+  const bad = [];
+  PROBE_HUES.forEach(([name, ok], i) => {
+    if (only && !only.includes(i)) return;
+    const miss = r.out[i].filter((px) => !ok(px));
+    if (miss.length) bad.push(where + ' 画面测试「' + name + '」那条在屏幕底那一截没画出来：' + miss.slice(0, 2).map((px) => px.join(',')).join('；'));
+  });
+  return bad;
 }

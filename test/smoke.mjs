@@ -1037,7 +1037,93 @@ async function timedMain() {
 }
 
 let MUSIC_PRE = null; // 启动那一步记下的「第一次按键之前」的音频状态
+const START_STEP = '启动：页面无报错，首次运行弹出开场卡片（游戏暂停），回车关闭';
+
+// ------------------------------------------------------------------ 分块 / 分片（test/README.md「分片」）
+// test:func 按原来的顺序分成 7 块。每块是连续的一串步骤，开头自己开浏览器；块和块之间的依赖只有两处，都写在下面：
+// - title 要启动那一步记下的 MUSIC_PRE：同一次没跑 main 块时，prep 照启动那一步的做法（同一个种子、同一种窗口、第一次按键之前）重记一次；
+// - ui-t2 接着 ui-t1 的触屏浏览器：单独开头时按「背包（触屏）」那一步的种子开浏览器、做同一份布局用的角色，再按整套跑时的名字播种（uiLayoutSteps）。
+// 整套跑（不带 --shard）= 7 块依次跑，步骤、顺序、种子和分块之前一样。--shard i/n 只跑 SHARDS[n][i - 1] 里的块（按这里的先后）。
+// next：同一次里紧接着跑的下一块（ui-t1 后面不是 ui-t2 时自己关掉触屏浏览器，同一时刻只开一个浏览器）
+const FUNC_BLOCKS = [
+  { id: 'main', run: () => mainBody() }, // 启动 → rift（405 步，一个页面从头走到尾；确定性 / 画质一致那几步的哈希依赖前面的步骤，所以整块不拆）
+  { id: 'title', run: () => titleSteps(), prep: musicPrePrep }, // 标题画面、暂停菜单、音效 / 音乐、主线
+  { id: 'touch', run: () => touchSteps() }, // 触屏（不含界面布局）
+  { id: 'ui-t1', run: (next) => uiTouchSteps(0, 2, next === 'ui-t2') }, // 界面布局：背包、仓库（触屏）
+  { id: 'ui-t2', run: () => uiTouchSteps(2, UI_PANEL_ORDER.length) }, // 界面布局：地图 … 天赋（触屏）
+  { id: 'ui-desk', run: () => uiDeskSteps() }, // 界面布局：桌面、桌面样式、天赋盘触屏默认视口、桌面浮窗
+  {
+    id: 'tail',
+    run: async () => {
+      await storySteps();
+      await slotSteps();
+      await classSteps();
+      await d2bSteps(); // 职业 D2b-1（class-d2b1）
+      await d2b2Steps(); // 职业 D2b-2（class-d2b2）
+      await imbueSteps(); // 装填 / 散钉 / 反冲弹 / 绊雷（imbue 批）
+      await lootWarmStep(); // 掉落模型都在启动预热里建好（列车 2）
+    },
+  },
+];
+// 固定分法：按各块实测的步骤耗时配平（分钟，2026-11-27 分片跑 4 次的中位数，池里有别人的任务）：
+// main 23.4 · title 7.5 · touch 12.0 · ui-t1 5.6 · ui-t2 19.0 · ui-desk 8.4 · tail 5.0（合计 81）。main 一块是下限
+const SHARDS = {
+  2: [['main', 'touch', 'tail'], ['title', 'ui-t1', 'ui-t2', 'ui-desk']], // 40.4 / 40.6
+  3: [['main', 'tail'], ['title', 'touch', 'ui-t1'], ['ui-t2', 'ui-desk']], // 28.4 / 25.1 / 27.4
+  4: [['main'], ['title', 'touch'], ['ui-t2'], ['ui-t1', 'ui-desk', 'tail']], // 23.4 / 19.5 / 19.0 / 19.0
+};
+const SHARD = (() => {
+  const i = process.argv.indexOf('--shard');
+  if (i < 0) return null;
+  const m = /^(\d+)\/(\d+)$/.exec(process.argv[i + 1] || '');
+  const n = m && +m[2], k = m && +m[1];
+  if (!m || !SHARDS[n] || k < 1 || k > n) {
+    console.log('--shard 要写成 i/n（n = ' + Object.keys(SHARDS).join(' / ') + '，1 ≤ i ≤ n）：' + (process.argv[i + 1] || ''));
+    process.exit(2);
+  }
+  return { k, n, blocks: SHARDS[n][k - 1] };
+})();
+// 自检：每种分法里每块正好出现一次
+for (const n in SHARDS) {
+  const all = SHARDS[n].flat();
+  if (all.length !== FUNC_BLOCKS.length || FUNC_BLOCKS.some((b) => !all.includes(b.id))) throw new Error('SHARDS[' + n + '] 没有把每块正好分一次：' + all.join(' '));
+}
 async function main() {
+  curStep = 'func:准备';
+  const ids = SHARD ? SHARD.blocks : FUNC_BLOCKS.map((b) => b.id);
+  const todo = FUNC_BLOCKS.filter((b) => ids.includes(b.id));
+  for (let i = 0; i < todo.length; i++) {
+    const b = todo[i];
+    if (SHARD) console.log('== 块 ' + b.id);
+    if (SHARD && b.prep) await b.prep(ids);
+    await b.run(todo[i + 1] && todo[i + 1].id);
+  }
+  if (SHARD) console.log('== 块 完');
+}
+// title 块的准备：这一次没跑 main 块时，按启动那一步的做法重记 MUSIC_PRE（同一个种子、1440×900、省渲染照旧，进区后第一次按键之前），
+// 然后关掉这个浏览器。不算一步；出错只打一行 note，MUSIC_PRE 留空，音乐那一步照常判失败
+async function musicPrePrep(ids) {
+  if (ids.includes('main')) return;
+  curStep = '分片准备（MUSIC_PRE）';
+  let r = null;
+  try {
+    r = await launch({ width: 1440, height: 900, seed: SEEDED ? seedKey(START_STEP) : null });
+    ({ browser, page, errors } = r);
+    await install();
+    await ev(() => G.debug.hold(false));
+    await frames(3);
+    await frames(2);
+    MUSIC_PRE = await ev(() => ({ ctx: !!(G.audio && G.audio.ctx()), music: G.music ? G.music.state() : null }));
+    if (errors.length) throw new Error('页面报错：' + errors.join(' | ').slice(0, 300));
+  } catch (e) {
+    MUSIC_PRE = null;
+    console.log('note 分片准备（MUSIC_PRE）出错：' + String(e && e.message ? e.message : e).split('\n')[0].slice(0, 200));
+  }
+  if (r) await r.browser.close().catch(() => {});
+  browser = page = errors = null;
+}
+
+async function mainBody() {
   curStep = 'func:准备';
   // ------------------------------------------------------------------ 自产素材（只用 Node，不起浏览器）
   await step('素材：自产布景件（assets/ca/manifest.json 里的每个 GLB）符合预算、命名、原点 / 单位规矩，打进包的就是这一份（tools/check-art.mjs）', async () => {
@@ -1061,7 +1147,7 @@ async function main() {
   });
 
   // ------------------------------------------------------------------ 启动
-  await step('启动：页面无报错，首次运行弹出开场卡片（游戏暂停），回车关闭', async () => {
+  await step(START_STEP, async () => {
     ({ browser, page, errors } = await launch({ width: 1440, height: 900 }));
     await install();
     await ev(() => G.debug.hold(false));
@@ -1117,51 +1203,59 @@ async function main() {
   });
 
   // tex-t1：第 0 区的路面 / 粗糙地面 / 虚空地面 / 岩石三向投影都是脚本画的贴图；高 / 中档 512² 带法线贴图，低档换 256² 的一套、不传法线贴图（平的法线）
-  await step('贴图：第 0 区地面和岩石用脚本画的贴图，高档 512² 带法线贴图，低档 256²、不传法线贴图（进区和原地换档都对）', async () => {
-    const r = await ev(async () => {
-      const W = G.world, S = G.state, zk = { zi: S.zoneIdx, tier: S.tier }, q0 = W.quality();
-      const look = () => {
-        let gm = null, rm = null;
-        W.scene.traverse((o) => {
-          const m = o.material;
-          if (!m || Array.isArray(m) || !m.userData) return;
-          if (m.userData.U && m.userData.U.tA0 && !gm) gm = m.userData.U;
-          if (m.userData.triU && !rm) rm = m.userData.triU;
-        });
-        const sz = (t) => (t && t.value && t.value.image ? t.value.image.width : 0);
-        return { gfx: W.gfxInfo().hd, g: gm ? [sz(gm.tA0), sz(gm.tN0), sz(gm.tR0), sz(gm.tA1), sz(gm.tN1), sz(gm.tA2), sz(gm.tN2)] : null, rock: rm ? [sz(rm.tRA), sz(rm.tRN)] : null };
-      };
-      const wait = async () => { const t = performance.now(); while ((W.assetsPending() || !W.gfxInfo().hd) && performance.now() - t < 20000) await new Promise((res) => setTimeout(res, 50)); };
-      // 换档以后这一档的图像在后台解码、到了再原地换（tex-t2 的 retierZone）：等到地面的路面贴图换成这一档要的尺寸（最多 20 秒）
-      const until = async (px) => { const t = performance.now(); let r = look(); while (!(r.g && r.g[0] === px) && performance.now() - t < 20000) { await new Promise((res) => setTimeout(res, 50)); r = look(); } return r; };
-      const out = { ids: ['p_mud', 'p_burn', 'p_rock'].map((id) => G.assets.packOfTex(id)), old: ['mud_cracked_dry_03', 'burned_ground_01'].map((id) => G.assets.packOfTex(id)) };
-      W.setQuality('high');
-      G.enterZone(0, 0);
-      await wait();
-      out.high = await until(512);
-      W.setQuality('low');
-      G.enterZone(0, 0);
-      await wait();
-      out.low = await until(256);
-      // 不重新进区、原地换档（retierZone → swapZoneTex）：高档换回 512² 和真的法线贴图，再回低档换回 256² 和平的法线；岩石跟着换
-      W.setQuality('high');
-      out.swapHigh = await until(512);
-      W.setQuality('low');
-      out.swapLow = await until(256);
-      W.setQuality(q0);
-      G.enterZone(zk.zi, zk.tier);
-      await wait();
-      return out;
+  // tex-t3：第 1 区（霜骨沼泽）也换成脚本画的贴图，两个区各查一遍；第 1 区不再要照片的 rock-grey 包
+  const PAINT_ZONES = [
+    { zi: 0, pack: 'zone-ash', ids: ['p_mud', 'p_burn', 'p_rock'], old: ['mud_cracked_dry_03', 'burned_ground_01'], noPack: 'rock-dark' },
+    { zi: 1, pack: 'zone-frost', ids: ['p_ice', 'p_snow', 'p_frock'], old: ['Ice002', 'Snow013'], noPack: 'rock-grey' },
+  ];
+  for (const PZ of PAINT_ZONES) {
+    await step('贴图：第 ' + PZ.zi + ' 区地面和岩石用脚本画的贴图，高档 512² 带法线贴图，低档 256²、不传法线贴图（进区和原地换档都对）', async () => {
+      const r = await ev(async (PZ) => {
+        const W = G.world, S = G.state, zk = { zi: S.zoneIdx, tier: S.tier }, q0 = W.quality();
+        const look = () => {
+          let gm = null, rm = null;
+          W.scene.traverse((o) => {
+            const m = o.material;
+            if (!m || Array.isArray(m) || !m.userData) return;
+            if (m.userData.U && m.userData.U.tA0 && !gm) gm = m.userData.U;
+            if (m.userData.triU && !rm) rm = m.userData.triU;
+          });
+          const sz = (t) => (t && t.value && t.value.image ? t.value.image.width : 0);
+          return { gfx: W.gfxInfo().hd, g: gm ? [sz(gm.tA0), sz(gm.tN0), sz(gm.tR0), sz(gm.tA1), sz(gm.tN1), sz(gm.tA2), sz(gm.tN2)] : null, rock: rm ? [sz(rm.tRA), sz(rm.tRN)] : null };
+        };
+        const wait = async () => { const t = performance.now(); while ((W.assetsPending() || !W.gfxInfo().hd) && performance.now() - t < 20000) await new Promise((res) => setTimeout(res, 50)); };
+        // 换档以后这一档的图像在后台解码、到了再原地换（tex-t2 的 retierZone）：等到地面的路面贴图换成这一档要的尺寸（最多 20 秒）
+        const until = async (px) => { const t = performance.now(); let r = look(); while (!(r.g && r.g[0] === px) && performance.now() - t < 20000) { await new Promise((res) => setTimeout(res, 50)); r = look(); } return r; };
+        const out = { ids: PZ.ids.map((id) => G.assets.packOfTex(id)), old: PZ.old.map((id) => G.assets.packOfTex(id)), packs: W.zonePacks(G.ZONES[PZ.zi].id) };
+        W.setQuality('high');
+        G.enterZone(PZ.zi, 0);
+        await wait();
+        out.high = await until(512);
+        W.setQuality('low');
+        G.enterZone(PZ.zi, 0);
+        await wait();
+        out.low = await until(256);
+        // 不重新进区、原地换档（retierZone → swapZoneTex）：高档换回 512² 和真的法线贴图，再回低档换回 256² 和平的法线；岩石跟着换
+        W.setQuality('high');
+        out.swapHigh = await until(512);
+        W.setQuality('low');
+        out.swapLow = await until(256);
+        W.setQuality(q0);
+        G.enterZone(zk.zi, zk.tier);
+        await wait();
+        return out;
+      }, PZ);
+      assert(r.ids.every((p) => p === PZ.pack) && r.old.every((p) => !p), '第 ' + PZ.zi + ' 区贴图应是 ' + PZ.pack + ' 包里的 ' + PZ.ids.join(' / ') + '，照片贴图不再打包：' + JSON.stringify(r));
+      assert(r.packs && !r.packs.includes(PZ.noPack), '第 ' + PZ.zi + ' 区不该再要照片岩石包 ' + PZ.noPack + '：' + JSON.stringify(r.packs));
+      assert(r.high.gfx && r.high.g && r.high.g.every((w) => w === 512) && r.high.rock && r.high.rock.every((w) => w === 512), '高档：地面三套和岩石应是 512² 带法线贴图：' + JSON.stringify(r.high));
+      const L = r.low.g;
+      assert(r.low.gfx && L && [L[0], L[2], L[3], L[5]].every((w) => w === 256) && [L[1], L[4], L[6]].every((w) => w === 4) && r.low.rock && r.low.rock[0] === 256 && r.low.rock[1] === 4, '低档：地面三套和岩石应是 256²、法线贴图是平的 4×4：' + JSON.stringify(r.low));
+      const okHi = (x) => x && x.g && x.g.every((w) => w === 512) && x.rock && x.rock.every((w) => w === 512);
+      const okLo = (x) => x && x.g && [x.g[0], x.g[2], x.g[3], x.g[5]].every((w) => w === 256) && [x.g[1], x.g[4], x.g[6]].every((w) => w === 4) && x.rock && x.rock[0] === 256 && x.rock[1] === 4;
+      assert(okHi(r.swapHigh) && okLo(r.swapLow), '原地换档：高档应换回 512² 带法线、低档换回 256² 平法线：' + JSON.stringify({ hi: r.swapHigh, lo: r.swapLow }));
+      return '高 ' + r.high.g.join('/') + ' ｜ 低 ' + L.join('/') + ' ｜ 岩石 ' + r.high.rock.join('/') + ' → ' + r.low.rock.join('/') + ' ｜ 原地换档 ' + r.swapHigh.g.join('/') + ' → ' + r.swapLow.g.join('/');
     });
-    assert(r.ids.every((p) => p === 'zone-ash') && r.old.every((p) => !p), '第 0 区贴图应是 zone-ash 包里的 p_mud / p_burn / p_rock，照片贴图不再打包：' + JSON.stringify(r));
-    assert(r.high.gfx && r.high.g && r.high.g.every((w) => w === 512) && r.high.rock && r.high.rock.every((w) => w === 512), '高档：地面三套和岩石应是 512² 带法线贴图：' + JSON.stringify(r.high));
-    const L = r.low.g;
-    assert(r.low.gfx && L && [L[0], L[2], L[3], L[5]].every((w) => w === 256) && [L[1], L[4], L[6]].every((w) => w === 4) && r.low.rock && r.low.rock[0] === 256 && r.low.rock[1] === 4, '低档：地面三套和岩石应是 256²、法线贴图是平的 4×4：' + JSON.stringify(r.low));
-    const okHi = (x) => x && x.g && x.g.every((w) => w === 512) && x.rock && x.rock.every((w) => w === 512);
-    const okLo = (x) => x && x.g && [x.g[0], x.g[2], x.g[3], x.g[5]].every((w) => w === 256) && [x.g[1], x.g[4], x.g[6]].every((w) => w === 4) && x.rock && x.rock[0] === 256 && x.rock[1] === 4;
-    assert(okHi(r.swapHigh) && okLo(r.swapLow), '原地换档：高档应换回 512² 带法线、低档换回 256² 平法线：' + JSON.stringify({ hi: r.swapHigh, lo: r.swapLow }));
-    return '高 ' + r.high.g.join('/') + ' ｜ 低 ' + L.join('/') + ' ｜ 岩石 ' + r.high.rock.join('/') + ' → ' + r.low.rock.join('/') + ' ｜ 原地换档 ' + r.swapHigh.g.join('/') + ' → ' + r.swapLow.g.join('/');
-  });
+  }
 
   await step('首屏：场景、玩家、HUD、小地图都画出来了', async () => {
     await frames(2);
@@ -1785,6 +1879,7 @@ async function main() {
       far.z = 0;
       const r1 = G.pickup(far);
       const t1 = T.toasts();
+      const f1 = document.getElementById('feed').innerText;
       T.clearLoot();
       const keep = G.save.bag.slice();
       while (G.save.bag.length < G.BAG_SIZE) G.save.bag.push(G.rollItem(1, 0));
@@ -1793,15 +1888,18 @@ async function main() {
       G.debug.step(0.5);
       const full = G.state.loot.indexOf(near) >= 0 && G.save.bag.length === G.BAG_SIZE;
       const t2 = T.toasts();
+      const f2 = document.getElementById('feed').innerText;
+      const warn = document.querySelectorAll('#feed .fd.warn').length;
       G.save.bag = keep;
       T.clearLoot();
-      return { r1, t1, full, t2 };
+      return { r1, t1, f1, full, t2, f2, warn };
     });
-    assert(e.r1 === false && e.t1.includes('走近一点'), '距离过远时应提示走近一点');
-    assert(e.full && e.t2.includes('背包已满'), '背包已满时应保留掉落并提示');
+    // pickup-feed：拾取时的警告不弹 toast，写成拾取记录里的一行警告
+    assert(e.r1 === false && e.f1.includes('走近一点') && !e.t1.includes('走近一点'), '距离过远时应在拾取记录里提示走近一点（不弹 toast）：' + JSON.stringify(e));
+    assert(e.full && e.f2.includes('背包满了') && !e.t2.includes('背包') && e.warn === 2, '背包已满时应保留掉落，并在拾取记录里提示（不弹 toast）：' + JSON.stringify(e));
   });
 
-  await step('无铭技能宝石：首领首杀必掉（再打靠几率），精英 / 普通怪小几率；没有等级（名牌、提示、拾取记录都不写 Lv）；拾取进存档（记当时的成长下限），拾取记录写数量；能学的都学会了时化为 1 个随机通货；旧存档补默认值，畸形数据被修正', async () => {
+  await step('无铭技能宝石：首领首杀必掉（再打靠几率），精英 / 普通怪小几率；没有等级（名牌、提示、拾取记录都不写 Lv）；拾取进存档（记当时的成长下限），拾取记录写数量（不弹 toast）；能学的都学会了时化为 1 个随机通货；旧存档补默认值，畸形数据被修正', async () => {
     const r = await ev((KEY) => {
       const S = G.state, save = G.save, P = G.player;
       T.arena();
@@ -1843,6 +1941,7 @@ async function main() {
 
       // 拾取：走过去自动捡起，存进存档（记当时的成长下限：角色 8 级 → 6，旧版本读档照常是一颗 6 级的），提示与拾取记录里写数量
       save.blankGems = [];
+      G.ui.feedClear(); // 前面步骤留下的拾取记录（比如「背包满了」）不算
       const lv0 = save.level;
       save.level = 8;
       const curSum = () => G.CUR_IDS.reduce((a, id) => a + (save.cur[id] || 0), 0);
@@ -1855,7 +1954,7 @@ async function main() {
       };
       out.picked = pick();
       out.toast1 = T.toasts();
-      out.feed = document.getElementById('feed').innerText;
+      out.feed = document.getElementById('feed').innerText.replace(/\s+/g, ' ');
       out.picked2 = pick() && pick();
       out.gems = save.blankGems.join();
       out.stored = (JSON.parse(localStorage.getItem(KEY)).blankGems || []).join();
@@ -1868,7 +1967,7 @@ async function main() {
       out.usefulAll = G.blankUseful();
       const cur1 = curSum();
       out.uselessPicked = pick();
-      out.useless = { gems: save.blankGems.join(), cur: curSum() - cur1, toast: T.toasts(), feed: document.getElementById('feed').innerText };
+      out.useless = { gems: save.blankGems.join(), cur: curSum() - cur1, toast: T.toasts(), feed: document.getElementById('feed').innerText.replace(/\s+/g, ' '), want: '用不上的' + G.BLANK_GEM.short + ' → ' };
       out.curPick = cur1 - cur0;
       save.skills = sk0;
       save.level = lv0;
@@ -1903,14 +2002,14 @@ async function main() {
     assert(r.bossLucky === 1 && r.eliteLucky === 1 && r.mobLucky === 1, '几率掉落没有生效：' + JSON.stringify(r));
     assert(r.rates.elite > 0 && r.rates.elite <= 0.1 && r.rates.mob > 0 && r.rates.mob < 0.012 && r.rates.boss < 1, '掉落几率不对：' + JSON.stringify(r.rates));
     assert(r.picked && r.picked2 && r.gems === '6,6,6' && r.stored === '6,6,6' && r.curPick === 0, '拾取后应存进存档、记当时的成长下限（6）：' + JSON.stringify(r));
-    assert(r.toast1.includes('获得无铭技能宝石（共 1 颗') && !/Lv/.test(r.toast1) && r.feed.includes('无铭技能宝石') && r.feed.includes('共 1 颗') && !/Lv/.test(r.feed), '拾取提示 / 拾取记录应写数量、不写等级：' + r.toast1 + ' | ' + r.feed);
+    assert(!r.toast1.includes('无铭') && r.feed.includes('无铭技能宝石') && r.feed.includes('共 1 颗') && !/Lv/.test(r.feed), '拾取记录应写数量、不写等级，不弹 toast：' + r.toast1 + ' | ' + r.feed);
     assert(r.usefulMissing1 === true && r.usefulAll === false, 'blankUseful 判断不对：' + JSON.stringify(r));
-    assert(r.uselessPicked && r.useless.gems === '6,6,6' && r.useless.cur === 1 && /用不上的无铭技能宝石，化为 1 个\S+/.test(r.useless.toast) && r.useless.feed.includes('化为'), '用不上的无铭宝石应化为 1 个随机通货：' + JSON.stringify(r.useless));
+    assert(r.uselessPicked && r.useless.gems === '6,6,6' && r.useless.cur === 1 && !r.useless.toast.includes('用不上') && r.useless.feed.includes(r.useless.want), '用不上的无铭宝石应化为 1 个随机通货，拾取记录里写一行（不弹 toast）：' + JSON.stringify(r.useless));
     assert(r.old === '[]' && r.bad === '45,5,3,1' && r.bad2 === '[]' && r.back === '6,6,6' && r.fresh === '[]', '旧存档 / 畸形存档没有修好：' + JSON.stringify(r));
     return '首杀掉一颗（无等级），几率 ' + JSON.stringify(r.rates);
   });
 
-  await step('技能宝石没有等级（gem-nolvl）：已学技能的等级一律是成长下限（法术、召唤物、黑焰、刻式都按它）；存档里记的数只升不降（高于下限的旧值原样留着、读档往返不变，低于的抬到下限，升级时也只抬不压）；学会了的宝石再捡到：还有能学的就化成无铭宝石，否则化成 1 个随机通货；名牌 / 提示 / 拾取记录 / 技能卡都不写等级', async () => {
+  await step('技能宝石没有等级（gem-nolvl）：已学技能的等级一律是成长下限（法术、召唤物、黑焰、刻式都按它）；存档里记的数只升不降（高于下限的旧值原样留着、读档往返不变，低于的抬到下限，升级时也只抬不压）；学会了的宝石再捡到：还有能学的就化成无铭宝石，否则化成 1 个随机通货；名牌 / 拾取记录 / 技能卡都不写等级；拾取不弹 toast（pickup-feed）', async () => {
     const r = await ev((KEY) => {
       T.arena();
       const S = G.state, save = G.save, P = G.player, out = {};
@@ -1961,16 +2060,19 @@ async function main() {
         // 学会了的再捡到：还有没学会的（坠凌）→ 化成一颗无铭宝石
         save.blankGems = [];
         const c0 = curSum();
+        G.ui.feedClear();
         out.dup1 = { picked: pick('skill', { id: 'nova' }), gems: save.blankGems.join(), cur: curSum() - c0, toast: T.toasts(), feed: document.getElementById('feed').innerText };
         // 全都学会了 → 化成 1 个随机通货，无铭宝石不动
         save.skills.icefall = G.gemFloor();
         const c1 = curSum(), each = Object.assign({}, save.cur);
+        G.ui.feedClear();
         out.dup2 = { picked: pick('skill', { id: 'nova' }), gems: save.blankGems.join(), cur: curSum() - c1, toast: T.toasts(), feed: document.getElementById('feed').innerText };
         const got = G.CUR_IDS.find((id) => (save.cur[id] || 0) > (each[id] || 0));
         out.dup2.name = got ? G.CURRENCY[got].name : '';
         // 没学会的照常学会，存档里记下限
         delete save.skills.icefall;
-        out.learn = { picked: pick('skill', { id: 'icefall' }), lvl: save.skills.icefall, floor: G.gemFloor(), toast: T.toasts() };
+        G.ui.feedClear();
+        out.learn = { picked: pick('skill', { id: 'icefall' }), lvl: save.skills.icefall, floor: G.gemFloor(), toast: T.toasts(), feed: document.getElementById('feed').innerText.replace(/\s+/g, ' ') };
         // 技能页：宝石技能卡不写等级（武器技在上面单独一节，它的等级随武器，不算宝石）
         G.ui.open('skills');
         out.rows = Array.from(document.querySelectorAll('.sk-row')).map((n) => n.innerText).join(' || ');
@@ -1992,11 +2094,86 @@ async function main() {
     assert(r.stored === '30,30,40,15' && r.raw === '30,30,40,15', '存档里的数只升不降：高于下限的原样留着，低于的抬到下限：' + JSON.stringify(r));
     assert(r.up.level === 21 && r.up.floor === 16 && r.up.nova === 16 && r.up.ember === 30 && r.up.lvl === 16 && !r.up.toast.includes('技能宝石随之成长') && !/Lv 1[56]：/.test(r.up.toast), '升级：存的数只抬不压、不再提示宝石成长：' + JSON.stringify(r.up));
     assert(r.label === '技能宝石：坠凌' && r.data === '{"id":"icefall"}', '地上的技能宝石不该有等级：' + JSON.stringify(r));
-    assert(r.dup1.picked && r.dup1.gems === '16' && r.dup1.cur === 0 && r.dup1.toast.includes('已学会「霜环」，化为 1 颗无铭技能宝石（共 1 颗）') && r.dup1.feed.includes('化为无铭宝石'), '学会了的宝石（还有能学的）应化成无铭宝石：' + JSON.stringify(r.dup1));
-    assert(r.dup2.picked && r.dup2.gems === '16' && r.dup2.cur === 1 && r.dup2.name && r.dup2.toast.includes('已学会「霜环」，化为 1 个' + r.dup2.name) && r.dup2.feed.includes('化为' + r.dup2.name), '全都学会了：应化成 1 个随机通货：' + JSON.stringify(r.dup2));
-    assert(r.learn.picked && r.learn.lvl === r.learn.floor && r.learn.toast.includes('习得技能：坠凌') && !/坠凌 Lv/.test(r.learn.toast), '没学会的照常学会、记下限、提示不写等级：' + JSON.stringify(r.learn));
+    assert(r.dup1.picked && r.dup1.gems === '16' && r.dup1.cur === 0 && !r.dup1.toast.includes('霜环') && r.dup1.feed.includes('重复宝石 → 无铭宝石'), '学会了的宝石（还有能学的）应化成无铭宝石，拾取记录写「重复宝石 → 无铭宝石」（不弹 toast）：' + JSON.stringify(r.dup1));
+    assert(r.dup2.picked && r.dup2.gems === '16' && r.dup2.cur === 1 && r.dup2.name && !r.dup2.toast.includes('霜环') && r.dup2.feed.includes('重复宝石 → ' + r.dup2.name), '全都学会了：应化成 1 个随机通货，拾取记录写出是哪种（不弹 toast）：' + JSON.stringify(r.dup2));
+    assert(r.learn.picked && r.learn.lvl === r.learn.floor && !r.learn.toast.includes('坠凌') && r.learn.feed.includes('新技能 · 坠凌') && !/坠凌 Lv/.test(r.learn.feed), '没学会的照常学会、记下限，拾取记录不写等级（不弹 toast）：' + JSON.stringify(r.learn));
     assert(r.ncards > 10 && !/Lv\b|Lv /.test(r.cards + r.rows) && !r.cards.includes('升至') && r.rows, '技能卡 / 技能列表不该写等级：' + (r.cards + r.rows).slice(0, 300));
     return '下限 ' + r.floor + ' · 存的 ' + r.stored + ' · 重复 → 无铭 / 通货';
+  });
+
+  await step('拾取记录（pickup-feed）：拾取不弹 toast；一条一行、桌面最多 4 行；同种通货合计、没有 ▲ 的普通物品并成「普通物品 ×N」；重复的技能宝石写「重复宝石 → 无铭宝石 ×N」；行满了先挤掉通货，宝石留着', async () => {
+    const r = await ev(() => {
+      const S = G.state, save = G.save, P = G.player, out = {};
+      T.arena();
+      const keep = { bag: save.bag.slice(), blanks: save.blankGems.slice(), cur: Object.assign({}, save.cur), skills: Object.assign({}, save.skills), supports: save.supports.slice(), bar: save.bar.slice(), boots: save.equip.boots };
+      const put = (kind, data) => { const l = G.spawnLoot(kind, data, P.x, P.z); l.x = P.x; l.z = P.z; return l; };
+      const toasts = [];
+      const mo = new MutationObserver((ms) => { for (const m of ms) for (const n of m.addedNodes) if (n.nodeType === 1) toasts.push(n.textContent); });
+      mo.observe(document.getElementById('toasts'), { childList: true });
+      const lines = () => Array.from(document.querySelectorAll('#feed .fd')).map((n) => n.innerText.replace(/\s+/g, ' ').trim());
+      try {
+        save.bag.length = 0;
+        save.equip.boots = G.rollItem(10, 2, 'boots'); // 脚上穿着一双稀有的：捡到的普通鞋子不是 ▲
+        G.computeStats();
+        // 1）三件没有 ▲ 的普通物品 + 三个同种通货：两行
+        G.ui.feedClear();
+        const whites = [];
+        for (let i = 0; i < 60 && whites.length < 3; i++) {
+          const it = G.rollItem(1, 0, 'boots');
+          const v = G.ui.verdict(it);
+          if (!(v && v.badge === 'up')) whites.push(it);
+        }
+        for (const it of whites) G.pickup(put('item', it));
+        for (let i = 0; i < 3; i++) G.pickup(put('cur', 'dust'));
+        out.merge = { lines: lines(), want: ['普通物品 ×3', G.CURRENCY.dust.name + ' ×3'], whites: whites.length };
+        const fd = document.querySelector('#feed .fd');
+        out.style = { h: fd.getBoundingClientRect().height, font: getComputedStyle(fd).fontSize };
+        // 2）重复的技能宝石两颗：一行合计
+        G.ui.feedClear();
+        const have = Object.keys(save.skills).find((id) => save.skills[id] > 0 && !G.SKILLS[id].weaponOnly);
+        save.blankGems = [];
+        out.useful = G.blankUseful(); // 还有能学的技能：重复的化成无铭宝石（gem-nolvl）
+        G.pickup(put('skill', { id: have }));
+        G.pickup(put('skill', { id: have }));
+        out.dup = { lines: lines(), want: '重复宝石 → ' + G.BLANK_GEM.short + ' ×2', blanks: save.blankGems.length };
+        // 3）四颗新的辅助宝石占满四行，再来一个通货：通货不挤掉宝石；再来一颗新技能宝石：挤掉最早的那颗辅助宝石
+        G.ui.feedClear();
+        save.supports = [];
+        const sids = Object.keys(G.SUPPORTS).slice(0, 4);
+        for (const id of sids) G.pickup(put('support', id));
+        G.pickup(put('cur', 'augment'));
+        out.full = lines();
+        const fresh = G.blankTargets().find((id) => !save.skills[id]);
+        out.fresh = !!fresh;
+        if (fresh) G.pickup(put('skill', { id: fresh }));
+        out.full2 = lines();
+        out.names = sids.map((id) => '辅助宝石 · ' + G.SUPPORTS[id].name);
+        out.freshName = fresh ? '新技能 · ' + G.SKILLS[fresh].name : '';
+      } finally {
+        mo.disconnect();
+        save.bag = keep.bag;
+        save.blankGems = keep.blanks;
+        save.cur = keep.cur;
+        save.skills = keep.skills;
+        save.supports = keep.supports;
+        save.bar = keep.bar;
+        if (keep.boots) save.equip.boots = keep.boots;
+        else delete save.equip.boots;
+        G.ui.feedClear();
+        T.clearLoot();
+        G.computeStats();
+        G.persist();
+      }
+      out.toasts = toasts;
+      return out;
+    });
+    assert(r.merge.whites === 3 && JSON.stringify(r.merge.lines) === JSON.stringify(r.merge.want), '普通物品 / 同种通货应各并成一行：' + JSON.stringify(r.merge));
+    assert(r.style.h <= 26 && r.style.font === '13px', '桌面上一行应在 26 px 以内、13 px 字：' + JSON.stringify(r.style));
+    assert(r.useful && r.dup.blanks === 2 && JSON.stringify(r.dup.lines) === JSON.stringify([r.dup.want]), '重复的技能宝石应并成一行「重复宝石 → 无铭宝石 ×2」：' + JSON.stringify(r.dup));
+    assert(JSON.stringify(r.full) === JSON.stringify(r.names), '行满了时通货不应挤掉宝石：' + JSON.stringify(r.full));
+    assert(r.fresh && JSON.stringify(r.full2) === JSON.stringify(r.names.slice(1).concat([r.freshName])), '新技能宝石应挤掉最早的一行：' + JSON.stringify(r.full2) + ' / ' + r.freshName);
+    assert(!r.toasts.length, '拾取不应弹 toast：' + JSON.stringify(r.toasts));
+    return r.merge.lines.join('、') + '；' + r.dup.lines[0];
   });
 
   await step('掉落：升华石 / 乱流石 / 重铸石权重提高，琢刻石介于其间；首领首杀保底升华石和乱流石各一颗；分解稀有物品有几率给其一；辅助宝石掉率提高、首领掉三颗；重复的辅助宝石照旧化为增幅尘', async () => {
@@ -2074,7 +2251,7 @@ async function main() {
       const l = G.spawnLoot('support', 'multi', P.x, P.z);
       T.tp(l.x, l.z);
       G.debug.step(0.5);
-      out.dup = { picked: S.loot.indexOf(l) < 0, aug: save.cur.augment - aug0, n: save.supports.length, toast: T.toasts() };
+      out.dup = { picked: S.loot.indexOf(l) < 0, aug: save.cur.augment - aug0, n: save.supports.length, toast: T.toasts(), feed: document.getElementById('feed').innerText.replace(/\s+/g, ' '), want: '重复辅助宝石 → ' + G.CURRENCY.augment.name + ' ×1' };
       save.supports = sup0;
       T.clearLoot();
       G.persist();
@@ -2094,7 +2271,7 @@ async function main() {
     assert(!r.salvUnlucky.exalt && !r.salvUnlucky.chaos && !r.salvMagic.exalt && !r.salvMagic.chaos, '没中几率 / 魔法物品不应给：' + JSON.stringify(r));
     assert(r.salvRate > 0.12 && r.salvRate < 0.3, '分解稀有物品给升华石 / 乱流石的比例不对：' + r.salvRate);
     assert(r.supRate.mob > 0.027 && r.supRate.mob < 0.0525 && r.supRate.elite > 0.33 && r.supRate.elite < 0.6, '辅助宝石掉率应是普通 3.75%、精英 45%（辅助加到 33 种后 ×1.5，区间按原来的相对宽度）：' + JSON.stringify(r.supRate));
-    assert(r.dup.picked && r.dup.aug === 1 && r.dup.n === 1 && r.dup.toast.includes('增幅尘'), '重复的辅助宝石应化为 1 增幅尘：' + JSON.stringify(r.dup));
+    assert(r.dup.picked && r.dup.aug === 1 && r.dup.n === 1 && r.dup.feed.includes(r.dup.want) && !r.dup.toast.includes('重复'), '重复的辅助宝石应化为 1 增幅尘，拾取记录里写一行（不弹 toast）：' + JSON.stringify(r.dup));
     return '升华石 ' + (w.pExalt * 100).toFixed(1) + '%，琢刻石 ' + ((w.chisel / w.tot) * 100).toFixed(1) + '%，辅助宝石 普通 ' + (r.supRate.mob * 100).toFixed(1) + '% / 精英 ' + (r.supRate.elite * 100).toFixed(0) + '%';
   });
 
@@ -3898,6 +4075,97 @@ async function main() {
     assert(r.shots >= 9, '拉弓没射出几箭：' + JSON.stringify(r));
     assert(!r.bad.length, r.bad.slice(0, 6).join(' ｜ ') + ' 共 ' + r.bad.length + ' 例');
     return r.shots + ' 箭：出手那一帧都已撒放，前一帧都拉满搭着箭';
+  });
+
+  // thrall-gear（T36）：刻式「骸弓」的仆从拿弓、背箭袋（和剑盾仆从同一副骷髅、同样几块网格，不加 draw call）；拉弓 / 撒放跟着它真正射出的那一箭；
+  // 刻式在召唤物活着时换了（技能页、戴上 / 摘下渊契），剑盾 ↔ 弓跟着换；只动画面
+  await step('骸弓：仆从拿弓、背箭袋（网格块数和剑盾仆从一样、关节 ≤ 24、有搭箭的 muzzle 挂点）；出手那一帧弦已回直、弦上没箭，前一帧拉满搭着箭；战斗中换刻式，剑盾 ↔ 弓跟着换，血条 / 脚环 / 生命不丢不重', async () => {
+    const r = await ev((code) => {
+      eval(code);
+      const P = G.player, W = G.world, S = G.state, save = G.save, out = { shots: 0, bad: [], swaps: [] };
+      const keepVar = Object.assign({}, save.variants), keepBuild = T.buildSnap(), keepAuto = JSON.stringify(save.autoSummon || {});
+      const meshes = (e) => {
+        let n = 0;
+        e.group.traverse((o) => { if (o.isMesh) n++; });
+        return n;
+      };
+      const isBow = (m) => !!(m.ent && m.ent.rig && m.ent.rig.bowRig);
+      try {
+        const a = W.makeMinion('thrallBow'), t = W.makeMinion('thrall');
+        out.rig = { bowJ: a.rig.joints.length, swordJ: t.rig.joints.length, bowM: meshes(a), swordM: meshes(t), bowTris: a.rig.tris, swordTris: t.rig.tris, muzzle: !!a.rig.sockets.muzzle };
+        W.removeEnt(a);
+        W.removeEnt(t);
+        save.skills.thrall = Math.max(30, save.skills.thrall || 0); // 刻式要宝石等级够才生效
+        save.sockets.thrall = save.sockets.thrall || [null, null, null];
+        save.bar = ['thrall', null, null, null];
+        for (const k in save.autoSummon) save.autoSummon[k] = false;
+        save.variants.thrall = 'a';
+        G.applyVariants();
+        G.computeStats();
+        T.lane();
+        const od = T.openDir(10), F = Math.atan2(od.x, od.z);
+        const m = G.summonMinion('thrall', P.x + Math.sin(F) * 0.5 - Math.cos(F) * 1.5, P.z + Math.cos(F) * 0.5 + Math.sin(F) * 1.5, G.skillCtx('thrall'));
+        out.kind = m.ent.kind;
+        const sp = T.spotNear(m.x, m.z, 6, F);
+        const e = G.spawnMob('husk', sp.x, sp.z, 1, { awake: true });
+        e.wasAwake = true;
+        e.hp = e.maxHp = 1e7;
+        e.atkCd = 1e9;
+        e.speed = 0;
+        let prev = null;
+        for (let i = 0; i < 480 && out.shots < 6; i++) {
+          const s0 = S.stats.vArrows | 0;
+          G.tick(1 / 60);
+          const J = m.ent.rig.J, cur = { nock: m.ent.out[J.wA + 6], draw: m.ent.tbDk || 0 };
+          if ((S.stats.vArrows | 0) > s0) {
+            out.shots++;
+            if (cur.nock !== 0 || cur.draw !== 0) out.bad.push('第 ' + i + ' 帧出手时弦上还有箭 / 弦没回直 ' + JSON.stringify(cur));
+            if (prev && (prev.nock < 0.99 || prev.draw < 0.9)) out.bad.push('第 ' + i + ' 帧出手前一帧没拉满 / 弦上没箭 ' + JSON.stringify(prev));
+          }
+          prev = cur;
+        }
+        // 战斗中换刻式（敌人醒着、仆从正在射）：骸弓 → 骸爆（剑盾）→ 骸弓。实体换掉，召唤物本身（生命、位置、目标）不动；场景里的实体数不变
+        G.summonMinion('thrall', m.x + 1, m.z, G.skillCtx('thrall'));
+        for (let i = 0; i < 60; i++) G.tick(1 / 60);
+        for (const v of ['b', 'a']) {
+          const ms = S.minions.filter((x) => !x.dead && x.kind === 'thrall'), old = ms.map((x) => x.ent), hp = ms.map((x) => x.hp / x.maxHp);
+          const n0 = S.minions.length, c0 = W.scene.children.length, sw0 = S.stats.minionGearSwaps | 0;
+          save.variants.thrall = v;
+          G.applyVariants();
+          G.computeStats();
+          G.refreshMinions();
+          const row = { v, n: ms.length, swaps: (S.stats.minionGearSwaps | 0) - sw0, list: S.minions.length - n0, scene: W.scene.children.length - c0 };
+          out.swaps.push(row);
+          ms.forEach((x, i) => {
+            const want = v === 'a';
+            if (isBow(x) !== want) out.bad.push('换成 ' + v + ' 后第 ' + i + ' 具仍拿着' + (want ? '剑盾' : '弓'));
+            if (x.ent === old[i] || !old[i].removed || old[i].group.parent) out.bad.push('换成 ' + v + ' 后第 ' + i + ' 具的旧实体没拿掉');
+            if (x.ent.removed || !x.ent.group.parent || !x.ent.ring || !x.ent.ring.visible) out.bad.push('换成 ' + v + ' 后第 ' + i + ' 具的新实体不在场景里 / 没有脚环');
+            if (Math.abs(x.hp / x.maxHp - hp[i]) > 1e-9) out.bad.push('换成 ' + v + ' 后第 ' + i + ' 具的生命比例变了');
+            const gp = x.ent.group.position;
+            if (Math.hypot(gp.x - x.x, gp.z - x.z) > 1e-6) out.bad.push('换成 ' + v + ' 后第 ' + i + ' 具的实体不在它的位置上');
+          });
+          if (row.swaps !== ms.length || row.list !== 0 || row.scene !== 0) out.bad.push('换成 ' + v + '：换了 ' + row.swaps + ' 具（应 ' + ms.length + '）、召唤物数 ' + row.list + '、场景实体数 ' + row.scene + '（都应不变）');
+          for (let i = 0; i < 40; i++) G.tick(1 / 60);
+          if (S.minions.filter((x) => !x.dead && x.kind === 'thrall').length !== ms.length) out.bad.push('换成 ' + v + ' 后过了 40 帧召唤物少了');
+        }
+      } finally {
+        save.variants = keepVar;
+        save.autoSummon = JSON.parse(keepAuto);
+        G.applyVariants();
+        T.buildRestore(keepBuild);
+        G.clearMinions();
+        T.arena();
+      }
+      return out;
+    }, rangedSetup);
+    const g = r.rig;
+    assert(g.bowM === g.swordM && g.bowJ <= 24 && g.muzzle, '骸弓的骨架：网格 ' + g.bowM + ' 块（剑盾 ' + g.swordM + '）、关节 ' + g.bowJ + '、muzzle ' + g.muzzle);
+    assert(r.kind === 'thrallBow', '刻式「骸弓」召出来的不是持弓的骨架：' + r.kind);
+    assert(r.shots >= 6, '骸弓没射出几箭：' + JSON.stringify(r));
+    assert(r.swaps.length === 2 && r.swaps.every((s) => s.n >= 2), '换刻式的场景没跑起来：' + JSON.stringify(r.swaps));
+    assert(!r.bad.length, r.bad.slice(0, 6).join(' ｜ ') + ' 共 ' + r.bad.length + ' 例');
+    return '网格 ' + g.bowM + ' 块（同剑盾）、关节 ' + g.bowJ + '、面 ' + g.bowTris + '（剑盾 ' + g.swordTris + '）· ' + r.shots + ' 箭出手那一帧都已撒放、前一帧拉满 · 战斗中换刻式 ' + r.swaps.map((s) => s.v + ' 换 ' + s.swaps + ' 具').join('、') + '，召唤物 / 场景实体数不变';
   });
 
   // skill-5a：宝石技能的出手动作按握法出版本（长柄 / 双手枪拿着什么都不撒手），拖尾只给有刃的武器；只动画面
@@ -8168,12 +8436,18 @@ async function main() {
       let calls = 0;
       const sr0 = G.salvageResult;
       G.salvageResult = (it) => (calls++, sr0(it));
+      // pickup-feed：拾取记录最多 4 行，后面捡到的稀有 / 烬铸可能把这一行挤掉；这里看的是分解有没有并进上面那一行（没有另起一行）
+      const ocEl = document.querySelector('#feed .fd.offcls');
+      let ocNew = 0;
+      const ocMo = new MutationObserver((ms) => { for (const m of ms) for (const n of m.addedNodes) if (n.nodeType === 1 && n.classList.contains('offcls')) ocNew++; });
+      ocMo.observe(document.getElementById('feed'), { childList: true });
       G.debug.step(0.6);
+      ocMo.disconnect();
       G.salvageResult = sr0;
       out.auto = {
         loot: G.state.loot.length, calls, curUp: JSON.stringify(save.cur) !== cur1,
         keep: Object.keys(keepers).filter((k) => save.bag.includes(keepers[k])).join(), gone: gone.filter((it) => !save.bag.includes(it)).length,
-        uqOff: G.offClassItem(keepers.uq), feed: feed(), lines: document.querySelectorAll('#feed .fd.offcls').length,
+        uqOff: G.offClassItem(keepers.uq), feed: ocEl ? ocEl.textContent : '', ocNew,
       };
       // 3）自己丢下的：捡回来照常进背包（不分）
       const mine = W(2, 'hammer');
@@ -8202,7 +8476,7 @@ async function main() {
     assert(r.feed1.txt === r.feed1.want, '第一件的拾取记录不对：' + JSON.stringify(r.feed1));
     assert(r.feedN.txt === r.feedN.want && r.feedN.lines === 1, '几件应并成一行、按通货合计：' + JSON.stringify(r.feedN));
     assert(r.auto.loot === 0 && r.auto.keep === 'own,ownM,lock,uq' && r.rq === false && r.auto.gone === 3 && r.auto.calls === 3 && r.auto.curUp && r.auto.uqOff, '自动拾取：本职业 / 锁定 / 烬铸 / 渊契应进背包，别的职业的分掉：' + JSON.stringify(r.auto));
-    assert(r.auto.lines === 1 && r.auto.feed.startsWith('自动分解 8 件'), '自动拾取的分解应接着并进同一行：' + JSON.stringify(r.auto));
+    assert(r.auto.ocNew === 0 && r.auto.feed.startsWith('自动分解 8 件'), '自动拾取的分解应接着并进同一行：' + JSON.stringify(r.auto));
     assert(r.own.flag && r.own.back, '自己丢下的应照常捡回来：' + JSON.stringify(r.own));
     assert(r.trader, '拾烬客买的别的职业的武器应进背包');
     assert(r.full.off && r.full.own && r.full.n === r.full.max, '背包满了：别的职业的应照样分掉，本职业的留在地上：' + JSON.stringify(r.full));
@@ -23166,15 +23440,7 @@ async function main() {
     const avg = (k) => (r.stats.reduce((a, s) => a + s[k], 0) / r.stats.length).toFixed(0);
     return '20 个种子：面积 ' + avg('area') + ' m²、关键路径 ' + avg('len') + ' m、怪 ' + avg('mobs') + '；进区怪 ' + r.enter.map((e) => e.n + '（布局 + 光栅化 ' + e.ms + 'ms）').join(' / ');
   });
-
-  await titleSteps();
-  await storySteps();
-  await slotSteps();
-  await classSteps();
-  await d2bSteps(); // 职业 D2b-1（class-d2b1）
-  await d2b2Steps(); // 职业 D2b-2（class-d2b2）
-  await imbueSteps(); // 装填 / 散钉 / 反冲弹 / 绊雷（imbue 批）
-  await lootWarmStep(); // 掉落模型都在启动预热里建好（列车 2）
+  // 后面的块（title … tail）由 main() 接着跑，见 FUNC_BLOCKS
 }
 
 // ------------------------------------------------------------------ 职业（class-d2）
@@ -27442,8 +27708,7 @@ async function titleSteps() {
     const n = await ev(() => G.questStep());
     return '主线 n ' + n;
   });
-
-  await touchSteps();
+  // 接下来的 touch 块（touchSteps）由 main() 接着跑，见 FUNC_BLOCKS
 }
 
 // ------------------------------------------------------------------ 触屏（mobile M1，设计稿 game-workspace/notes/mobile-design §5）
@@ -29472,8 +29737,7 @@ async function touchSteps() {
     await ev(() => G.ui.close());
     return out.map((r) => r.size).join(' / ');
   });
-
-  await uiSteps();
+  // 接下来的界面布局（uiSteps）：整套跑时由 main() 按 ui-t1 / ui-t2 / ui-desk 三块接着跑；--touch 时在这之后跑，见文件末尾
 }
 // 界面布局那一组（各面板的触屏 / 桌面布局、桌面样式、天赋页）：触屏组末尾跑；node test/smoke.mjs --ui 单独跑这一组
 async function uiSteps() {
@@ -29481,9 +29745,18 @@ async function uiSteps() {
   // 闲着的那个 GPU 进程照样空转（SwiftShader 下一个浏览器的 GPU 进程不管页面在不在动都吃 3 个核左右，冻结页面也不降），机器满载时拖慢别人。
   // 种子：每一步开始时 step() 给「当前的 page」播种，以前那个 page 是上一步的（另一个浏览器）；这里在换到这一步的浏览器之后，
   // 按以前实际落到它身上的那个名字再播一次（触屏步骤用上一个面板桌面那一步的名字，桌面步骤用同一面板触屏那一步的名字），每个浏览器拿到的随机序列和以前一样
-  const PANELS = ['bag', 'stash', 'map', 'help', 'settings', 'char', 'skills', 'trader', 'title', 'tree'];
-  for (let i = 0; i < PANELS.length; i++) await uiLayoutSteps(PANELS[i], 'touch', i ? uiStepName(PANELS[i - 1], 'desk') : null);
-  await uiLayoutClose('touch');
+  await uiTouchSteps(0, UI_PANEL_ORDER.length);
+  await uiDeskSteps();
+}
+const UI_PANEL_ORDER = ['bag', 'stash', 'map', 'help', 'settings', 'char', 'skills', 'trader', 'title', 'tree'];
+// 触屏布局的第 a … b - 1 个面板（UI_PANEL_ORDER）。keep：下一块接着用这个触屏浏览器（ui-t1 后面紧跟 ui-t2），不关
+async function uiTouchSteps(a, b, keep) {
+  const PANELS = UI_PANEL_ORDER;
+  for (let i = a; i < b; i++) await uiLayoutSteps(PANELS[i], 'touch', i ? uiStepName(PANELS[i - 1], 'desk') : null);
+  if (!keep) await uiLayoutClose('touch');
+}
+// 桌面布局、桌面样式，以及界面布局那一组最后自己开浏览器的几步
+async function uiDeskSteps() {
   const desk = (p) => uiLayoutSteps(p, 'desk', p === 'bag' ? null : uiStepName(p, 'touch'));
   await desk('bag');
   await uiDeskStyleStep();
@@ -29738,6 +30011,19 @@ function treeFitCheck() {
     if (px < 10.95) out.push('名字 ' + t.textContent + ' ' + px.toFixed(1) + ' px');
   }
   return out.slice(0, 4);
+}
+// CINDER_FP=1：界面布局每个面板开头打一行 fp（存档 JSON、localStorage 的哈希；现在的种子名的哈希）。用来比分片开头的状态和整套跑时是不是一样
+// （test/README.md「分片」）。每次跑都会变的先换掉：物品 uid（'i' + Date.now 的 36 进制 + 计数 + 随机段）换成 U，存档索引里按原文算的哈希 h 换成 H，
+// 12 位以上的数字（时间戳）换成 T
+function uiStateFp() {
+  const h = (str) => {
+    let x = 2166136261;
+    for (let i = 0; i < str.length; i++) x = Math.imul(x ^ str.charCodeAt(i), 16777619);
+    return (x >>> 0).toString(16);
+  };
+  const mask = (t) => String(t).replace(/\bi[0-9a-z]{10,16}\b/g, 'U').replace(/(\\?"h\\?":)\d+/g, '$1H').replace(/\d{12,}/g, 'T');
+  const ls = Object.keys(localStorage).sort().map((k) => k + '=' + mask(localStorage.getItem(k))).join('\n');
+  return 'save ' + h(mask(JSON.stringify(G.save))) + ' ls ' + h(ls) + ' seed ' + h(window.__testRand ? window.__testRand.key() : '');
 }
 // 布局检查用的角色：30 级、学会全部技能、背包 29 件、身上有戒指和胸甲、仓库 18 件
 async function uiFixture() {
@@ -30196,13 +30482,18 @@ async function uiLayoutSteps(panel, mode, key) {
       const fresh = !uiPages[mode];
       if (!uiPages[mode]) {
         if (browser && !Object.values(uiPages).some((u) => u.browser === browser)) await browser.close().catch(() => {}); // 前面步骤留下的浏览器（布局步骤自己的两个留着，三个面板共用）
-        ({ browser, page, errors } = await launch(mode === 'touch' ? { width: 844, height: 340, mobile: { scale: 2 }, dpr: null } : { width: 1366, height: 768, dpr: null }));
+        // 这个浏览器整套跑时总是在第一个面板（背包）那一步开的、用它的名字播种；分片时可能从后面的面板开头（ui-t2），照样用背包那一步的名字，
+        // 布局用的角色（uiFixture 掷的物品）就和整套跑时一样
+        const seed0 = panel !== UI_PANEL_ORDER[0] && SEEDED ? { seed: seedKey(uiStepName(UI_PANEL_ORDER[0], mode)) } : {};
+        ({ browser, page, errors } = await launch(Object.assign(mode === 'touch' ? { width: 844, height: 340, mobile: { scale: 2 }, dpr: null } : { width: 1366, height: 768, dpr: null }, seed0)));
         const fx = await uiFixture();
         if (mode === 'touch') touch = await touchKit();
         uiPages[mode] = { browser, page, errors, fx };
       }
       await uiUse(mode);
-      if (key && !fresh) await reseed(key);
+      // 整套跑时只有第一个面板会新开浏览器（key 为空）；分片时从后面的面板新开的，开完照样按整套跑时的名字播种
+      if (key && (!fresh || panel !== UI_PANEL_ORDER[0])) await reseed(key);
+      if (process.env.CINDER_FP) console.log('fp ' + panel + '/' + mode + ' ' + (await ev(uiStateFp)));
       const fx = uiPages[mode].fx;
       const bad = [];
       let nStates = 0;
@@ -30317,7 +30608,7 @@ async function uiLayoutSteps(panel, mode, key) {
 
 // 跑哪几份：默认两份都跑（先 func 后 timed，各用一个新浏览器）；--func / --timed 只跑一份。
 // 只跑 func，或在 cc-slot 的池里跑（CC_SLOT_HELD=pool:…，或手动设 CC_POOL=1）时，每行的耗时和 ms 数字标成不可比
-const PARTS = process.argv.includes('--func') ? ['func'] : process.argv.includes('--timed') ? ['timed'] : process.argv.includes('--touch') ? ['touch'] : process.argv.includes('--ui') ? ['ui'] : ['func', 'timed'];
+const PARTS = SHARD || process.argv.includes('--func') ? ['func'] : process.argv.includes('--timed') ? ['timed'] : process.argv.includes('--touch') ? ['touch'] : process.argv.includes('--ui') ? ['ui'] : ['func', 'timed'];
 const POOL = !!process.env.CC_POOL || /^pool:/.test(process.env.CC_SLOT_HELD || '');
 const sum = (p, f) => (f ? '失败 ' + f + ' 项，' : '') + '通过 ' + p + ' 项';
 (async () => {
@@ -30329,20 +30620,20 @@ const sum = (p, f) => (f ? '失败 ' + f + ' 项，' : '') + '通过 ' + p + ' �
   for (const part of PARTS) {
     NC_TAG = POOL || (part === 'func' && PARTS.length === 1) ? ' [pool, not comparable]' : '';
     cheap = (part === 'func' || part === 'touch' || part === 'ui') && !process.env.CINDER_FULL;
-    console.log('== test:' + part + ' · HEAD ' + head + ' · ' + new Date().toISOString() + ' · 槽位 ' + (process.env.CC_SLOT_HELD || '无') + (cheap ? ' · 省渲染 dpr ' + CHEAP_DPR + '（' + FULL_RES.length + ' 类步骤按 1）' : '') + (NC_TAG ? ' · 耗时数字不可比' + NC_TAG : '') + ' · Chrome 日志 ' + LOG_DIR.replace(/^.*\/(test-logs\/)/, '$1') + (part === 'timed' && POOL ? ' · 警告：计时步骤在池里跑，结果不作数' : ''));
+    console.log('== test:' + part + ' · HEAD ' + head + ' · ' + new Date().toISOString() + ' · 槽位 ' + (process.env.CC_SLOT_HELD || '无') + (SHARD && part === 'func' ? ' · 分片 ' + SHARD.k + '/' + SHARD.n + '（' + SHARD.blocks.join(' ') + '）' : '') + (cheap ? ' · 省渲染 dpr ' + CHEAP_DPR + '（' + FULL_RES.length + ' 类步骤按 1）' : '') + (NC_TAG ? ' · 耗时数字不可比' + NC_TAG : '') + ' · Chrome 日志 ' + LOG_DIR.replace(/^.*\/(test-logs\/)/, '$1') + (part === 'timed' && POOL ? ' · 警告：计时步骤在池里跑，结果不作数' : ''));
     // 外层 timeout 剩的时间不到正常耗时的两倍左右（池里 test:func 45–56 分钟）就先警告一行
     const tw = outerTimeoutWarning(part === 'func' ? 100 : part === 'touch' || part === 'ui' ? 30 : 15);
     if (tw) console.log(tw);
     const p0 = passed, f0 = failed;
     try {
-      await (part === 'func' ? main() : part === 'touch' ? touchSteps() : part === 'ui' ? uiSteps() : timedMain());
+      await (part === 'func' ? main() : part === 'touch' ? touchSteps().then(uiSteps) : part === 'ui' ? uiSteps() : timedMain());
     } catch (e) {
       failed++;
       console.log('FAIL 测试脚本自身出错 — ' + (e && e.stack ? e.stack : e));
     }
     if (browser) await browser.close().catch(() => {});
     browser = page = errors = null;
-    per.push('test:' + part + ' ' + sum(passed - p0, failed - f0));
+    per.push('test:' + part + (SHARD && part === 'func' ? ' 分片 ' + SHARD.k + '/' + SHARD.n : '') + ' ' + sum(passed - p0, failed - f0));
   }
   if (AUDIT) {
     const top = auditWaits.slice().sort((a, b) => b.ms / b.guard - a.ms / a.guard).slice(0, 12);

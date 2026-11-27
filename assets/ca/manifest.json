@@ -1464,7 +1464,7 @@
    "ship": true,
    "replaces": null,
    "tris": 4304,
-   "verts": 11616,
+   "verts": 11606,
    "materials": 1,
    "textures": 1,
    "bounds": {
@@ -1521,7 +1521,7 @@
     "wick_w"
    ],
    "home": "pin",
-   "sha256": "74406548a1fb6bdabfe5551b0bfedeea4f68310a9a567904b7119c4f4177a11b"
+   "sha256": "539a44dc47e8ddfebed5ce10af83884b3c75201d8304a82dac6e47343909ec0a"
   },
   {
    "id": "ca/boss_warden",
@@ -1531,7 +1531,7 @@
    "ship": true,
    "replaces": null,
    "tris": 4860,
-   "verts": 12224,
+   "verts": 12213,
    "materials": 1,
    "textures": 1,
    "bounds": {
@@ -1582,7 +1582,7 @@
     "walk"
    ],
    "home": "storm",
-   "sha256": "4191cda4c0ea78d67cabc49ab3556494ec4a91a51205f84035c867679ab6daae"
+   "sha256": "adaeaf639005cabe4c99836a6f86147b9d52f42bfc047deb1f5fe791ffbbaa69"
   },
   {
    "id": "ca/boss_weaver",
@@ -1592,7 +1592,7 @@
    "ship": true,
    "replaces": null,
    "tris": 4446,
-   "verts": 12094,
+   "verts": 12174,
    "materials": 1,
    "textures": 1,
    "bounds": {
@@ -1643,7 +1643,7 @@
     "walk"
    ],
    "home": "frost",
-   "sha256": "2059b73c00906fa57284c0acb9b593239d276120ed014d0c81619d22663120df"
+   "sha256": "890956b7f981f83481d92c4ab156760f80232a97c35aea8e7eff10dd2e1852b7"
   },
   {
    "id": "ca/crown_brazier",
