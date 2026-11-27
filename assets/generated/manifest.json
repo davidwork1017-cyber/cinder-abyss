@@ -118,14 +118,14 @@
      "bytes": 8659
     },
     "normal": {
-     "pix": "fe24cb38f056423ccb35cb15498193734ea6a3245ba92b4b461065fdf1b9c83e",
-     "jpg": "1044fa10e8ab711415c26ef03acd094c1c4010bc12cc8b34d3f6f247de2abe55",
-     "bytes": 6988
+     "pix": "668e1b1d6405e55c4eb6c01899cde8b919d0e26447bc595fa7bde675db918982",
+     "jpg": "9200a2b3f6c19efd4181cdec8eae24483f8b01f97f314c2273e5c873914fa198",
+     "bytes": 7555
     },
     "arh": {
-     "pix": "007805c53b9358535504917c31f269561c6db24f307a30eafded2134ef00ac60",
-     "jpg": "f955e2d82a2c84edd8c44871012639322dbec1adfa4753135a06e58326984154",
-     "bytes": 8579
+     "pix": "fd90cabfc13d0b94b22991490eb23f1e2c25d62283a2571560f9743d0d426722",
+     "jpg": "9ca6ef5dff63e57a4d876001d52820284f1923b72dfb3a860f09c4741a1cb80b",
+     "bytes": 8826
     }
    },
    "lo": {
@@ -137,9 +137,9 @@
       "bytes": 3674
      },
      "arh": {
-      "pix": "048cd11b2637d2a8e841981827dc8ba467a100ceff5ed18b4629dc24cbaebe51",
-      "jpg": "7de3f93d77e79ee6096f6dd84ced229e6fb14a2304f3903509ca0f5789783a9c",
-      "bytes": 3684
+      "pix": "6dedded4df5432e04174053448104737e6cf124ad7d6d1b6b8d7632289f05cd8",
+      "jpg": "1523561dcad6e137563746997af25ff0155e7fddb810d5e044e7ec435325ded5",
+      "bytes": 3765
      }
     }
    }
@@ -236,33 +236,33 @@
    },
    "maps": {
     "albedo": {
-     "pix": "6587807986fa7844b870d017dadf8e07a0cd9df9c8be078b3513683a6c557e4f",
-     "jpg": "d4167f25965ecdc291020195acfc0a7a60fa1311918dfae1fdb950037df6ac3c",
-     "bytes": 18140
+     "pix": "5dbc8b2d080a921767a5b3ecee3668211152c24f2f5685f04b59a229cfbe32b5",
+     "jpg": "49c1131aeb3e689fd0ae6f7203ae207cdb7b672dc8c675cf259cf2b50c58b24f",
+     "bytes": 12710
     },
     "normal": {
-     "pix": "39ff5551fa1af4bd6d3361bca679f1e56a6d24b091a238422230004942509f02",
-     "jpg": "14df44a32a406f65b92d67e3ac7c64d787a8ba74bc644e58410d5f2d640e397c",
-     "bytes": 22040
+     "pix": "dd8e5bf441faed292c7acd69babb14bef5bf9b6104daa51b15e37538010441af",
+     "jpg": "d4b7d1d0c4673d1335583afba432bf9a72482002964096792e628d2411d0b195",
+     "bytes": 15699
     },
     "arh": {
-     "pix": "ed85dcb494377f0a24546a7a3e6bacef37a0c9e0bbc9ff0069f4580856206b8c",
-     "jpg": "1091575afdb0d9a2336d1562963ec1434b3cd64973cb158c0652583ed64a0113",
-     "bytes": 22006
+     "pix": "3191f3d61d499b1cfed74f1cda98f279cc97c822ce804974b82a98b0a0912df6",
+     "jpg": "b676c75bd6f8eb4e1295d7b90706826709b5853438b73988cb5d8fd279a32a98",
+     "bytes": 16109
     }
    },
    "lo": {
     "px": 256,
     "maps": {
      "albedo": {
-      "pix": "08eb3be87e36e0f213fc5260648e16dc5ebc32e77c3cadf9c24b866ebcd974d1",
-      "jpg": "8c0e0d28ad3dd27e26b5eabbacde18b59939a19e01cd972adb9ec76662fc5234",
-      "bytes": 7436
+      "pix": "c8035cb7036e5f66ebe47a77b60d77256e6cdad1c30eb56a3996b667f0879e06",
+      "jpg": "e6b9524666d8445e43ae3a48c2391c35d589910df69a7f9ec33e54ed6f7ce7d6",
+      "bytes": 5272
      },
      "arh": {
-      "pix": "f9fe6d05461db097abdb7b60d04cb69d0034ffa0b6070fc2de8598005fa28343",
-      "jpg": "0928890f86ecd475aa2fa13f29b465a8b315b03dc422b1645a71a5318aa6de34",
-      "bytes": 8755
+      "pix": "df92322426fdf09f4d61560cea61a8df837979978c1e29e1e4c927267081f0b2",
+      "jpg": "d04edef683c7c15dcb21b15ada34cbd61a402688f823d28bea56fef2f4b43493",
+      "bytes": 6597
      }
     }
    }
@@ -323,14 +323,14 @@
      "bytes": 12979
     },
     "normal": {
-     "pix": "90114fd64ae8859d2ad92aa1a1ac1db155881c61e2e6b1403d833229ca2e8704",
-     "jpg": "1cfd331af2c53f5bfb1d0f196f9741478f123d51a1c6406a9c2dfe052052a65c",
-     "bytes": 11552
+     "pix": "10d1ba10144032a206e4b8b6824ca2e890a501da09659bcf6e2ce5009a250e88",
+     "jpg": "71187d9f482908062f4ab714c72fca80942650e61e020e97af133829f0ecc55d",
+     "bytes": 12108
     },
     "arh": {
-     "pix": "cfaba30130c11d67b0d221b765379f4a0b4d6a48918f07540321901d25d6684b",
-     "jpg": "9246c5bc7c118569a30844a24cc086d4ee28352d1126b578afd3dfc2e961e2e0",
-     "bytes": 20310
+     "pix": "0ff68d8fddcdeb5597dc191ba72524f3716b0fd55d8e8ab3b375f1ed4c5d9f52",
+     "jpg": "e06d6ee3f95cf43943fd7d405d33edc251825603506cc3b2636e37f4123b40d9",
+     "bytes": 20269
     }
    },
    "lo": {
@@ -342,9 +342,9 @@
       "bytes": 5460
      },
      "arh": {
-      "pix": "b07578da5b311e52776a7b20331fd68a596ac7f44e9f071336ee91ee727c83ba",
-      "jpg": "9ea88a42516d81d3da4612ffe0733de542598e2c2d1d86b179a70de320b95077",
-      "bytes": 7617
+      "pix": "f6de240ac1f22890b5bd382c1ca43c46f04ba73436c830718c04ef5664d5c07f",
+      "jpg": "9c6ff275e8193f2883a57d8bdd0f164a06c4e5c73f0bfd6c66886fa04c189d69",
+      "bytes": 7605
      }
     }
    }

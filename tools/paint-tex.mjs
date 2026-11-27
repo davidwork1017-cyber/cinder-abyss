@@ -510,7 +510,8 @@ const TEX = {
       let t = 0.92 + (lid - 0.5) * 0.12 + (A[2] - 0.5) * 0.04 + (lo - 0.5) * 0.2 + 0.05 * lip - 0.05 * toe + 0.02 * calm;
       t = 0.8 + 0.34 * poster(clamp01((t - 0.72) / 0.42), 4, 0.42);
       t *= 1 - 0.42 * crack;
-      const h = clamp01(0.62 + 0.06 * (0.5 - fr) - 0.48 * cL - 0.42 * cA - 0.24 * cB + 0.04 * (lo - 0.5));
+      // 台面高（0.74）：覆盖层的腐壳按高度混合，只积在缝里和低处，不从台面上冒出一颗颗暗点；缝照样低于 0.42（熔岩光沿缝走）
+      const h = clamp01(0.74 + 0.06 * (0.5 - fr) - 0.58 * cL - 0.54 * cA - 0.34 * cB + 0.04 * (lo - 0.5));
       return { c: [t * 0.5 * 1.01, t * 0.5, t * 0.5 * 1.02], h, ao: 1 - 0.35 * crack - 0.06 * toe, rough: 1 };
     },
   },
@@ -544,19 +545,19 @@ const TEX = {
     nrm: 1.5,
     fn(u0, v0, S) {
       const [u, v] = warp(u0, v0, 4, 0.03, S + 50);
-      const A = worley(u, v, 5, S, 0.5);
+      const A = worley(u, v, 4, S, 0.5);
       const [, , id, cx, cy] = A;
       const ang = id * 6.2832, plane = (cx * Math.cos(ang) + cy * Math.sin(ang)) * 0.4;
       const lo = fbm(u0, v0, 3, 2, S + 6);
       let t = 0.82 + 0.22 * id + plane * 0.5 + (lo - 0.5) * 0.22;
       t = 0.66 + 0.56 * poster(clamp01((t - 0.5) / 0.85), 5, 0.42);
-      const brk = sstep(0.42, 0.6, fbm(u0, v0, 4, 2, S + 80));
-      const cA = line(edgePx(A[1] - A[0], 5), 1.8 * brk * (0.6 + 0.6 * fbm(u0, v0, 14, 1, S + 70)));
+      const brk = sstep(0.5, 0.66, fbm(u0, v0, 4, 2, S + 80));
+      const cA = line(edgePx(A[1] - A[0], 4), 1.8 * brk * (0.6 + 0.6 * fbm(u0, v0, 14, 1, S + 70)));
       const B = worley(u, v, 12, S + 20, 0.9);
       const cB = line(edgePx(B[1] - B[0], 12), 1.0 * (id > 0.65 ? 1 : 0) * sstep(0.4, 0.6, fbm(u0, v0, 9, 2, S + 90)));
       const crev = Math.max(cA, cB * 0.7);
-      const val = t * (1 - 0.5 * crev);
-      const h = clamp01(0.55 + plane * 0.6 + (id - 0.5) * 0.25 - crev * 0.5);
+      const val = t * (1 - 0.36 * crev);
+      const h = clamp01(0.55 + plane * 0.6 + (id - 0.5) * 0.25 - crev * 0.4);
       return { c: [val * 0.5 * 1.01, val * 0.5, val * 0.5 * 1.03], h, ao: 1 - 0.45 * crev, rough: 1 };
     },
   },
@@ -594,7 +595,8 @@ const TEX = {
       t *= (1 - 0.3 * joint) * (1 - 0.2 * conch);
       const near = (1 - sstep(jw, jw + 6, eA)) * 0.4 * brk;
       t *= 1 - 0.06 * near;
-      const h = clamp01(0.6 + 0.03 * (fl - 0.5) - 0.45 * joint - 0.12 * conch - 0.04 * near);
+      // 板面高（0.72）：覆盖层的苔尘只积在缝里，不从板面上冒出暗点
+      const h = clamp01(0.72 + 0.03 * (fl - 0.5) - 0.5 * joint - 0.12 * conch - 0.04 * near);
       return { c: [t * 0.5 * 0.99, t * 0.5 * 1.01, t * 0.5], h, ao: 1 - 0.35 * joint - 0.15 * conch, rough: clamp01(0.55 + 0.4 * joint + 0.15 * (1 - fl)) };
     },
   },
