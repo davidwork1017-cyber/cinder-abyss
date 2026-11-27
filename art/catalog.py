@@ -123,7 +123,7 @@ CATALOG = [
     # dict(id='ca/gear_mine', gen='field_mine', seed=233, cat='prop', zone='gear', ship=True, replaces=None,
     #      bake=dict(ao=0.3, grad=0.2, wear=0.45, grime=0.25), finish=dict(dust=0.0), cues=dict(second=False, val=0.14, lichen=0)),
     dict(id='ca/gear_mine', gen='ai', seed=233, cat='prop', zone='gear', ship=True, replaces=None, args=dict(prov='assets/ai/gear_mine/provenance.json', lod='hi', mode='vc'),
-         bake=dict(ao=0.15, grad=0.2, wear=0.35, grime=0.1), finish=dict(dust=0.0, cues=False)),
+         bake=dict(ao=0.1, grad=0.15, wear=0.35, grime=0.05), finish=dict(dust=0.0, cues=False)),
     # ---- 首领（boss-design）：带骨架、蒙皮和动作，assets/ca/boss/<kind>.glb；id = ca/boss_<kind>，zone 写 boss，home = 打进哪一区的首领包（js/assets/boss-<kind>.js）。
     # 生成器在 art/ca/boss/<kind>.py（造型 + 骨架 + 软接缝），动作表在 art/ca/boss/<kind>_clips.py ----
     # 熔渣巨像（ai3d-golem，用户 2026-11-26 批准）：外观换成 AI 生成的 golem-a-01（文生图 → 图生 3D，源文件不进仓库），art/ai/golem_rig.py 对到同一副骨架、
