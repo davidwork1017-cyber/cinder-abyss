@@ -1107,6 +1107,15 @@ await step('旋转横屏 · 主屏幕 App · 可见区（rot-safe）：iPhone 17
 // 原因：刚打开时视口是 812，之后变成 874，world.js 的 resize 先跑、读到旧尺寸，画布停在 812；HUD 按 874 摆。
 // 模型见 test/devices.mjs（standaloneContext + launch / settle）。在 be309c4 上这一步不过（画布到 812、小地图被切、主攻键伸出 812）
 const { probeBand, probeBandJudge } = await import('./rot-standalone.mjs'); // t45：画面测试色带截图取色（放在这里，和文件头的 import 行分开）
+// 画面测试的色带要真的画出来再截图：画布那条是 W.render 里 scissor clear 画的，至少要再渲染一帧。原来固定等 400 ms，机器忙时 WebKit 一秒只画一两帧，
+// 截图时画布那条还没画上（底下露出 html 的品红底色，toast-zero 列车上 393×852 cw 出过一次）。改成按帧等：≥ 4 帧（requestAnimationFrame）而且 ≥ minMs
+async function paintFrames(p, n = 4, minMs = 400) {
+  const t0 = Date.now();
+  await p.evaluate(() => (window.__pfN = 0));
+  await p.waitForFunction((k) => (window.__pfN = (window.__pfN || 0) + 1) >= k, n, { polling: 'raf', timeout: 60000 });
+  const left = minMs - (Date.now() - t0);
+  if (left > 0) await p.waitForTimeout(left);
+}
 // t45（2026-11-26）：真机「画面测试」截图（标题画面）里七条有六条画到了屏幕底，3D 画布也是；叠加层那条是空的，因为标题画面本来就把叠加层藏了
 // （style.css 的 html.title-on #overlay；模拟里同样如此，叠加层在游戏里和 3D 画布一样大）。所以：HUD 不再停在 clientHeight，到 屏幕 − 底部横条；
 // 画面测试开着时标题画面也放出叠加层（只画色带）。这一步新查：标题画面和游戏里七条色带都在屏幕底那一截画出来（截图取色），叠加层和 3D 画布同一个盒子
@@ -1145,7 +1154,7 @@ await step('旋转横屏 · 主屏幕 App · 画布铺满、HUD 到屏幕底减�
       // t45：标题画面开着画面测试，七条都画到屏幕底（真机截图里叠加层那条是空的）；只在 cw 上取色（ccw 时竖着的屏幕底边是标题暗色渐变最深的一头）
       if (dir === 'cw') {
         await pev(() => G.touch.probe(true));
-        await p.waitForTimeout(400);
+        await paintFrames(p);
         const tb = await probeBand(p, dev);
         bad.push(...probeBandJudge(tb, where + ' 标题画面'));
         const leg = await pev(() => Array.from(document.querySelectorAll('.t-probe')).map((e) => e.textContent).join('|'));
@@ -1191,7 +1200,7 @@ await step('旋转横屏 · 主屏幕 App · 画布铺满、HUD 到屏幕底减�
           if (!(gy[0] >= dev.height - dev.sb - 1 && gy[1] <= dev.height + 1)) bad.push(where + ' 画面测试的画布色带不在屏幕底那一截：' + gy.join('–'));
           // t45：关掉菜单（菜单的底色会压暗画布那几条），游戏里七条都画到屏幕底
           await pev(() => G.ui.close());
-          await p.waitForTimeout(400);
+          await paintFrames(p);
           bad.push(...probeBandJudge(await probeBand(p, dev), where + ' 游戏里'));
           await launch(p, dev, async () => {
             await p.reload();
