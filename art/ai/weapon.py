@@ -10,6 +10,8 @@
 #     （游戏里发光本来就是另一份几何体）。逐面判定再减面的话，几百面时发光区的轮廓碎成锯齿；分开减，两边的边界都留得住，也没有裂缝。
 #   - 坐标：先转到武器自己的坐标（长轴 = Blender +Z，「上」= +X：刃宽 / 枪背的方向，厚度 = Y），按 length 缩放到真实尺寸，
 #     原点放在握把中心（grip：包围盒里的归一化位置）。游戏端再换算到手的武器关节和掉落模型的坐标（world.js 的 AIW_FIT）。
+#   - 规则（发光的 glow.rules、要删的 drop）：颜色条件 h / s / v，可以再加几何条件 at（面心在包围盒里的归一化范围）和 facing（法线朝向）；
+#     只有几何条件的规则按位置判（生成时发光褪色了的件：沿刃 / 弓臂的一道窄带）。
 #   - part：只要一段（机炮的枪管束单独成一件，挂在会转的关节上）：按长轴的归一化位置切开，面心在范围内的留下。
 # 确定性：不用随机数；k-means 的初值按亮度分位数取，迭代次数固定。
 import json
@@ -38,7 +40,22 @@ def _hsv(rgb):
     return h, s, mx
 
 
+def _geo_ok(r, nc, nrm):
+    """规则里的几何条件：at = 面心在包围盒里的归一化范围 {"up" / "thick" / "long": [a, b]}；facing = [轴, 最小点积]（法线朝向，比如 ["+z", 0.5] 只要刃面）"""
+    if 'at' in r:
+        for k, i in (('up', 0), ('thick', 1), ('long', 2)):
+            if k in r['at'] and not (r['at'][k][0] <= nc[i] <= r['at'][k][1]):
+                return False
+    if 'facing' in r:
+        ax, lo = r['facing']
+        d = AX[ax]
+        if nrm[0] * d[0] + nrm[1] * d[1] + nrm[2] * d[2] < lo:
+            return False
+    return True
+
+
 def _rule_hit(h, s, v, r):
+    """规则的颜色条件（h / s / v 的范围，都可省；只有几何条件的规则 = 纯按位置判，生成时发光褪色了的件用）"""
     ok = np.ones(h.shape, dtype=bool)
     if 'h' in r:
         lo, hi = r['h']
@@ -203,6 +220,31 @@ def build(k, prov, lod='hi', part=None):
         loose = [v for v in bm.verts if not v.link_faces]
         if loose:
             bmesh.ops.delete(bm, geom=loose, context='VERTS')
+    bm.normal_update()  # 摆正以后面法线要重算（规则的 facing 用）
+    if spec.get('drop'):
+        # drop：删掉的部分（断成碎段的链子之类），规则和发光的一样（颜色 + 几何条件），面内 4 点过半命中就删
+        uvd = bm.loops.layers.uv.active
+        bm.faces.ensure_lookup_table()
+        sp0 = np.array(hi - lo)
+        dead = []
+        for f in bm.faces:
+            uv = np.array([tuple(l[uvd].uv) for l in f.loops])
+            uv[:, 1] = 1.0 - uv[:, 1]
+            h, s_, v = _hsv(importer._sample(px, W4 @ uv))
+            nc = (np.array(f.calc_center_median()) - np.array(lo)) / sp0
+            m = np.zeros(4, dtype=bool)
+            for r in spec['drop']:
+                if ('at' in r or 'facing' in r) and not _geo_ok(r, nc, f.normal):
+                    continue
+                m |= _rule_hit(h, s_, v, r)
+            if m.mean() >= 0.5:
+                dead.append(f)
+        if dead:
+            bmesh.ops.delete(bm, geom=dead, context='FACES')
+            loose = [v for v in bm.verts if not v.link_faces]
+            if loose:
+                bmesh.ops.delete(bm, geom=loose, context='VERTS')
+        log['dropped'] = len(dead)
     bm.faces.ensure_lookup_table()
     bm.faces.index_update()
     bm.verts.index_update()
@@ -223,7 +265,10 @@ def build(k, prov, lod='hi', part=None):
         col[i] = importer.s2l(smp).mean(axis=0)
         h, s, v = _hsv(smp)
         m = np.zeros(4, dtype=bool)
+        nc = (cen[i] - np.array(lo)) / span
         for r in G['rules']:
+            if ('at' in r or 'facing' in r) and not _geo_ok(r, nc, f.normal):
+                continue
             m |= _rule_hit(h, s, v, r)
         hit[i] = m.mean()
     glow = hit >= G.get('frac', 0.5)
