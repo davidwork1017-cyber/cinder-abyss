@@ -22598,7 +22598,8 @@ async function main() {
     const P = r.pinned, K = P.kinds;
     assert(P.seed === 777 && P.gen === 'custom' && P.h1 === P.h2, '固定种子进区两次布局应一样：' + JSON.stringify(r));
     // zones-polish：霜骨沼泽加长到 ×1.6（岛 4 → 6–7、旁支 3 → 4–5、宝箱 2 → 3、怪群 10–14 → 16–24）；关键路径 = 起点 + 岛 + 场地 + 其间的连接 = 2 × 岛数 + 3
-    assert(K.start === 1 && K.arena === 1 && K.room >= 6 && K.room <= 7 && P.path === 2 * K.room + 3 && K.side >= 4 && K.side <= 5 && P.chests === 3 && P.packs >= 16 && P.packs <= 24, '固定种子的第 1 区布局应符合设计（岛 6–7、关键路径 = 2 × 岛数 + 3、旁支 4–5、宝箱 3、怪群 16–24）：' + JSON.stringify(P));
+    // map-loops：旁支 4–5 → 正好 4（只放普通怪群的第 5 个小岛去掉了；3 个垫脚岛走环路 + 1 个死路宝箱岛）
+    assert(K.start === 1 && K.arena === 1 && K.room >= 6 && K.room <= 7 && P.path === 2 * K.room + 3 && K.side === 4 && P.chests === 3 && P.packs >= 16 && P.packs <= 24, '固定种子的第 1 区布局应符合设计（岛 6–7、关键路径 = 2 × 岛数 + 3、旁支 4、宝箱 3、怪群 16–24）：' + JSON.stringify(P));
     // 不固定种子：每次进区都换布局（owner 决定 10），种子是新取的
     assert(r.unpinned === null && typeof r.seed0 === 'number' && r.seed0 !== 777 && r.seed1 !== r.seed0 && r.fresh && r.tp, 'zoneSeed(null) 后应恢复每次进区换布局，tpRoom 应落在房间里：' + JSON.stringify(r));
     return r.ids.join(' ');
@@ -22874,8 +22875,8 @@ async function main() {
     const r = await ev(() => {
       G.debug.hold(true);
       const W = G.world, out = { bad: [] };
-      // 20 个种子：校验通过、是新生成器（不是 legacy）、关键路径 6–7 个岛、4–5 个旁支 3 个宝箱、精英 ≤ 6（关键路径 ≤ 5，精英旁支正好 1 个）、
-      // 每个房间的怪物等级按 lvFor 折算、2 块薄冰、有浅水、场地 4 根柱子（size-frost：原来 3 个旁支 2 个宝箱、精英 ≤ 4）
+      // 20 个种子：校验通过、是新生成器（不是 legacy）、关键路径 6–7 个岛、4 个旁支 3 个宝箱、精英 ≤ 6（关键路径 ≤ 5，精英旁支正好 1 个）、
+      // 每个房间的怪物等级按 lvFor 折算、2 块薄冰、有浅水、场地 4 根柱子（size-frost：原来 3 个旁支 2 个宝箱、精英 ≤ 4；map-loops：旁支 4–5 → 4）
       for (let s = 1; s <= 20; s++) {
         const g = W.genLayout('frost', s * 7919 + 13), sp = g.spec;
         const why = g.ok ? [] : g.why.slice();
@@ -22883,7 +22884,7 @@ async function main() {
         else {
           const nI = sp.rooms.filter((rm) => rm.kind === 'room').length, nSide = sp.rooms.filter((rm) => rm.kind === 'side').length;
           if (nI < 6 || nI > 7) why.push('关键路径的岛不是 6–7 个');
-          if (nSide < 4 || nSide > 5) why.push('旁支不是 4–5 个');
+          if (nSide !== 4) why.push('旁支不是 4 个');
           if (sp.chests.length !== 3) why.push('宝箱不是 3 个');
           if (sp.packs.filter((p) => p.elite).length > 6) why.push('精英超过 6');
           if (sp.packs.filter((p) => p.elite && sp.rooms[p.room].kind !== 'side').length > 5) why.push('关键路径的精英超过 5');
@@ -23264,6 +23265,40 @@ async function main() {
     assert(r.resp.bossHome, '首领没有复位回满：' + JSON.stringify(r.resp));
     const avg = (k) => (r.stats.reduce((a, s) => a + s[k], 0) / r.stats.length).toFixed(0);
     return '20 个种子：面积 ' + avg('area') + ' m²、关键路径 ' + avg('len') + ' m、怪 ' + avg('mobs') + '；进区怪 ' + r.enter.map((e) => e.n + '（布局 + 光栅化 ' + e.ms + 'ms）').join(' / ');
+  });
+
+  // map-loops：旁支不再全是死路。5 个区 × 20 个种子：每张图最多一条死路（只有一扇门的旁支，也是试锋的点位），它的回头路 ≤ 18 m
+  //（从死路最远的一格走到首领门、和走进去的最短路重合的长度，W.terrain.branchStats）；其余旁支都有两扇门（环路），而且里面有东西（宝箱 / 精英 / 怪群）
+  await step('区域布局 环路：5 个区 × 20 个种子，每张图最多 1 条死路、死路回头路 ≤ 18 m；其余旁支都是有两扇门的环路，环路旁支里都有宝箱 / 精英 / 怪群', async () => {
+    const r = await ev(() => {
+      const W = G.world, out = { bad: [], z: {} };
+      for (const def of G.ZONES) {
+        const st = (out.z[def.id] = { loops: 0, dead: 0, back: 0, n: 0 });
+        for (let s = 1; s <= 20; s++) {
+          const g = W.genLayout(def.id, s * 7919 + 13), sp = g.spec;
+          if (!g.ok || sp.legacy) {
+            out.bad.push(def.id + '#' + g.seed + '：没通过校验 ' + g.why.join('；'));
+            continue;
+          }
+          const b = W.terrain.branchStats(sp);
+          st.n++;
+          st.loops += b.loops;
+          st.dead += b.dead.length;
+          for (const d of b.dead) st.back = Math.max(st.back, d.back);
+          if (b.dead.length > 1) out.bad.push(def.id + '#' + g.seed + '：死路 ' + b.dead.length + ' 条');
+          for (const d of b.dead) if (!(d.back >= 0 && d.back <= 18)) out.bad.push(def.id + '#' + g.seed + '：死路回头路 ' + d.back + ' m');
+          if (b.loops < b.sides - 1) out.bad.push(def.id + '#' + g.seed + '：环路 ' + b.loops + ' / 旁支 ' + b.sides);
+          for (const rm of sp.rooms) {
+            if (rm.kind !== 'side') continue;
+            const doors = sp.links.filter((L) => (L.a === rm.id || L.b === rm.id) && L.door).length;
+            if (doors >= 2 && !sp.chests.some((c) => c.room === rm.id) && !sp.packs.some((p) => p.room === rm.id)) out.bad.push(def.id + '#' + g.seed + '：环路旁支 ' + rm.id + ' 里什么都没有');
+          }
+        }
+      }
+      return out;
+    });
+    assert(!r.bad.length, '旁支的环路 / 死路不对：' + r.bad.slice(0, 6).join(' | '));
+    return Object.keys(r.z).map((k) => k + ' 环路 ' + (r.z[k].loops / r.z[k].n).toFixed(1) + '、死路 ' + (r.z[k].dead / r.z[k].n).toFixed(1) + '（≤ ' + r.z[k].back + ' m）').join('；');
   });
 
   await titleSteps();
