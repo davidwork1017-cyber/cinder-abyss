@@ -6,6 +6,7 @@
   "scripts": {
     "test": "node test/smoke.mjs",
     "test:func": "node test/smoke.mjs --func",
+    "test:func:sharded": "node test/func-sharded.mjs",
     "test:timed": "node test/smoke.mjs --timed",
     "test:webkit": "node test/webkit-smoke.mjs",
     "build:three": "node tools/build-three.mjs",

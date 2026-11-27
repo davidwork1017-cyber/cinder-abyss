@@ -110,12 +110,14 @@ be309c4 在真机上的毛病（第二张截图）：视口从 812 变成 874 �
 现在旋转横屏在主屏幕 App 里这样摆（`js/touch.js` 的 `measure()`，只在这一处量）：
 
 - html 撑到 `100lvh`（`html.t-stand`），body 改成 absolute，画面按 html 量出来的高摆，3D 画布和叠加层铺满；
-- HUD 只放进 `clientHeight`、`visualViewport`、`innerHeight` 最小的那一块，多出来的部分算进竖着的屏幕底边的安全区（`--t-cut`），不管系统往下画到哪，HUD 都不会被裁；
+- HUD 和画面一样到屏幕底，只让出竖着的屏幕底边的横条：`clientHeight` 以下有多出来的一截时 `--t-cut` = 34（和 `env(safe-area-inset-bottom)` 取大的），没有那一截时是 0。这条边在 cw 时是画面的右边，ccw 时是左边；灵动岛那条边照旧按 `env(safe-area-inset-top)` 让开。rot-safe2 时 HUD 还停在 `clientHeight`（真机 812，让出 62）；t45 的真机「画面测试」截图（2026-11-26）证明那一截画得出来，才放到 屏幕 − 34；
 - 画面尺寸一变，`layout()` 再发一次 `resize`；每帧再对一下 `G.world.viewSize()` 和画面尺寸，对不上就补一次。
 
 浏览器标签页里的旋转横屏照旧按 `innerHeight`。
 
-真机上的数值在 设置 → 设备信息（只在触屏模式下有）：画布的 CSS 尺寸、缓冲、渲染尺寸，画布和 HUD 各到竖着的屏幕哪里，各项高度（clientHeight、innerHeight、可视区、100lvh、html）。下面的「画面测试」在屏幕底那一截（clientHeight 到屏幕底）涂七条色带，每条用一种摆法：fixed 贴底、html 里 absolute、body 里 100lvh、html 底色（品红）、body 底色（青）、3D 画布、叠加层；顶上同样高的一条做对照，色带上面一行写着每条是什么。真机截一张图，就知道哪一层画到了屏幕底。它不存，刷新就关。
+真机上的数值在 设置 → 设备信息（只在触屏模式下有）：画布的 CSS 尺寸、缓冲、渲染尺寸，叠加层自己的盒子、缓冲和底边（藏着时写「标题页隐藏」），画布和 HUD 各到竖着的屏幕哪里，各项高度（clientHeight、innerHeight、可视区、100lvh、html）。下面的「画面测试」在屏幕底那一截（clientHeight 到屏幕底）涂七条色带，每条用一种摆法：fixed 贴底、html 里 absolute、body 里 100lvh、html 底色（品红）、body 底色（青）、3D 画布、叠加层；顶上同样高的一条做对照，色带上面一行写着每条是什么。真机截一张图，就知道哪一层画到了屏幕底。它不存，刷新就关。
+
+标题画面平时把叠加层藏着（`html.title-on #overlay`）。2026-11-26 的真机截图是在标题画面截的，叠加层那条因此是空的，并不是叠加层画不到屏幕底：游戏里叠加层和 3D 画布是同一个盒子（`W.resize` 一起定尺寸）。现在画面测试开着时标题画面也放出叠加层（`html.t-probe-on`），上面只画色带；万一还是藏着，说明行写「叠加层 隐藏」。
 
 检查在 `test/rot-standalone.mjs`，webkit 冒烟的「主屏幕 App · 可见区」和「主屏幕 App · 画布铺满」两步用它。
 
