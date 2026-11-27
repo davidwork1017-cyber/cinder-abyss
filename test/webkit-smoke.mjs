@@ -836,6 +836,50 @@ await step('竖屏（iPhone 竖着拿）：标题画面点「横屏开始」→ 
   return '锁横屏 ' + (t0.lock ? '有' : '无') + ' → 旋转 ' + t1.st.rot + '（' + t1.vw + '×' + t1.vh + '），重载后接着转；走了 ' + (m.x - g0.x).toFixed(2) + ' m，主攻 ' + c.casts + ' 次，背包铺满' + (pre.settle ? '（量位移前先把手上的动作做完：' + pre.settle + ' 帧，' + JSON.stringify(pre.was) + '）' : '');
 });
 
+// hint-once：用户在旋转横屏里玩（主屏幕 App）。新手提示卡排在顶栏下面、不压画面中央、最多四行；一出现就记为看过；真手指点一下就收起（不放技能）
+await step('新手提示卡（hint-once）：旋转横屏里「捡到通货」那条排在顶栏下面、不压画面中央；出现即记为看过，点一下收起', async () => {
+  const rot = await ev(() => G.touch.state().rot);
+  await ev(() => {
+    const S = G.save;
+    G.ui.close();
+    G.debug.god(true);
+    G.clearEnemies();
+    S.opts.hints = true;
+    const tut = {};
+    for (const id of G.ui.hints().all) if (id !== 'craft') tut[id] = 1;
+    S.tut = tut;
+    if (!S.bag.length) G.debug.giveItem(1, 'helm');
+    G.ui.hintsGap(0);
+    G.debug.hold(false);
+  });
+  await page.waitForTimeout(800);
+  await ev(() => { G.save.cur.dust = (G.save.cur.dust || 0) + 1; });
+  await until(() => G.ui.hints().current === 'craft' && document.getElementById('coach').classList.contains('on'), null, 30000);
+  await page.waitForTimeout(400); // 淡入
+  const r = await ev(() => {
+    const co = document.getElementById('coach');
+    const b = G.rectToFrame(co.getBoundingClientRect()), top = G.rectToFrame(document.getElementById('t-top').getBoundingClientRect());
+    const W = G.viewW(), H = G.viewH();
+    return {
+      b: { l: Math.round(b.left), t: Math.round(b.top), r: Math.round(b.right), bt: Math.round(b.bottom) }, W, H, topB: Math.round(top.bottom),
+      centre: b.left < W / 2 && b.right > W / 2 && b.top < H / 2 && b.bottom > H / 2,
+      lines: Math.round(G.rectToFrame(co.querySelector('.co-body').getBoundingClientRect()).height / 17),
+      txt: co.innerText.replace(/\s+/g, ' '), seen: !!G.save.tut.craft, stored: Object.keys(localStorage).filter((k) => /"tut":\{[^}]*"craft":1/.test(localStorage.getItem(k) || '')).join(), vis: G.ui.hints().visFor,
+    };
+  });
+  assert(r.b.t >= r.topB - 1 && r.b.l >= 0 && r.b.r <= r.W && !r.centre && r.lines <= 4 && r.txt.includes('通货') && r.txt.includes('「包」'), '提示卡应在顶栏下面、不压画面中央、最多四行：' + JSON.stringify(r));
+  // 当前角色不一定在第 1 栏（这一页是转着新建的角色）；看过的提示也写进全局那份
+  assert(r.seen && /cinder-abyss-global/.test(r.stored) && r.vis >= 6 && r.vis <= 8, '一出现就应记为看过（写进存档）、亮 6–8 秒：' + JSON.stringify(r));
+  // 点之前在放的招（上一步按住主攻留下的）不算：只看点这一下有没有起新的招、有没有按下技能键
+  await ev(() => { window.__c0 = G.player.cast || null; });
+  await tap('#coach');
+  await page.waitForTimeout(300);
+  const after = await ev(() => ({ cur: G.ui.hints().current, on: document.getElementById('coach').classList.contains('on'), casts: !!(G.player.cast && G.player.cast !== window.__c0) || G.input.mouse.b.some(Boolean) || G.input.tap.some((v) => v > 0), gap: G.ui.hints().gapLeft }));
+  await ev(() => G.debug.hold(true));
+  assert(after.cur === null && !after.on && !after.casts && after.gap > 25000, '点一下提示卡应收起、不放技能：' + JSON.stringify(after));
+  return (rot || '不转') + ' ' + r.W + '×' + r.H + '：卡片 ' + (r.b.r - r.b.l) + '×' + (r.b.bt - r.b.t) + '（' + r.lines + ' 行，顶栏下 ' + (r.b.t - r.topB) + ' px），点一下收起';
+});
+
 await step('iPhone 圆角：四角各一块半径 47 px 的遮罩，标题、职业选择、开场故事、HUD（提示卡、旁白卡、首领条、F 键）、背包、技能、暂停菜单、开场卡片的字和按钮都不碰', async () => {
   const c2 = await browser.newContext(Object.assign({}, dev));
   const p2 = await c2.newPage();
@@ -1063,6 +1107,15 @@ await step('旋转横屏 · 主屏幕 App · 可见区（rot-safe）：iPhone 17
 // 原因：刚打开时视口是 812，之后变成 874，world.js 的 resize 先跑、读到旧尺寸，画布停在 812；HUD 按 874 摆。
 // 模型见 test/devices.mjs（standaloneContext + launch / settle）。在 be309c4 上这一步不过（画布到 812、小地图被切、主攻键伸出 812）
 const { probeBand, probeBandJudge } = await import('./rot-standalone.mjs'); // t45：画面测试色带截图取色（放在这里，和文件头的 import 行分开）
+// 画面测试的色带要真的画出来再截图：画布那条是 W.render 里 scissor clear 画的，至少要再渲染一帧。原来固定等 400 ms，机器忙时 WebKit 一秒只画一两帧，
+// 截图时画布那条还没画上（底下露出 html 的品红底色，toast-zero 列车上 393×852 cw 出过一次）。改成按帧等：≥ 4 帧（requestAnimationFrame）而且 ≥ minMs
+async function paintFrames(p, n = 4, minMs = 400) {
+  const t0 = Date.now();
+  await p.evaluate(() => (window.__pfN = 0));
+  await p.waitForFunction((k) => (window.__pfN = (window.__pfN || 0) + 1) >= k, n, { polling: 'raf', timeout: 60000 });
+  const left = minMs - (Date.now() - t0);
+  if (left > 0) await p.waitForTimeout(left);
+}
 // t45（2026-11-26）：真机「画面测试」截图（标题画面）里七条有六条画到了屏幕底，3D 画布也是；叠加层那条是空的，因为标题画面本来就把叠加层藏了
 // （style.css 的 html.title-on #overlay；模拟里同样如此，叠加层在游戏里和 3D 画布一样大）。所以：HUD 不再停在 clientHeight，到 屏幕 − 底部横条；
 // 画面测试开着时标题画面也放出叠加层（只画色带）。这一步新查：标题画面和游戏里七条色带都在屏幕底那一截画出来（截图取色），叠加层和 3D 画布同一个盒子
@@ -1101,7 +1154,7 @@ await step('旋转横屏 · 主屏幕 App · 画布铺满、HUD 到屏幕底减�
       // t45：标题画面开着画面测试，七条都画到屏幕底（真机截图里叠加层那条是空的）；只在 cw 上取色（ccw 时竖着的屏幕底边是标题暗色渐变最深的一头）
       if (dir === 'cw') {
         await pev(() => G.touch.probe(true));
-        await p.waitForTimeout(400);
+        await paintFrames(p);
         const tb = await probeBand(p, dev);
         bad.push(...probeBandJudge(tb, where + ' 标题画面'));
         const leg = await pev(() => Array.from(document.querySelectorAll('.t-probe')).map((e) => e.textContent).join('|'));
@@ -1147,7 +1200,7 @@ await step('旋转横屏 · 主屏幕 App · 画布铺满、HUD 到屏幕底减�
           if (!(gy[0] >= dev.height - dev.sb - 1 && gy[1] <= dev.height + 1)) bad.push(where + ' 画面测试的画布色带不在屏幕底那一截：' + gy.join('–'));
           // t45：关掉菜单（菜单的底色会压暗画布那几条），游戏里七条都画到屏幕底
           await pev(() => G.ui.close());
-          await p.waitForTimeout(400);
+          await paintFrames(p);
           bad.push(...probeBandJudge(await probeBand(p, dev), where + ' 游戏里'));
           await launch(p, dev, async () => {
             await p.reload();
