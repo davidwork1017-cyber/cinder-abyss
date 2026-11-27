@@ -27480,6 +27480,9 @@ async function titleSteps() {
     // 重进灰烬荒原：传送门没了 → 不指，追踪条第 3 行「按 M 打开地图选它」
     await ev(() => G.enterZone(0, 0));
     await frames(3);
+    // 重进区域时素材还在载入，追踪条先藏着、第 3 行要等就绪后才写上：按帧等它写上（最多 120 帧，等不到照样走下面的断言报错）。
+    // 原来固定等 3 帧，机器忙时读到空串（和 8d44dd3 的 questReady 同一类）
+    for (let i = 0; i < 120 && !(await ev(() => G.ui.quest().how)); i++) await frames(1);
     const b = await ev(() => ({ t: G.questTarget(), m: G.world.questMark().on, how: G.ui.quest().how }));
     assert(!b.t && !b.m && b.how === '按 M 打开地图选它', '传送门没了应不指、第 3 行让按 M：' + JSON.stringify(b));
     // 地图卡片角标
