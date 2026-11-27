@@ -1,6 +1,6 @@
 # 自产素材流水线
 
-烬渊的 3D 素材逐步换成我们自己用脚本生成的件：不用 AI 生成 3D，也不在 Blender 里手工建模，形状、配色、细节全部写在 `art/` 下的 Python 脚本里，由无头 Blender（CPU）执行。风格和预算见 [art-style.md](art-style.md)。
+烬渊的 3D 素材逐步换成我们自己用脚本生成的件：不在 Blender 里手工建模，形状、配色、细节全部写在 `art/` 下的 Python 脚本里，由无头 Blender（CPU）执行。风格和预算见 [art-style.md](art-style.md)。2026-11-26 起，静态布景另外试点用 AI 生成的模型做源，见文末「AI 生成的布景件」。
 
 游戏和 `npm test` 都不需要 Blender：生成物（`assets/ca/` 下的 GLB 和清单、`js/assets/kit-*.js` 素材包）一起提交，GitHub Pages 直接发这些文件，不需要 CI 构建。
 
@@ -143,3 +143,84 @@ npm run build:art && git status --short assets/ca js/assets   # 没有输出 = �
 ```
 
 身子长的首领（衔星巨兽）加 `--scale 10.5`（正交相机的取景宽度，米；缺省 7.2）。
+
+## AI 生成的布景件（ai3d-pilot）
+
+这一节是静态布景和摆件；首领的 AI 外观（熔渣巨像）走另一条路，见下一节「AI 生成的首领外观」，角色和别的带动作的东西照旧走上面的生成脚本。现在只有试点的一件（`ca/frost_waystone`）。许可证和来源的规矩见 `assets/README.md` 的「AI 生成」。
+
+源模型由用户生成：文生图（Z-Image Turbo），再图生 3D（TRELLIS.2 或 Pixal3D），得到一个带 PBR 贴图的 GLB。用户把它上传到编排者的收件箱，不进仓库。导入走同一条流水线，没有另起一套：
+
+1. `art/catalog.py` 加一项 `gen='ai'`，`args` 给三样：
+   - `prov`：来源记录 `assets/ai/<件>/provenance.json` 的路径；
+   - `lod`：用哪一档，`processing.lods` 里的 `hi` 或 `lo`；
+   - `mode`：外观，`albedo`（缺省）或 `vc`。
+2. 来源记录里有：源文件的 sha256、提示词、种子、每个组件的版本和许可证、审查结论，以及给 `art/ai/importer.py` 的处理参数 `processing`。处理参数包括：
+   - `rot_deg`：摆正。Pixal3D 的输出按概念图的相机倾斜，TRELLIS.2 的是正的；不知道角度时可以开 `level`，用底部拟合一个平面转平；
+   - `height` / `sink`：真实高度和埋进地面的深度；
+   - `weld` / `min_island` / `float_h`：焊接 UV 缝（源模型沿 UV 缝是断开的，不焊的话减面以后会裂）和删碎块；
+   - `lods`：每一档的三角形数，预算看 `art/budgets.json` 的 `aiprop`：`tris` 是高 / 中画质，`lodTris` 是低画质；
+   - `tex`：反照率贴图的 id、边长，低档要显示时加 `lo_px`，再加 `grade`；
+   - `vc`：调色板版本用哪几行。
+3. `npm run build:art` 时用环境变量 `CA_AI_INBOX` 指向收件箱（目录下是 `<名字>/model.glb`）。导入器依次做这几步：
+   1. 导入，合成一个网格；
+   2. 摆正，焊接，删掉非流形的面和飘在空中的小碎块；
+   3. 原点放在包围盒的水平中心，贴地，缩放到真实高度；
+   4. 减面（Decimate · Collapse），比例按实测修正到预算以内；
+   5. 出外观，二选一：
+      - `albedo`：保留源 UV 和生成的反照率贴图。贴图先把 UV 岛外的空白往外填，免得缩图时缝边渗进底色；再在线性空间里调明暗，用 `tint` 按游戏里的灰度校准；然后盒式缩到 512（低档 256），存成 `assets/ai/<件>/albedo.jpg`。GLB 里不带图，材质叫 `ai_albedo`。顶点色只烘 AO，和脚本件同一套烘焙；
+      - `vc`：每个面取反照率的平均色，量化到共享调色板的几行，和脚本件一样一面一色，不要贴图。
+4. 没有源文件的机器上，构建保留已经提交的生成物，全量构建照样逐字节一致；源文件的 sha256 和来源记录对不上就报错。同一台机器、同一个 Blender 版本重复构建，GLB 和贴图 JPEG 都逐字节相同。
+5. 打包：`albedo` 外观的件焊接成带索引的紧凑网格（`tools/glb.mjs` 的 `packAi`：位置、UV、AO 色、索引），不存法线，游戏端用平直着色。贴图登记在 `tools/asset-sources.json` 的 `textures`（`ai` 类、只有 albedo），打进 `zone-<区>` 包，按贴图预算算显存。
+6. check-art 对 AI 件多查这几项：来源记录齐全，并和清单记的源文件 sha256 一致；没有机器路径或个人信息；目录里没有概念图；贴图登记和尺寸对；重新打包逐字节一致。
+
+游戏端：几何体带 `userData.tex`（贴图 id），材质用 `makeToonMat({ map: zoneTexture(id, 'albedo', { wrap: false }), flat: true })`。贴图是 sRGB 编码的，但和贴花层一样不标 `SRGBColorSpace`，材质设 `DECODE_VIDEO_TEXTURE`，按原始数据过滤、采样后在着色器里解码。调色按解码后的样子在游戏里校准。摆放和别的布景一样，用一个实例化网格，随机数用自己的一路。路标石见 `world.js` 的 `frostStones`。
+
+开发和测试导入器不用真模型：拿 `assets/` 里的 CC0 GLB 细分到二三十万面、倾斜一下就能当输入，这份测试输入不提交。
+
+## AI 生成的首领外观（ai3d-golem 起）
+
+熔渣巨像（`ca/boss_golem`）从 2026-11-26 起用 AI 生成的模型（用户批准），清单里的 `gen` 是 `golem_ai`；原来的脚本巨像 `art/ca/boss/golem.py` 不再打包，骨架 `BONES` 和动作表 `golem_clips.py` 还是从那里来。来源、许可证见 `assets/README.md` 的「AI 生成」和 `assets/ca/boss/golem.provenance.json`。
+
+| 路径 | 内容 |
+| --- | --- |
+| `art/ai/golem_fit.py` | 对骨架（纯 numpy）：源网格等比缩放到米，按切片量出肩 / 肘 / 腕、胯 / 膝 / 踝，躯干、头、烟囱、炉栅的枢轴按候选参数写死；导出用的骨架就是这组枢轴（28 根名字和动作表不变） |
+| `art/ai/golem_rig.py` | 无头 Blender：减面 → 混合蒙皮（UniRig 的权重转到减面后的网格上，头 / 烟囱 / 肩甲这些整块的地方按几何区域改成刚性，每个顶点最多 4 根）→ 不相邻的两块之间拆开补口 → 在源网格上取色（概念图正面投影补裂缝和炉栅）→ 展 UV、烘反照率贴图 → 和脚本首领同一套 `rig.py` 导出 |
+| `art/ai/golem/a01.json` | 候选 golem-a-01 的参数：枢轴、切面、提亮、炉芯，源 GLB / 概念图 / 权重 GLB 的 sha256 |
+| `assets/ca/boss/golem.glb`、`golem_lo.glb` | 生成物：高 / 中用的 7845 个三角形，低画质的减面版 3837 个（不超过原来的 4096），都带一张 512 的反照率贴图 |
+
+- **源文件不进仓库**：源 GLB、概念图、权重 GLB 在私有的 `cinder-ai-src`（环境变量 `CA_AI_ROOT`，缺省 `~/dev/cinder-ai-src`）。没有这些文件的机器上 `npm run build:art` 保留已提交的两个 GLB（打印 `CA_AI_KEEP`），全量构建照样逐字节一致；文件的 sha256 和参数里记的对不上就报错。
+- **贴图**：首领类别在 `art/budgets.json` 里允许一张自己的反照率贴图（`albedo`：JPEG，边长不超过 512，材质名 `ai_golem_albedo`）；`packBoss` 打包时每个角记 UV、贴图原样放进包里（data URL），游戏端（`rigFromGlb` / `bossMap`）按贴图上色。显存按共用贴图算（512 是 1.33 MB）。
+- **减面版**：`tools/asset-sources.json` 里 `boss-golem` 包的 `lo`：两份网格打进同一个包，游戏端低画质用 `golem_lo`（`BOSS_SPEC.golem.lo`），骨架、动作、挂点一样。
+- **单独构建 / 看图**：`npm run build:art -- --only ca/boss_golem,ca/boss_golem_lo`；直接跑 `blender -b --factory-startup --python-exit-code 1 --python art/ai/golem_rig.py -- --spec art/ai/golem/a01.json --out <目录> --modes vc,tex` 出两种外观和 `build.json`（各步的数）。上面的 `--turn` 转台图只认脚本首领。
+
+## AI 生成的技能件（ai3d-skills 起）
+
+技能放出来的实心小件从 2026-11-27 起用 AI 生成的模型（用户要求，冰系先上）。这些件一次施放要画几十个，都是实例化的，所以不带贴图，只做成几十到一百多个三角形、一面一色的小网格。来源、许可证见 `assets/README.md` 的「AI 生成」。
+
+| 件 | 用在哪 | 坐标约定（照被顶替的旧几何体） |
+| --- | --- | --- |
+| `crystal` 冰晶 | 形状批：冰脊、坠凌的冰牙、重凌外沿、冰系命中、霜屑、掉落碎晶，所有用冰晶形状的地方 | 底在 y = 0、尖在 y = 1，横向半径约 0.32；源模型两头尖，下面 0.6 埋进地里 |
+| `icicle` 冰凌 | 形状批：坠凌 / 重凌落下的那根 | 尖在 y = 1（顺着速度朝下），底在 y = 0 |
+| `ichip` 冰碴 | 形状批：冰系的碎块 | 中心在原点，半径约 1（和碎石一样） |
+| `cluster` 冰簇 | 形状批：冰凌落地时脚边那一簇 | 底在 y = 0、高 1，横向半径 0.5 |
+| `pylon` / `pylonBase` 雷桩 | 形状批：雷桩的晶柱和底座（两个实例，各一种颜色） | 底在 y = 0、高 0.9；xz 按米，y 乘柱高 |
+| `shardKv` 冰棱 | 刻式件 shard：冰棱环身、冰爆的冰刺环、标记 | 中心在原点、长轴 ±0.8、横向半径 0.3；低画质用原来的 8 面八面体 |
+| `shardPf` / `shardPfLo` 冰棱 | 投射物零件 shard：法杖的冰片、凛冬箭和霜织者的冰棱 | 长轴沿 +z，从 −0.95 到 1.55；低画质用 36 面的减面版 |
+
+绊雷（`ca/gear_mine`）走布景件那条路：`art/catalog.py` 里是 `gen='ai'`、`mode='vc'`，占地和三角形数都不超过原来的脚本件。
+
+处理：`art/ai/pieces.py`（无头 Blender）读 `art/ai/pieces.json` 列的来源记录 `assets/ai/skill-<件>/provenance.json`，按 `processing.outputs` 一件件出：
+
+1. 导入、去碎块（和布景件共用 `art/ai/importer.py`）；`drop_islands_above` 可以去掉高处整块飘着的岛（雷桩顶上的球，游戏里另画发光的球）；`rot_deg` 摆正，`pca` 把最长的方向转到 +Z、尖的那头朝上；
+2. 每个输出件按自己的 `fit` 缩放摆放（`base` / `center` / `span`），可以再转一次（`rot_deg`）；
+3. 减面：`hull` 的件取凸包，再按角度合并棱面，二分到三角形数刚好不超预算，得到平整的大棱面；不是凸的件（冰簇、雷桩）用 Decimate · Collapse；
+4. 取色：低模每个面取 4 个点，到高模上找最近点、插值 UV、读反照率，按用法烘成三种之一：
+   - `tone`：形状批的色阶，0 暗边、0.26–0.74 带明暗的主色、1 亮面；朝光的程度和反照率亮度混着算，亮面只占面积的一小块（`hot`），暗边一块（`dark`）；
+   - `shade`：刻式件每面的明暗倍数，光照还是着色器算；
+   - `color`：投射物零件每面的线性 RGB，游戏端再照原来的办法烘一遍朝向明暗；
+5. `split`：一件拆成两个（形状批里一个实例只有一种颜色），比如雷桩按高度拆成晶柱和底座；
+6. 全部写进 `js/assets/skill-pieces.js`（`window.CA_SKILL_PIECES`，经典脚本，`index.html` 在 `js/vfx.js` 前面同步引入）。
+
+全量的 `npm run build:art` 最后会跑它；单独跑：`CA_AI_INBOX=<源模型目录> blender -b --factory-startup --python-exit-code 1 --python art/ai/pieces.py`（devbox 上用 `cc-slot batch` 包一层）。源文件不在的机器上保留已经提交的 `skill-pieces.js`；同一个 Blender 版本重复构建逐字节相同。check-art 查每件的三角形数（`art/budgets.json` 的 `pieces`）、形状批的件不超过槽位、逐面数组和面数对得上、每件都对得上来源记录、来源记录里没有个人信息。
+
+游戏端的形状批（`js/vfx.js`）改成槽位布局：原来所有形状合在一个几何体里，每个实例都要跑完全部 401 个三角形的顶点，不管它画的是哪个形状。现在每个形状的顶点放进一张 RGBA32F 的数据纹理，几何体只有一个槽位那么多顶点（150 个三角形），顶点着色器按 `gl_VertexID` 和实例的形状号取顶点。还是一次 draw，每个实例从 401 个三角形降到 150 个；原有形状的三角形一个不差。没有顶点纹理、着色器链接失败，或者网址带 `vshape=merged` 时，退回原来的合并几何体（只有原来的 7 个形状，新形状号映射回冰晶 / 碎石，雷桩照原来的三根晶柱加三块暗石画）。

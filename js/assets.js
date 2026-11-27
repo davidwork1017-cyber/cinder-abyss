@@ -211,8 +211,15 @@
         const e = data.geo[key], f32 = (b) => new Float32Array(b64ToBuf(b));
         const g = new T.BufferGeometry();
         g.setAttribute('position', new T.BufferAttribute(f32(e.p), 3));
-        g.setAttribute('normal', new T.BufferAttribute(f32(e.nn), 3));
         g.setAttribute('color', new T.BufferAttribute(f32(e.c), 3));
+        if (e.i) {
+          // AI 件（ai3d-pilot）：带索引的紧凑包（tools/glb.mjs 的 packAi）+ UV + 反照率贴图的 id（world.js 用 zoneTexture(id, 'albedo') 取）。
+          // 包里不存法线：材质用平直着色；法线按索引补一份平滑的（阴影 / 别的着色器要这个属性时有值）
+          g.setIndex(new T.BufferAttribute(e.i32 ? new Uint32Array(b64ToBuf(e.i)) : new Uint16Array(b64ToBuf(e.i)), 1));
+          g.setAttribute('uv', new T.BufferAttribute(f32(e.u), 2));
+          g.computeVertexNormals();
+          g.userData.tex = e.t;
+        } else g.setAttribute('normal', new T.BufferAttribute(f32(e.nn), 3));
         if (e.g) g.setAttribute('aGlow', new T.BufferAttribute(f32(e.g), 1)); // 余烬（布景材质里当自发光，见 world.js 的 triMaterial）
         g.computeBoundingBox();
         g.computeBoundingSphere();
@@ -225,6 +232,15 @@
       }
     }
     data.geo = null;
+    // 带反照率贴图的首领（ai3d-golem）：贴图在包加载时就解码好（G.assets.need 返回时已经能用），首领建骨架时直接上传、第一帧就有贴图（开场故事的烘焙逐字节可复现）
+    for (const key in data.boss || {}) {
+      const e = data.boss[key];
+      if (!e.tex || e._img) continue;
+      const im = new Image();
+      im.src = e.tex;
+      e._img = im;
+      jobs.push(im.decode().catch(() => {}));
+    }
     await Promise.all(jobs);
     texOfPack[name] = ids; // 模型都解析完才登记：decodeTex 只在这之后才会看到这个包的贴图
     // 模型解析完就丢掉 base64 原文（几何体已经留了一份）；贴图的原文已经挪进 texEntry

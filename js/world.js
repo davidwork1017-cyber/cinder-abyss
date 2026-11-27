@@ -1395,6 +1395,7 @@
     qual = QUALITY[id];
     qualId = id;
     if (G.vfx) G.vfx.U.uLo.value = id === 'low' ? 1 : 0; // vf-vfx：特效着色器里低画质收一点大面积的噪声纹理
+    if (W.pieceLod) W.pieceLod(); // ai3d-skills：AI 技能件换档
     // tex-t2：低档的贴图变体（lo / 不解码）：档位跨过低档就换当前区纹理的图像
     if (G.assets && G.assets.setLow && G.assets.setLow(id === 'low') && renderer) retierZone();
     if (!renderer) return id;
@@ -7561,6 +7562,57 @@
     return out;
   }
   // 灯：栈道两头的立灯（灯柱在 frostDeck 里），灯罩是不受光的亮块 + 地上一小片冷光
+  // ai3d-pilot：路标石——风化的石柱立在碎石和积雪的基座上，第一件 AI 生成的布景件（ca/frost_waystone，art/ai/importer.py；来源见 assets/ai/frost_waystone/provenance.json）。
+  // 纯外观：不进布局、没有碰撞（布局的 cuts 会改可走区域），立在岛边可走区域外面一点的浅水里（和水边的石头一样），只挑背向镜头的岸（外法线朝 -z），
+  // 不挡可走的地面、预警圈和主角。避开门口、栈道、骨柱 / 头骨 / 脊骨和立灯，彼此隔开 14 m 以上，一区 3–6 块，随机朝向。
+  // 随机数用自己的一路（布局的 vseed 派生，不取 Math.random），前后的布景摆放一个不挪；岸边的采样不带抖动（抖动要取 Math.random）。
+  // 一个实例化网格：反照率贴图（512，zone-frost 包的 frost_waystone）× 烘好的 AO 顶点色，平直着色；高 / 中画质同一档几何体，低画质不显示（visible = false：+0 次 draw，
+  // 实例照样建好，布景指纹和高档一样；低档的贴图整套不解码）
+  function frostStones(zone, ctx) {
+    const g = G.assets && G.assets.geo('ca/frost_waystone'), TEX = 'frost_waystone'; // 贴图 id 和包里记的一致（g.userData.tex）
+    if (!g || g.userData.tex !== TEX || !G.assets.tex(TEX)) return null;
+    const rnd = mulberry32(((zone.vseed >>> 0) ^ 0x3a7d51c9) >>> 0), sd = ctx.sd;
+    const doors = zone.links.map((L) => L.door), avoid = [];
+    for (const f of zone.feats) {
+      if (f.kind === 'pillar' || f.kind === 'skull' || f.kind === 'lamp') avoid.push([f.x, f.z, f.kind === 'skull' ? 6 : 3.5]);
+      else if (f.kind === 'spine') for (const q of f.pts) avoid.push([q[0], q[1], 3]);
+    }
+    const cand = [];
+    ctx.edgeSamples(2.4, 0, (x, z, kind, nx, nz) => {
+      if (nz > -0.4) return; // 只要背向镜头的岸
+      const o = 0.5, px = x + nx * o, pz = z + nz * o; // 基座（半径约 0.6 m）压在岸线上
+      if (doors.some((d) => Math.hypot(d.x - px, d.z - pz) < 4.5)) return;
+      if (avoid.some((a) => Math.hypot(a[0] - px, a[1] - pz) < a[2])) return;
+      if (W.walkable(px + nx * 1.4, pz + nz * 1.4, -1.2)) return; // 外面紧挨着别的可走区域（栈道 / 窄水道对岸）：不放
+      const d = sd(px, pz);
+      if (d > -0.3 || d < -0.9) return;
+      cand.push(px, pz);
+    }, { kinds: [MAT.VOID, MAT.WATER] });
+    const n = cand.length / 2, order = [];
+    for (let i = 0; i < n; i++) order.push(i);
+    for (let i = n - 1; i > 0; i--) {
+      const j = Math.floor(rnd() * (i + 1)), t = order[i];
+      order[i] = order[j];
+      order[j] = t;
+    }
+    const list = [];
+    for (const i of order) {
+      if (list.length >= 60) break; // 最多 6 块
+      const x = cand[i * 2], z = cand[i * 2 + 1];
+      let ok = true;
+      for (let k = 0; k < list.length; k += 10) if (Math.hypot(list[k] - x, list[k + 2] - z) < 14) ok = false;
+      if (!ok) continue;
+      const s = 0.92 + 0.22 * rnd();
+      list.push(x, -0.1, z, (rnd() - 0.5) * 0.08, rnd() * TAU, (rnd() - 0.5) * 0.08, s, s * (0.95 + 0.1 * rnd()), s, 1);
+    }
+    if (!list.length) return null;
+    // 反照率是 sRGB 编码的：和贴花层一样不标 SRGBColorSpace（标了会用硬件 sRGB 格式、在线性空间里过滤），按原始数据过滤、采样后在着色器里解码（DECODE_VIDEO_TEXTURE）
+    const m = ctx.makeToonMat({ map: zoneTexture(TEX, 'albedo', { wrap: false }), vertexColors: true, flat: true });
+    m.defines = { DECODE_VIDEO_TEXTURE: '' };
+    const im = ctx.instanced(g, ctx.own(m), list, true, null);
+    if (im) im.visible = !ctx.low;
+    return im;
+  }
   function frostLamps(zone, ctx) {
     const B = [], Gl = [];
     for (const f of zone.feats) {
@@ -7590,6 +7642,7 @@
       st.thin = frostThin(zone, ctx);
       st.shore = frostShore(zone, ctx);
       st.lamps = frostLamps(zone, ctx);
+      st.stones = frostStones(zone, ctx); // ai3d-pilot：路标石（AI 生成的布景件），放在最后、用自己的种子：前面的布景一个不挪
       // 首领场地的法阵压暗：zones-integrate 起是 ZONE_GFX.frost.sigil 旋钮
       frostLive = { zone, st, cracked: {}, tid: -1, t: 0 };
       return st;
@@ -7599,6 +7652,7 @@
       if (low !== st.low) {
         st.low = low;
         if (st.shore.reeds) st.shore.reeds.visible = !low;
+        if (st.stones) st.stones.visible = !low; // ai3d-pilot：路标石低画质不显示（摆放照旧，布景指纹各档一致）
         if (st.water && st.water.U) st.water.U.uMotion.value = low ? 0 : 1;
       }
       // 薄冰的预警：平时裂纹淡淡地呼吸；站上去裂纹越来越亮、闪得越来越快；裂开后发白、圆盘变暗（露出下面的水），复原前慢慢退回去
@@ -12050,6 +12104,7 @@
     g.setAttribute('aSkin', new T.Float32BufferAttribute(o.J, 4));
     g.setAttribute('aSkinW', new T.Float32BufferAttribute(o.W, 4));
     g.setAttribute('aSurf', new T.Float32BufferAttribute(o.S, 2));
+    if (o.U && o.U.length) g.setAttribute('uv', new T.Float32BufferAttribute(o.U, 2)); // ai3d-golem：带贴图的首领包才有
     g.boundingSphere = new T.Sphere(new T.Vector3(0, rig.height * 0.5, 0), rig.height * 0.5 + (rig.reach || 1.5));
     return g;
   }
@@ -12504,6 +12559,7 @@
     const bm = new T.MeshStandardMaterial({ color: lin(tintHex), vertexColors: true, roughness: 1, metalness: 0, envMap: rigEnvMap(), envMapIntensity: 0.9 });
     bm.defines.NB = rig.NB;
     if (rig.skin4) bm.defines.SKIN4 = 1;
+    if (rig.map) bossMapOn(bm, rig.map); // ai3d-golem：带贴图的首领包
     bm.flatShading = RIG_FLAT;
     bm.onBeforeCompile = function (sh) { injectLit(sh, ent); };
     bm.userData.e0 = rig.emis ? lin(rig.emis[0]) : new T.Color(0);
@@ -19796,6 +19852,8 @@
       // T35（全首领明暗）：缺省的暖色染色 + 暖色自发光在灰烬荒原的暖主光下把玄武岩烧成砂岩色（饱和度 0.54，六只首领里最高）、读着发亮。
       // 染色往冷灰里收、自发光换成很淡的中性暖灰：整身压暗一档（灰度均值 42 → ~39），还是暖的暗玄武岩，余烬缝不动
       emis: [0x443e3a, 0.14], tint: 0xd8dce4,
+      // ai3d-golem：外观换成 AI 生成的巨像（art/ai/golem_rig.py，带反照率贴图）；低画质用同一个包里的减面版 golem_lo（不超过原来的 4096 个三角形）
+      lo: 'golem_lo',
     },
     // boss-lord：烬渊之主。剑尖的挂点 = 静止姿态的剑尖（相对 x_sword 枢轴）；冠环（x_crown）在 post 里按时钟转（螺旋时转得快），和原来的程序化外观一样不进动作表
     lord: {
@@ -19885,9 +19943,15 @@
     for (let i = 0; i < 256; i++) { const c = i / 255; t[i] = c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); }
     return t;
   })();
+  // 低画质有减面版（BOSS_SPEC.lo，同一个包里）就用减面版；骨架、动作、挂点一样，只是网格和贴图小
+  const bossLod = (kind) => {
+    const sp = BOSS_SPEC[kind];
+    return sp && sp.lo && qualId === 'low' ? sp.lo : kind;
+  };
   const bossData = (kind) => {
     const sp = BOSS_SPEC[kind], st = sp && window.CA_ASSETS && window.CA_ASSETS[sp.pack];
-    return (st && st.boss && st.boss[kind]) || null;
+    const b = st && st.boss;
+    return (b && (b[bossLod(kind)] || b[kind])) || null;
   };
   let bossPackOff = false; // 测试用（W.debugBossPack）：当作包还没到
   const b64u8 = (s) => {
@@ -19895,6 +19959,26 @@
     for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
     return u;
   };
+  // ai3d-golem：首领包里的反照率贴图（JPEG data URL）→ 贴图（sRGB、不翻转：UV 是 glTF 的 v 朝下），每份数据只建一次
+  function bossMap(d) {
+    if (d._map) return d._map;
+    // 包加载时已经解码好的图（js/assets.js 的 decodePack）直接用；万一还没好，等它加载完再上传
+    // 反照率是 sRGB，但和地面 / 贴花一样不标 SRGBColorSpace（标了 r186 用硬件 sRGB 格式、在线性空间里过滤和生成 mipmap，细碎的暗裂缝会变浅）：
+    // 按原始数据过滤，采样后在着色器里解码（躯体材质设 DECODE_VIDEO_TEXTURE，见 bossMapOn）
+    const im = d._img || new Image(), tx = new T.Texture(im);
+    tx.flipY = false;
+    if (im.complete && im.naturalWidth) tx.needsUpdate = true;
+    else im.addEventListener('load', () => { tx.needsUpdate = true; });
+    if (!d._img) im.src = d.tex;
+    d._map = tx;
+    return tx;
+  }
+  // 躯体材质挂上首领的反照率贴图（建实体时 / 原地换模型时），采样后的 sRGB 解码用 DECODE_VIDEO_TEXTURE
+  function bossMapOn(m, map) {
+    m.map = map;
+    m.defines.DECODE_VIDEO_TEXTURE = '';
+    m.needsUpdate = true;
+  }
   function rigFromGlb(kind) {
     const d = bossData(kind), sp = BOSS_SPEC[kind];
     if (!d) return null;
@@ -19907,6 +19991,10 @@
     // 骨骼序号 → 关节序号（rigBuilder 按加入的顺序编号，和包里的骨骼顺序一样）
     const jOf = d.bones.map((bn) => rig.JI[bn[0]]);
     const body = cBuf(), glow = cBuf(), n = new T.Vector3(), e1 = new T.Vector3(), e2 = new T.Vector3();
+    // ai3d-golem：包里带反照率贴图（d.tex）和每角的 UV（d.uv，Uint16 / 65535）时躯体按贴图上色（颜色 = 贴图 × 角上的颜色，tools/glb.mjs 的 packBoss）；
+    // 调色板首领的包没有这两项，这一段不走
+    const UV = d.uv ? new Uint16Array(b64u8(d.uv).buffer) : null;
+    if (UV) body.U = [];
     for (let t = 0; t < d.nc; t += 3) {
       const a = CI[t], bb = CI[t + 1], c = CI[t + 2];
       e1.set(P[bb * 3] - P[a * 3], P[bb * 3 + 1] - P[a * 3 + 1], P[bb * 3 + 2] - P[a * 3 + 2]);
@@ -19928,6 +20016,7 @@
         } else {
           o.C.push(bossS2L[C8[k]], bossS2L[C8[k + 1]], bossS2L[C8[k + 2]]);
           o.S.push(sf[0], sf[1]);
+          if (UV) o.U.push(UV[(t + q) * 2] / 65535, UV[(t + q) * 2 + 1] / 65535);
         }
         for (let w = 0; w < 4; w++) {
           o.J.push(W8[v * 4 + w] ? jOf[J8[v * 4 + w]] : 0);
@@ -19938,9 +20027,11 @@
     rig.geoBody = cGeo(body, rig);
     rig.geoGlow = cGeo(glow, rig);
     rig.geoAux = null;
+    if (UV) rig.map = bossMap(d);
     rig.tris = (body.P.length + glow.P.length) / 9;
     rig.skin4 = true;
     rig.bossModel = kind;
+    rig.bossLod = bossLod(kind) in ((window.CA_ASSETS[sp.pack] || {}).boss || {}) ? bossLod(kind) : kind; // 用的是哪一份网格（golem / golem_lo），测试对清单用
     rig.hitJ = sp.hitJ.map((nm) => rig.J[nm]);
     // 没有脚的首领（熄烛者：袍子拖地滑行）不写 feet：不贴地，起伏、下沉都在动作里（和原来的程序化外观一样）
     rig.feet = sp.feet ? sp.feet.map((nm) => rig.JI[nm]) : null;
@@ -20069,7 +20160,8 @@
   const bossRigs = Object.create(null);
   function bossGlbRig(kind) {
     if (bossPackOff || window.CA_PROCEDURAL_CHARS || !BOSS_SPEC[kind]) return null;
-    if (kind in bossRigs) return bossRigs[kind];
+    const key = bossLod(kind); // 高 / 中 和低画质各建一份（减面版）
+    if (key in bossRigs) return bossRigs[key];
     if (!bossData(kind)) return null;
     let r = null;
     const t0 = performance.now();
@@ -20080,7 +20172,7 @@
       r = null;
     }
     if (r) r.buildMs = performance.now() - t0;
-    return (bossRigs[kind] = r);
+    return (bossRigs[key] = r);
   }
   // 还在用程序化外观、等着换新模型的首领
   const bossEnts = [];
@@ -20172,6 +20264,7 @@
     ent.coreK = 1;
     ent.meshBody.geometry = r.geoBody;
     if (ent.meshGlow) ent.meshGlow.geometry = r.geoGlow;
+    if (r.map) bossMapOn(ent.bodyMat, r.map); // ai3d-golem：带贴图的首领包
     for (const m of [ent.bodyMat, ent.glowMat, ent.depthMat]) {
       m.defines.SKIN4 = 1;
       m.needsUpdate = true;
@@ -23230,7 +23323,7 @@
       vsEmit(x + Math.sin(a) * d, 0, z + Math.cos(a) * d, Math.sin(a) * 1e-3, 0, Math.cos(a) * 1e-3, vr(0.5, 0.65), vr(0.42, 0.52), vr(0.5, 0.68), vr(0.15, 0.4));
     }
     if (qualId !== 'low') {
-      vsBrush(VSH.chip, 3, 0, 0xcfeeff, 0xcfeeff, 0.3, 0.45);
+      vsBrush(VSH.ichip, 3, 0, 0xcfeeff, 0xcfeeff, 0.3, 0.45); // ai3d-skills：冰碴用 AI 的冰块
       for (let i = 0; i < 2; i++) {
         const a = vr(0, TAU), v = vr(0.8, 1.8);
         vsEmit(x + Math.sin(a) * r * 0.6, 0.35, z + Math.cos(a) * r * 0.6, Math.sin(a) * v, vr(1, 2.2), Math.cos(a) * v, vr(0.5, 0.7), vr(0.05, 0.08), undefined, vr(0, TAU), vr(6, 10), 16);
@@ -24652,6 +24745,53 @@
       return facetShade(g, 0.3, 1, 0.4, 0.45);
     });
   }
+  // ai3d-skills：AI 生成的技能件（js/assets/skill-pieces.js）→ 几何体：每面三个点（不共用顶点，法线就是面法线）；
+  // s（刻式件的逐面明暗）→ 属性 aS，c（投射物零件的逐面线性 RGB）→ 顶点色。件缺了返回 null（调用方用原来的几何体）。
+  // 建几何体会生成 uuid（three 里调 Math.random）：调用方放在 G.vfx.quiet 里建，不动全局的随机序列
+  function pieceGeo(key) {
+    const r = window.CA_SKILL_PIECES && window.CA_SKILL_PIECES[key];
+    if (!r || !r.p) return null;
+    const g = new T.BufferGeometry();
+    g.setAttribute('position', new T.Float32BufferAttribute(r.p, 3));
+    const n = r.p.length / 9;
+    if (r.s) {
+      const a = new Float32Array(n * 3);
+      for (let i = 0; i < n; i++) a[i * 3] = a[i * 3 + 1] = a[i * 3 + 2] = r.s[i];
+      g.setAttribute('aS', new T.BufferAttribute(a, 1));
+    }
+    if (r.c) {
+      const c = new Float32Array(n * 9);
+      for (let i = 0; i < n; i++) for (let j = 0; j < 3; j++) for (let k = 0; k < 3; k++) c[i * 9 + j * 3 + k] = r.c[i * 3 + k];
+      g.setAttribute('color', new T.BufferAttribute(c, 3));
+    }
+    g.computeVertexNormals();
+    return g;
+  }
+  // 投射物零件 shard（法杖的冰片、凛冬箭的冰棱）：高 / 中画质用 AI 的冰棱（60 面），低画质用它的减面版（36 面，和原来的拼件一样多）。
+  // 原来的拼件照旧先建（建的先后、消耗的随机数不变），AI 的在 quiet 里建；画质切换时 W.pieceLod 换几何体
+  let pfShardHi = null, pfShardLo = null;
+  function pfShardGeo() {
+    const old = shardGeo();
+    G.vfx.quiet(() => {
+      const hi = pieceGeo('shardPf'), lo = pieceGeo('shardPfLo');
+      if (hi && lo) {
+        pfShardHi = facetShade(hi, 0.3, 1, 0.4, 0.45);
+        pfShardLo = facetShade(lo, 0.3, 1, 0.4, 0.45);
+      }
+    });
+    return pfShardHi ? (qualId === 'low' ? pfShardLo : pfShardHi) : old;
+  }
+  // 画质切换：AI 技能件换档（刻式件 shard：低画质用原来的 8 面八面体；投射物零件 shard：低画质 36 面）
+  W.pieceLod = function () {
+    const lo = qualId === 'low';
+    if (pfShardHi && PF.shard) PF.shard.mesh.geometry = lo ? pfShardLo : pfShardHi;
+    const K = kvKinds.shard;
+    if (K && kvShardHi) {
+      const g = lo ? kvShardLo : kvShardHi, ig = K.mesh.geometry;
+      ig.index = g.index;
+      for (const k of ['position', 'normal', 'aS']) ig.setAttribute(k, g.getAttribute(k));
+    }
+  };
   // fx：这个零件用特效着色器（js/vfx.js），几何体复制一份挂上逐实例的 aFx（消融进度、种子、亮度、种类）
   function pfPart(name, geom, mat, cap, order, fx) {
     if (fx) geom = G.vfx.quiet(() => geom.clone());
@@ -24717,7 +24857,7 @@
     pfPart('dart', gOct(1), pfSolid, 64, 0);
     pfPart('ring', geo('projRing', () => new T.TorusGeometry(1.75, 0.2, 5, 14)), pfSolid, 200, 0);
     pfPart('blade', bladeGeo(), vc, 64, 0);
-    pfPart('shard', shardGeo(), vc, 64, 0);
+    pfPart('shard', pfShardGeo(), vc, 64, 0); // ai3d-skills：AI 的冰棱（低画质减面版）
     pfPart('blur', gQuad(), add(swooshTex(), T.DoubleSide), 64, 4);
     // vf-vfx：光晕零件换成特效贴图库的多用途材质（js/vfx.js 的 V.multi），命中的火团 / 烟 / 火花 / 冲击环 / 斩击弧 / 电弧序列帧也画在这里（W.fxFlip），不多占 draw call
     glowTex(); // 光晕贴图照旧在这里先建好（陨石的光晕精灵还用它；建的先后不变，全局随机序列和原来一致）
@@ -24760,7 +24900,7 @@
     rangedPfInit(add, vc, flameQuad, quad);
     vdInit();
     // vf-vfx2：形状批（新加的对象在 quiet 里建，不消耗全局随机数）
-    G.vfx.quiet(() => pfPart('vShape', G.vfx.shapeGeo(), G.vfx.shapeMat(), 400, 0, true));
+    G.vfx.quiet(() => pfPart('vShape', G.vfx.shapeGeo(renderer), G.vfx.shapeMat(), 400, 0, true));
 
     // vf-vfx3：掉落物的地面细环 / 光柱 / 柱顶菱形（见 W.makeLoot、lootPfDraw）。实色、不受光、不进雾；光柱的明暗用顶点色画死（下暗、中段最亮、尖上收暗）
     G.vfx.quiet(() => {
@@ -26101,6 +26241,15 @@
       _b3q.setFromEuler(_b3e);
       _pm.compose(_b3p.set(x, y, z), _b3q, _b3s.set(sx, sy, sz));
     };
+    if (G.vfx.shapeSlots) {
+      // ai3d-skills：AI 的雷桩（晶柱 + 底座两个形状，各一个实例；原来是三根晶柱 + 三块暗石 = 六个）。形状高 0.9、xz 按米，y 乘柱高：
+      // 柱尖在 0.9 × 柱高，顶上发光的小球（刻式件 orb，y = 2.35）和柱尖之间留一道缝
+      pose(h.x, 0, h.z, 0, 0.4, 0, 1, hgt, 1);
+      vsNow(VSH.pylon, _b3c.r, _b3c.g, _b3c.b, 0.12, 0.45, 0);
+      pose(h.x, 0, h.z, 0, 0.4, 0, 1, Math.min(hgt, 2.3), 1); // 底座不跟着柱子长高（收起时一起缩回地里）
+      vsNow(VSH.pylonBase, 0.07, 0.065, 0.07, 0, 0.4, 0);
+      return;
+    }
     pose(h.x, 0, h.z, 0, 0.4, 0, 0.62, hgt, 0.62);
     vsNow(VSH.crystal, _b3c.r, _b3c.g, _b3c.b, 0.12, 0.45, 0);
     if (!lo) {
@@ -26779,7 +26928,7 @@
       vsEmit(px, 0, pz, ox * 1e-3, 0, oz * 1e-3, vr(0.5, 0.62), vr(0.34, 0.44) * k, vr(0.8, 1.05) * k, vr(0.25, 0.55));
     }
     if (!lo) {
-      vsBrush(VSH.chip, 3, 0, 0xcfeeff, 0x8cc4e0, 0.2, 0.45);
+      vsBrush(VSH.ichip, 3, 0, 0xcfeeff, 0x8cc4e0, 0.2, 0.45);
       for (let j = 0; j < 2; j++) {
         const a = vr(0, TAU), v = vr(0.8, 1.6);
         vsEmit(cx + Math.sin(a) * half * 0.5, 0.5, cz + Math.cos(a) * half * 0.5, Math.sin(a) * v, vr(1.2, 2.2), Math.cos(a) * v, vr(0.55, 0.75), vr(0.05, 0.08), undefined, vr(0, TAU), vr(6, 10), 16);
@@ -26808,21 +26957,23 @@
   // 一根冰凌从 6 米高斜着落下（细长的冰晶顺着速度拉长），fall 秒到地
   W.icicleFall = function (px, pz, hr, fall) {
     const H = 6, dx = 0.9, vx = -dx / fall, vy = -H / fall;
-    vsBrush(VSH.crystal, 0, 2, 0xb8e4f8, 0x86c4e2, 0.25, 0.5, 0.7);
+    vsBrush(VSH.icicle, 0, 2, 0xb8e4f8, 0x86c4e2, 0.25, 0.5, 0.7); // ai3d-skills：AI 的冰凌（尖朝本地 +y，顺着速度往下）
     vsEmit(px + dx, H, pz, vx, vy, 0, fall, 0.24, 1.05); // 看图后加粗加长：原来在游戏镜头里几乎看不见
   };
   // 冰凌落地：一颗很小的亮芯（≤ 0.6 米、40 毫秒）+ 4 块冰碴弹开（低画质 2 块）+ 脚边一根矮冰晶；地上冻痕（低画质不铺）
   W.icicleLand = function (px, pz, hr) {
     const lo = qualId === 'low';
     tChunk(1, px, 0.35, pz, 0, 0, 0, 0.04, 0.5, 0xe8f8ff, 0xb8e4f8, 0);
-    vsBrush(VSH.chip, 3, 0, 0xcfeeff, 0x7fb4cc, 0.25, 0.45);
+    vsBrush(VSH.ichip, 3, 0, 0xcfeeff, 0x7fb4cc, 0.25, 0.45);
     for (let i = 0, n = lo ? 2 : 4; i < n; i++) {
       const a = vr(0, TAU), v = vr(1.4, 2.8);
       vsEmit(px, 0.3, pz, Math.sin(a) * v, vr(1.5, 3), Math.cos(a) * v, vr(0.45, 0.65), vr(0.05, 0.09), undefined, vr(0, TAU), vr(6, 12), 18);
     }
-    vsBrush(VSH.crystal, 6, 0, 0x8ccbea, 0x5aa6d2, 0.2, 0.55, 0.6);
+    // ai3d-skills：脚边那根矮冰晶换成 AI 的冰簇（半径是冰晶的 1.4 倍，宽度乘 0.7 保持原来的占地）；退回合并几何体时 cluster = 冰晶，宽度照旧
+    const cl = G.vfx.shapeSlots ? 0.7 : 1;
+    vsBrush(VSH.cluster, 6, 0, 0x8ccbea, 0x5aa6d2, 0.2, 0.55, 0.6);
     const a = vr(0, TAU);
-    vsEmit(px, 0, pz, Math.sin(a) * 1e-3, 0, Math.cos(a) * 1e-3, vr(0.45, 0.6), 0.3, vr(0.45, 0.6), vr(0.2, 0.45));
+    vsEmit(px, 0, pz, Math.sin(a) * 1e-3, 0, Math.cos(a) * 1e-3, vr(0.45, 0.6), 0.3 * cl, vr(0.45, 0.6), vr(0.2, 0.45));
     if (!lo) W.vDecal(VVD.frost, px, pz, hr * 0.8, 1.6, 0x7fb4cc, { a: 0.5 });
   };
   // 迸电：胸口一颗很小的亮芯（≤ 1 米、50 毫秒）；8 根折线从身上往外放射到 R（低画质 5 根），隔帧闪灭；外沿只是折线的尽头，没有圆盘；
@@ -26882,7 +27033,7 @@
   // 冰枪扎中：一颗很小的亮芯（≤ 0.45 米、40 毫秒）+ 两块冰碴（低画质 1 块）
   W.lanceTip = function (x, z, hex) {
     tChunk(1, x, 0.7, z, 0, 0, 0, 0.04, 0.45, 0xe8f8ff, 0xb8e4f8, 0);
-    vsBrush(VSH.chip, 3, 0, 0xcfeeff, 0x7fb4cc, 0.2, 0.45);
+    vsBrush(VSH.ichip, 3, 0, 0xcfeeff, 0x7fb4cc, 0.2, 0.45);
     for (let i = 0, n = qualId === 'low' ? 1 : 2; i < n; i++) {
       const a = vr(0, TAU), v = vr(1.2, 2.2);
       vsEmit(x, 0.6, z, Math.sin(a) * v, vr(1.5, 2.6), Math.cos(a) * v, vr(0.45, 0.6), vr(0.05, 0.08), undefined, vr(0, TAU), vr(6, 12), 18);
@@ -26892,7 +27043,7 @@
   W.icicleSlamFall = function (x, z, R, fall) {
     const H = 7, dx = 1.2;
     // 看图后：整根浅色冰晶压在怪身上太亮 → 中间调的冰蓝、亮芯比例压低（落下只有 0.3 秒）
-    vsBrush(VSH.crystal, 0, 2, 0x8cc4e0, 0x6aa2c4, 0.12, 0.6, 0.7);
+    vsBrush(VSH.icicle, 0, 2, 0x8cc4e0, 0x6aa2c4, 0.12, 0.6, 0.7);
     vsEmit(x + dx, H, z, -dx / fall, -H / fall, 0, fall, 0.5, 2.3);
   };
   // 重凌落地：中间一颗小亮芯（≤ 0.6 米、50 毫秒）；冰晶只沿外沿一圈朝外斜立（只画边，低画质 6 根），冰碴往外弹；
@@ -26906,7 +27057,7 @@
       const a = a0 + (i / n) * TAU, sa = Math.sin(a), ca = Math.cos(a), r = R * vr(0.75, 0.92);
       vsEmit(x + sa * r, 0, z + ca * r, sa * 1e-3, 0, ca * 1e-3, vr(0.6, 0.8), vr(0.3, 0.4), vr(0.7, 0.95), vr(0.35, 0.6));
     }
-    vsBrush(VSH.chip, 3, 0, 0xcfeeff, 0x7fb4cc, 0.2, 0.45);
+    vsBrush(VSH.ichip, 3, 0, 0xcfeeff, 0x7fb4cc, 0.2, 0.45);
     for (let i = 0, m = lo ? 4 : 8; i < m; i++) {
       const a = vr(0, TAU), v = vr(2, 4);
       vsEmit(x, 0.4, z, Math.sin(a) * v, vr(2, 3.5), Math.cos(a) * v, vr(0.5, 0.7), vr(0.06, 0.1), undefined, vr(0, TAU), vr(6, 12), 18);
@@ -30395,6 +30546,7 @@
   // =====================================================================
   const KV_MAX = 40;
   const kvKinds = {};
+  let kvShardHi = null, kvShardLo = null; // ai3d-skills：刻式件 shard 的两档几何体（W.pieceLod 换）
   const KV_SOLID = { spike: 1, blade: 1, orb: 1, shard: 1, rock: 1 };
   function kvGeo(kind) {
     let g;
@@ -30421,6 +30573,15 @@
     else if (kind === 'shard') {
       g = new T.OctahedronGeometry(0.5, 0);
       g.scale(0.55, 1.6, 0.55);
+      // ai3d-skills：高 / 中画质换成 AI 的冰棱（60 面，同样中心在原点、长轴 ±0.8、横向半径约 0.3，每面带明暗倍数 aS）；
+      // 低画质还是这个八面体（aS 全是 1）。AI 的在 quiet 里建（原来的照旧先建，随机序列不变）
+      const ai = G.vfx.quiet(() => pieceGeo('shardKv'));
+      if (ai) {
+        g.setAttribute('aS', new T.BufferAttribute(new Float32Array(g.getAttribute('position').count).fill(1), 1));
+        kvShardLo = g;
+        kvShardHi = ai;
+        g = qualId === 'low' ? g : ai;
+      }
     } else if (kind === 'rock') {
       g = new T.DodecahedronGeometry(0.5, 0);
       const p = g.getAttribute('position');
@@ -30438,8 +30599,14 @@
     return g;
   }
   const KV_VERT = [
-    'attribute vec3 aC; attribute float aA; attribute float aK; varying vec3 vC; varying float vA; varying float vK; varying vec3 vN; varying vec3 vV; varying vec2 vUv; varying float vY;',
-    'void main(){ vC = aC; vA = aA; vK = aK; vUv = uv; vY = position.y;',
+    'attribute vec3 aC; attribute float aA; attribute float aK; varying vec3 vC; varying float vA; varying float vK; varying vec3 vN; varying vec3 vV; varying vec2 vUv; varying float vY; varying float vS;',
+    '#ifdef KV_SHADE',
+    'attribute float aS;', // ai3d-skills：AI 件的逐面明暗倍数
+    '#endif',
+    'void main(){ vC = aC; vA = aA; vK = aK; vUv = uv; vY = position.y; vS = 1.0;',
+    '#ifdef KV_SHADE',
+    '  vS = aS;',
+    '#endif',
     '  vec4 wp = modelMatrix * instanceMatrix * vec4(position, 1.0);',
     '  vN = normalize(mat3(modelMatrix * instanceMatrix) * normal); vV = normalize(cameraPosition - wp.xyz);',
     '  gl_Position = projectionMatrix * viewMatrix * wp; }',
@@ -30447,10 +30614,10 @@
   const KV_FRAG = {
     // 实心件：两档明暗（亮面 / 暗面）+ 边光，k 往白里提
     solid: [
-      'varying vec3 vC; varying float vA; varying float vK; varying vec3 vN; varying vec3 vV;',
+      'varying vec3 vC; varying float vA; varying float vK; varying vec3 vN; varying vec3 vV; varying float vS;',
       'void main(){ vec3 n = normalize(vN); float l = dot(n, normalize(vec3(0.35, 0.85, 0.4)));',
       '  float band = l > 0.25 ? 1.0 : 0.62; float rim = 1.0 - abs(dot(n, normalize(vV))); rim = rim > 0.62 ? 0.35 : 0.0;',
-      '  vec3 c = vC * band + vec3(rim); c = mix(c, vec3(1.0), clamp(vK, 0.0, 1.0) * 0.75);',
+      '  vec3 c = vC * vS * band + vec3(rim); c = mix(c, vec3(1.0), clamp(vK, 0.0, 1.0) * 0.75);',
       '  gl_FragColor = vec4(c, 1.0); }',
     ].join('\n'),
     // 护域的罩子：菲涅尔的边 + 顶上稀疏的经线，越往下越亮（贴地的一圈最亮）
@@ -30499,14 +30666,14 @@
     const g = kvGeo(kind);
     const ig = new T.InstancedBufferGeometry();
     ig.index = g.index;
-    for (const k of ['position', 'normal', 'uv']) if (g.getAttribute(k)) ig.setAttribute(k, g.getAttribute(k));
+    for (const k of ['position', 'normal', 'uv', 'aS']) if (g.getAttribute(k)) ig.setAttribute(k, g.getAttribute(k));
     const aC = new T.InstancedBufferAttribute(new Float32Array(KV_MAX * 3), 3), aA = new T.InstancedBufferAttribute(new Float32Array(KV_MAX), 1), aK = new T.InstancedBufferAttribute(new Float32Array(KV_MAX), 1);
     ig.setAttribute('aC', aC);
     ig.setAttribute('aA', aA);
     ig.setAttribute('aK', aK);
     const solid = !!KV_SOLID[kind];
     const mat = new T.ShaderMaterial({
-      uniforms: G.vfx.uni({ uTime }), vertexShader: KV_VERT, fragmentShader: solid ? KV_FRAG.solid : KV_FRAG[kind],
+      uniforms: G.vfx.uni({ uTime }), vertexShader: KV_VERT, fragmentShader: solid ? KV_FRAG.solid : KV_FRAG[kind], defines: g.getAttribute('aS') ? { KV_SHADE: '' } : {},
       transparent: !solid, depthWrite: solid, toneMapped: false, fog: false, side: solid ? T.FrontSide : T.DoubleSide,
       blending: solid ? T.NormalBlending : T.AdditiveBlending,
     });
@@ -31987,6 +32154,16 @@
       if (G.ui && G.ui.refresh && G.ui.isOpen && G.ui.isOpen()) G.ui.refresh();
     }
   }
+  // ai3d-skills：形状批第一次画过以后查一次槽位布局的着色器（js/vfx.js 的 shapeProbe），不行就换回合并几何体（实例属性 aFx 挂到新几何体上）
+  let vshChecked = false;
+  function vshCheck() {
+    vshChecked = true;
+    const g = G.vfx.quiet(() => G.vfx.shapeProbe(renderer, PF.vShape.mesh));
+    if (g) {
+      g.setAttribute('aFx', PF.vShape.fx);
+      PF.vShape.mesh.geometry = g;
+    }
+  }
   W.render = function () {
     zoneFrames++;
     autoQualityWatch();
@@ -31994,6 +32171,7 @@
     if (post.ok && qual.post) post.composer.render();
     else if (post.fx && qual.fxaa) post.fx.render();
     else renderer.render(scene, camera);
+    if (!vshChecked && PF.vShape && PF.vShape.mesh.visible) vshCheck();
     // 画面测试开着、标题画面盖着时（t45，style.css 的 html.title-on.t-probe-on）叠加层只画色带：小地图、血条这些标题画面本来就不显示
     if (W.probe && document.documentElement.classList.contains('title-on')) {
       octx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -32538,7 +32716,7 @@
     if (model) {
       // 模型上的琥珀小灯：上膛前暗（灯窝里一点暗橙），上膛那一下闪一次，之后一直亮着一点（不闪个不停）
       const armK = m.arm > 0 ? 0 : Math.max(0, 1 - (-m.arm) / 0.25);
-      mPose(m.x, 0.155, m.z, _pqI, 0.065, 0.04, 0.065);
+      mPose(m.x, 0.21, m.z, _pqI, 0.065, 0.04, 0.065); // ai3d-skills：AI 的绊雷中间的灯钮顶在 0.218 米（原来的脚本件灯窝在 0.155）
       d2bLin(m.arm > 0 ? 0x5a2808 : 0xff9a28, (m.arm > 0 ? 0.6 : 0.9) * fade);
       vsNow(VSH.chip, _dc.r, _dc.g, _dc.b, m.arm > 0 ? 0 : 0.12 + armK * 0.6, 0, 0); // 琥珀色：平时只留一点亮芯，上膛那 0.25 秒闪亮一下
       if (m.arm <= 0) {
