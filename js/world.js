@@ -16950,7 +16950,7 @@
       hand: { k: [0, 0.06, 0.2, 1], p: [hp, kick(hp, 0.035, 0.01), hp, hp], d: [hd, [hd[0], hd[1] + 0.05, hd[2]], hd, hd], e: [he, he, he, he] },
       keys: brace(Object.assign({ 'chest.rx': [0, -0.08, 0.06, -0.12, 0.3, -0.08, 1, -0.08] }, hipTwist), 0.9),
     });
-    // 熔光射线：双脚扎稳、上身后仰顶住，枪口对准（长按 ~3 秒；射线由 rangedFx 画）
+    // r_gatling（原熔光射线，laser-beam 之后熔光炮台不再用它）：双脚扎稳、上身后仰顶住，枪口对准（长按 ~3 秒；射线由 rangedFx 画）
     defClip(rig, 'r_gatling', {
       dur: 3.2, k0: 0.06, lower: null, fade: 0.12, out: 0.35,
       hand: { k: [0, 0.08, 1], p: [hp, kick(hp, -0.02, 0.03), kick(hp, -0.02, 0.03)], d: [hd, hd, hd], e: [he, he, he] },
@@ -27990,6 +27990,26 @@
     }
     L.w = L.charge >= 0 ? 0 : w;
   };
+  // 熔光炮台（laser-beam）：game.js 放下炮台时调 W.turret 拿一个画面句柄，每帧往里写 ang（炮管朝向）/ len（射线长，0 = 没目标）/ on / t（剩余秒数）；
+  // 收起时调 W.turretOff。炮台身子画进形状批（不占 draw call），射线和 drawLaser 同一套余烬色分层，只是细得多（两道同时在场）
+  const TUR = [];
+  W.turret = function (x, z, ang, dur, o) {
+    o = o || {};
+    const h = { x, z, ang, dur, t: dur, len: 0, on: false, y: o.y || 0.95, side: o.side || 1, born: wtime, k: 0, rel: -9, scorch: 0 };
+    TUR.push(h);
+    // 落地：脚下一圈细环（玩家色调的余烬橙）+ 几块碎石弹起
+    if (PF.vShape) b2Ring(x, z, 0.9, 0xff9a40, 0x5a2410, 0.25);
+    else W.ring(x, z, 0.9, 0xffb36a, 0.25);
+    W.burst(x, 0.3, z, 0x8a6a50, qualId === 'low' ? 4 : 7, 1.6, 0.35);
+    return h;
+  };
+  W.turretOff = function (h) {
+    const i = TUR.indexOf(h);
+    if (i < 0) return;
+    TUR.splice(i, 1);
+    W.burst(h.x, h.y, h.z, 0xff9a40, qualId === 'low' ? 3 : 6, 1.4, 0.3);
+  };
+  W.turretCount = () => TUR.length;
   W.rangedBuff = function (type, dur) {
     const B = RF.buff;
     B.type = type && BUFF_HEX[type] ? type : type === 'bow' ? 'eagle' : null;
@@ -28525,6 +28545,7 @@
     // --- 熔光射线 ---
     const L = RF.laser, lzOn = L.ext >= wtime || (ent && nm === 'w_gatling');
     if (lzOn && ent) drawLaser(ent, L, dt);
+    for (let i = 0; i < TUR.length; i++) drawTurret(TUR[i], dt); // 熔光炮台
     // --- 乱射：game.js 没打出弹丸时，自动朝附近的敌人 / 四面八方甩出弹道 ---
     if (ent && (nm === 'r_revolver' || nm === 'w_revolver') && dt > 0) {
       RF.spray += dt * 13;
@@ -28657,6 +28678,94 @@
       F.acc -= 1;
       const ang = rand(0, TAU), d = Math.sqrt(vrnd()) * F.r;
       spawnP(F.x + Math.sin(ang) * d, 0.2, F.z + Math.cos(ang) * d, rand(-0.3, 0.3), rand(1, 2.6), rand(-0.3, 0.3), rand(0.4, 0.9), rand(0.07, 0.13), 1, rand(0.45, 0.75), 0.12, -1, 0.8);
+    }
+  }
+  const _tuQ = new T.Quaternion(), _tuE = new T.Euler(), _tuP = new T.Vector3(), _tuS = new T.Vector3(), _tuC = new T.Color();
+  // 熔光炮台：三条短腿 + 矮六棱炮座 + 一根横着的炮管（形状批）、炮口一小团余烬光；有目标时沿炮管喷一道细射线
+  function tuPose(x, y, z, rx, ry, rz, sx, sy, sz) {
+    _tuE.set(rx, ry, rz, 'YXZ');
+    _tuQ.setFromEuler(_tuE);
+    _pm.compose(_tuP.set(x, y, z), _tuQ, _tuS.set(sx, sy, sz));
+  }
+  function drawTurret(h, dt) {
+    const lo = qualId === 'low', kl = lo ? 0.8 : 1;
+    const age = wtime - h.born, rise = Math.min(1, age / 0.2), sink = Math.min(1, Math.max(0, h.t / 0.3)), sc = rise * sink;
+    if (sc <= 0.01) return;
+    const sn = Math.sin(h.ang), cs = Math.cos(h.ang);
+    const pose = tuPose;
+    // 脚下一圈细环（你的余烬色，很暗）：一眼认得出是自己放的
+    if (PF.vShape) {
+      pose(h.x, 0.05, h.z, -HALF_PI, 0, 0, 0.62 * sc, 0.62 * sc, 1);
+      vsNow(VSH.ring, 0.42 * kl, 0.14 * kl, 0.03 * kl, 0.2, 0.3, 0.75);
+    }
+    // 腿：三块压扁的碎石（暗铁），往外撇
+    for (let i = 0; i < 3; i++) {
+      const a = (i / 3) * TAU + h.ang + 0.5;
+      pose(h.x + Math.sin(a) * 0.4 * sc, 0.09, h.z + Math.cos(a) * 0.4 * sc, 0.35, a, 0.3, 0.17 * sc, 0.13 * sc, 0.3 * sc);
+      vsNow(VSH.chip, 0.07, 0.058, 0.05, 0, 0.45, 0);
+    }
+    // 炮座：矮胖的六棱座（铁灰带一点暖），顶上一块盖
+    _tuC.set(0x7a6656).convertSRGBToLinear();
+    pose(h.x, 0, h.z, 0, h.ang, 0, 1.4 * sc, h.y * 0.95 * sc, 1.4 * sc);
+    vsNow(VSH.crystal, _tuC.r, _tuC.g, _tuC.b, 0.12, 0.5, 0);
+    pose(h.x, h.y * 0.62 * sc, h.z, 0.2, h.ang, 0, 0.2 * sc, 0.12 * sc, 0.2 * sc);
+    vsNow(VSH.chip, 0.12, 0.09, 0.07, 0.1, 0.45, 0);
+    // 炮管：横着朝 ang（冰晶件的尖当炮口），亮面偏余烬橙，开火时亮芯更热
+    const fire = h.on && h.len > 0;
+    _tuC.set(0xb07a4a).convertSRGBToLinear();
+    const bx = h.x - sn * 0.22 * sc, bz = h.z - cs * 0.22 * sc, by = h.y * sc, bl = 1.0 * sc;
+    pose(bx, by, bz, HALF_PI, h.ang, 0, 0.46 * sc, bl, 0.46 * sc);
+    vsNow(VSH.crystal, _tuC.r, _tuC.g, _tuC.b, fire ? 0.32 : 0.15, 0.45, 0);
+    if (!lo) {
+      // 炮管根上一圈箍（两块小碎石）
+      for (const sd of [1, -1]) {
+        pose(bx + cs * 0.15 * sd * sc, by, bz - sn * 0.15 * sd * sc, 0, h.ang, 0, 0.1 * sc, 0.13 * sc, 0.13 * sc);
+        vsNow(VSH.chip, 0.08, 0.065, 0.055, 0, 0.45, 0);
+      }
+    }
+    // 炮口：小团余烬光（开火时亮一些、一跳一跳）
+    const mx = bx + sn * bl * 0.9, mz = bz + cs * bl * 0.9;
+    h.k += ((fire ? 1 : 0) - h.k) * Math.min(1, dt * 12);
+    const fl = 0.85 + 0.15 * Math.sin(wtime * 41 + h.side * 2);
+    mBill(mx, by, mz, (0.22 + 0.18 * h.k) * fl * sc);
+    pfPut('glow', (0.45 + 0.35 * h.k) * kl, (0.13 + 0.1 * h.k) * kl, 0.025 * kl);
+    if (!fire) {
+      h.wasOn = false;
+      return;
+    }
+    if (!h.wasOn) h.rel = wtime; // 射线亮起的那一下：炮口一点近白，只亮 60 毫秒
+    h.wasOn = true;
+    // 射线：比玩家那道细一半多（两道同时在场），外焰 → 内焰 → 细热芯，全是暗一档的余烬红，不混白
+    const len = h.len, x0 = mx, z0 = mz, y0 = by, x1 = h.x + sn * len, z1 = h.z + cs * len, y1 = 0.7;
+    const L = Math.max(0.3, Math.hypot(x1 - x0, z1 - z0)), dy = (y1 - y0) / L, cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, cz = (z0 + z1) / 2;
+    const ddx = (x1 - x0) / L, ddz = (z1 - z0) / L;
+    const pulse = (1 + 0.1 * Math.sin(wtime * 47 + h.side) + 0.05 * Math.sin(wtime * 83)) * h.k;
+    mStretch(cx, cy, cz, ddx, dy, ddz, 0.3 * pulse, L);
+    pfPut('beam', 0.16 * kl, 0.016 * kl, 0.003 * kl);
+    mStretch(cx, cy, cz, ddx, dy, ddz, 0.13 * pulse, L);
+    pfPut('beam', 0.14 * kl, 0.018 * kl, 0.003 * kl);
+    mStretch(cx, cy, cz, ddx, dy, ddz, 0.04, L);
+    pfPut('beam', 0.3 * kl, 0.06 * kl, 0.011 * kl);
+    if (wtime - h.rel < 0.06) {
+      const cl = Math.min(0.8, L);
+      mStretch(x0 + ddx * cl * 0.5, y0 + dy * cl * 0.5, z0 + ddz * cl * 0.5, ddx, dy, ddz, 0.07, cl);
+      pfPut('beam', 1.6, 1.4, 1.1);
+    }
+    // 缠在射线上的几道短电弧（雷），比玩家那道稀；低画质不画（电弧件常常整场只有它在用，省一次 draw call）
+    const nArc = lo ? 0 : Math.max(2, Math.round(L / 2.6));
+    for (let i = 0; i < nArc; i++) {
+      if (hash2(Math.floor(wtime * 24) + i * 5, i + (h.side > 0 ? 3 : 11)) < 0.45) continue;
+      const f = (i + hash2(Math.floor(wtime * 18), i + 17)) / nArc;
+      _pq.copy(camQ).multiply(_pq2.setFromAxisAngle(Z_AXIS, Math.atan2(ddz, ddx) + rand(-0.5, 0.5)));
+      mPose(x0 + ddx * L * f, y0 + dy * L * f, z0 + ddz * L * f, _pq, rand(0.6, 1.0), rand(0.2, 0.3), 1);
+      pfPut('arc', 0.36 * kl, 0.085 * kl, 0.02 * kl);
+    }
+    // 尽头：一小团光（不放大成亮团），偶尔一两颗火星
+    mBill(x1, y1, z1, 0.5 * Math.min(1.2, pulse));
+    pfPut('glow', 0.5 * kl, 0.14 * kl, 0.025 * kl);
+    if (dt > 0 && !lo && vrnd() < dt * 14) {
+      const a = rand(0, TAU), v = rand(1.5, 4);
+      spawnP(x1, y1, z1, Math.sin(a) * v - ddx * 1.5, rand(1, 3), Math.cos(a) * v - ddz * 1.5, rand(0.12, 0.25), rand(0.06, 0.1), 1, 0.5, 0.12, 8, 2);
     }
   }
   function drawLaser(ent, L, dt) {
