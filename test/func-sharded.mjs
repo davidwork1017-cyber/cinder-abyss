@@ -6,6 +6,8 @@
 //   node test/func-sharded.mjs 3 --name <工人名> --out <目录>  # 各份日志和合并的 func.log 放到 <目录>
 // 选项：--wait <分钟>（排队上限，默认 360）、--timeout <秒>（每份在槽位里面的限时，默认 7200）、--out <目录>。
 // 名字也可以用环境变量 CC_SLOT_NAME 给。不能在池令牌里面跑（一个令牌只开一个浏览器）；在独占槽位里面跑时 n 份直接并行。
+// 找不到 cc-slot 时拒绝跑（不然 n 个 Chrome 会绕开池子）；没有 cc-slot 的机器（Mac）设 CINDER_NO_SLOT=1 才直接并行跑。
+// --dry-run：只打印每份要跑的命令（走不走 cc-slot），不起任何进程。
 import { spawn, execSync } from 'node:child_process';
 import { openSync, closeSync, readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import path from 'node:path';
@@ -43,7 +45,15 @@ try {
 } catch (e) {
   slot = false;
 }
+if (!slot && !process.env.CINDER_NO_SLOT) die('找不到 cc-slot（PATH 里没有）：不经槽位会有 ' + n + ' 个 Chrome 绕开池子同时跑，不跑。开发机上把 ~/.local/bin 放进 PATH；没有 cc-slot 的机器（Mac）设 CINDER_NO_SLOT=1 直接并行跑');
 if (slot && !name) die('要给 cc-slot 的名字：--name <工人名>（或环境变量 CC_SLOT_NAME）');
+if (argv.includes('--dry-run')) {
+  for (let k = 1; k <= n; k++) {
+    const cmd = ['timeout', tmo, 'node', 'test/smoke.mjs', '--func', '--shard', k + '/' + n];
+    console.log('分片 ' + k + '/' + n + '（' + SHARDS[n][k - 1].join(' ') + '）：' + (slot ? ['cc-slot', 'pool', name, 'func', '--wait', waitMin, '--', ...cmd] : cmd).join(' ') + (slot ? '' : '   ← 不经槽位（CINDER_NO_SLOT=1）'));
+  }
+  process.exit(0);
+}
 let head = '?';
 try {
   head = execSync('git rev-parse --short HEAD', { cwd: root, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
