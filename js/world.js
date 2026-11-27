@@ -930,17 +930,18 @@
       },
     },
     storm: {
-      packs: ['zone-storm', 'rock-grey', 'ground'], // models-drop：摆放表里的 CC0 模型在这一区一个都摆不出来（多种子实测 0 个），不再加载 models 包
+      packs: ['zone-storm', 'ground'], // tex-rest：石板 / 砂砾 / 岩石换成脚本画的贴图（p_slab / p_grit / p_srock，tools/gen-paint-textures.mjs，在 zone-storm 包里），不再要照片的 rock-grey 包。models-drop：摆放表里的 CC0 模型在这一区一个都摆不出来（多种子实测 0 个），不再加载 models 包
       mats: [
         // zones-storm：石板紫的地砖（压掉贴图里偏粉的石块），路外的碎石地更暗；墙外整片是暗的「墙体」地面
-        { tex: 'monastery_stone_floor', tile: 4.6, con: 0.6, nrm: 1.0, rough: 1, k: 0.48, sat: 0.45, col: 0x5c5a70 },
-        { tex: 'rocky_trail', tile: 4.8, con: 0.8, nrm: 1.1, rough: 1, k: 0.44, sat: 0.5, col: 0x4a4860 },
-        { tex: 'Rock035', tile: 6.5, con: 0.8, nrm: 1.0, rough: 1, k: 0.8, sat: 0.6, col: 0x23202e },
+        // tex-rest：三套都换成脚本画的平铺贴图（错缝铺的切石板、崩角和裂开的板、缝里的砂砾；砂砾地；方正的层状岩块）
+        { tex: 'p_slab', tile: 5.5, con: 0.8, nrm: 1.0, rough: 1, k: 0.36, sat: 0.45, col: 0x5c5a70 }, // tex-rest：k 0.48 → 0.36（画的贴图对比低，同样的 k 显得亮；按分离表压回 25–35% 档里）
+        { tex: 'p_grit', tile: 5.0, con: 0.9, nrm: 1.1, rough: 1, k: 0.34, sat: 0.5, col: 0x4a4860 }, // tex-rest：k 0.44 → 0.34
+        { tex: 'p_srock', tile: 6.5, con: 0.9, nrm: 1.0, rough: 1, k: 0.75, sat: 0.6, col: 0x23202e },
       ],
       lava: null,
-      rock: { tex: 'Rock035', tile: 2.8, nrm: 1.1, cap: 0, capAll: 0 },
+      rock: { tex: 'p_srock', tile: 2.8, nrm: 1.1, cap: 0, capAll: 0 }, // tex-rest：Rock035 → p_srock
       grade: { sat: 1.12, con: 1.1, lift: 0x080418, gain: 0xfaf6ff, vig: 0.24, sh: 0x6a6ab0, hi: 0xfff0e4, tk: 0.1, shS: 0.85 },
-      blots: { k: 0.35, r: 0.7, op: 0.3, tex: 'crack' }, // zones-polish：地砖上是细裂纹，不是暗块。zones-storm：地砖上的污斑少一些、小一些（zones-ash 的开关）
+      blots: { k: 0.35, r: 0.58, op: 0.2, show: 0.5, tex: 'crack' }, // tex-rest：画的石板干净了，根须一样的暗裂纹块显得扎眼：只画一半、小一圈、淡三分之一（r 0.7 → 0.58，op 0.3 → 0.2；k 不动，随机数的取用次数不变）。zones-polish：地砖上是细裂纹，不是暗块。zones-storm：地砖上的污斑少一些、小一些（zones-ash 的开关）
       // vf-ground：地砖缝和墙脚积着风吹进来的砂砾；路外是碎砂带、碎石块和水渍
       layer: { tex: 'g_cover_storm', tile: 3.5, con: 0.6, rough: 1, k: 0.52, sat: 0.4, col: 0x4e4c5e, path: 0.6, pT: 0.56, edge: 1, jag: 1.2, blend: 0.08, edgeW: 0.6, mv: 0.14, mh: 0.08, scorch: 0.45, sT: 0.64, ao2: 0.12 }, // ao2 0.24 → 0.12、k 0.46 → 0.52：新布局下墙边地面掉到 23%、低档砂砾斑太暗 // scorch：成片的碎石地（粗糙地面那一套）
       deco: { cover: 0x5e5c6e, floor: 0.8, wild: 1, ao: 0.85, aoR: 0.9, scorch: 0, clusters: 0.6, kinds: [6, 7, 8, 11, 12, 13], tint: 0x4a4858 },

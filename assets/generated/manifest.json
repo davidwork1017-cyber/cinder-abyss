@@ -185,6 +185,47 @@
     }
    }
   },
+  "p_grit": {
+   "gen": "tools/gen-paint-textures.mjs",
+   "fn": "paint('p_grit') 种子 809",
+   "px": 512,
+   "enc": {
+    "chrome": "158.0.8127.36",
+    "q": 0.84
+   },
+   "maps": {
+    "albedo": {
+     "pix": "1bd14ae251dcc8b2910ae1defe44e51f670362f0f37ffface974c9ff989b64d7",
+     "jpg": "65e68e15d2727cd1b23958c439f340b1dd5f7873523464528db98c536358414c",
+     "bytes": 8758
+    },
+    "normal": {
+     "pix": "58d28b55da7e128ffaf5850ae9c3f0ebc57060c58c0aabb9a0cd0e077e840fd9",
+     "jpg": "4a118f6885bde8b0dfd8c92088aa0a2be5c1ba6fc573eb016bb9e524d7ea0cea",
+     "bytes": 9533
+    },
+    "arh": {
+     "pix": "182576018d5454b7a64d2d21e1baa42dbdf1a2411da457a67c1916e7148c5446",
+     "jpg": "c1f97ca20661fdc7bd01588c6369f7bc49ea2cc07ae806e6a67dfcd90be7fa4b",
+     "bytes": 9494
+    }
+   },
+   "lo": {
+    "px": 256,
+    "maps": {
+     "albedo": {
+      "pix": "1c385e403bf4bef2249c021a9ff36501cd1f9ea852e8b7351a0a3acf6735ed73",
+      "jpg": "2d69b800083069184b8689be1ca2685e6f447145980c62d3a5626881d39b9904",
+      "bytes": 4086
+     },
+     "arh": {
+      "pix": "61ea1203c4e6ce25fcbaf1dd2760a231d638fa09244428bd459423b30f55c083",
+      "jpg": "d0f24b6ea7e825760887152357f2348212ef8230dfa0508e4ef4ac5a7d651f43",
+      "bytes": 4618
+     }
+    }
+   }
+  },
   "p_ice": {
    "gen": "tools/gen-paint-textures.mjs",
    "fn": "paint('p_ice') 种子 401",
@@ -308,6 +349,47 @@
     }
    }
   },
+  "p_slab": {
+   "gen": "tools/gen-paint-textures.mjs",
+   "fn": "paint('p_slab') 种子 701",
+   "px": 512,
+   "enc": {
+    "chrome": "158.0.8127.36",
+    "q": 0.84
+   },
+   "maps": {
+    "albedo": {
+     "pix": "932afe2d605a037fc31b805cbf3664b3c234755ab3ab27614ecafac07e37f584",
+     "jpg": "7c20810d85b137e1ecd8c6bdd38ecd065689ddfa3c4c8e652953e33400bb1843",
+     "bytes": 14880
+    },
+    "normal": {
+     "pix": "7389dc140751a3c43836a1ffc252a4db5c636944016705e125687b5e334ec2b2",
+     "jpg": "bda88c27a43500a6825d7f9cf43a24e17287e1ea0983851ce96610bb8f4a3ec2",
+     "bytes": 18066
+    },
+    "arh": {
+     "pix": "302b0d213d3d9e29cee9d7d323d614efb4f41e957e1ff59c13c2a19e9e39ef55",
+     "jpg": "f4b9a0b4b1e60460c3a8cb3fce5aecbb1ad7b9371a987ff9fce6a7b013b3ccf9",
+     "bytes": 19759
+    }
+   },
+   "lo": {
+    "px": 256,
+    "maps": {
+     "albedo": {
+      "pix": "de4157f5adf58ae97314060ae8c75408557567563a23480f923114e9bae6d716",
+      "jpg": "ecaf7198c3365adabd75f9da952078546d0f6dca6be6e306e015765e1e7fffe4",
+      "bytes": 6270
+     },
+     "arh": {
+      "pix": "49e3fa4016a449d45810fbf79eed48641fd8c6e1fb1ef04d5f3bdb46d0098250",
+      "jpg": "3bfdb303bc41cae449ee89175a2e8f605642a499a0c090e1e374a9b8111d7330",
+      "bytes": 8257
+     }
+    }
+   }
+  },
   "p_snow": {
    "gen": "tools/gen-paint-textures.mjs",
    "fn": "paint('p_snow') 种子 503",
@@ -345,6 +427,47 @@
       "pix": "dbe4cde2654712ed50e595a75599f472aeeda3f03efcf7020ae282b33b6390c2",
       "jpg": "8a1faf5198a8e51ed71fe3b933d42ee51d7d12fa39399ca135324ede3eab2729",
       "bytes": 3378
+     }
+    }
+   }
+  },
+  "p_srock": {
+   "gen": "tools/gen-paint-textures.mjs",
+   "fn": "paint('p_srock') 种子 907",
+   "px": 512,
+   "enc": {
+    "chrome": "158.0.8127.36",
+    "q": 0.84
+   },
+   "maps": {
+    "albedo": {
+     "pix": "81eb21b5e821f7e04719b83be515f022f62473299cedb14872ed33c5a2088442",
+     "jpg": "5070edcd0f328fc2d275264158bf55fbab8d1199548cd43a10984d5eb1a6d683",
+     "bytes": 14975
+    },
+    "normal": {
+     "pix": "0080439826cab3888cc265b777f2f982c0145373083dbadb8d2621e4c127514f",
+     "jpg": "6eca9543eebac9b25936eeb7d86f0ad0026a0bcb1467557c998277f4a4d540c0",
+     "bytes": 18224
+    },
+    "arh": {
+     "pix": "d9d8d0ee8341c0cc24e3ba5f1c4180f262cb50f1669911bec6561b7e0eb6dfab",
+     "jpg": "388091cff7da24955131e0283bb3b84b17bb2fd050562df7631832b0ccd47b71",
+     "bytes": 17775
+    }
+   },
+   "lo": {
+    "px": 256,
+    "maps": {
+     "albedo": {
+      "pix": "1522deae80e98824201ffab325c788fef4944256b92926d219d6d39e825af430",
+      "jpg": "057eb8d61ce71a58339123b2772d90e466d47914f9c73138f55906ffe2d430fb",
+      "bytes": 6310
+     },
+     "arh": {
+      "pix": "bd7d23c6501ac2d8f01e7534075892b7f5e1491c2d1f3e43e79ba2c659e7a058",
+      "jpg": "c21402ca06555c6d62a254d5db8d76174a31c1aaa860150cafe1fc756506dc7e",
+      "bytes": 7250
      }
     }
    }

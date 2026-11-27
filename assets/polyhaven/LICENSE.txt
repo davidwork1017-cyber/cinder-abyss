@@ -9,7 +9,8 @@ Licence page (checked 2026-11-17): https://polyhaven.com/license
 
 Assets (1k JPG originals from https://api.polyhaven.com/files/<id>; recompressed here, see tools/prep-textures.mjs):
   dark_rock, dark_rock_02,
-  monastery_stone_floor, rocky_trail, slate_floor, moon_01
+  slate_floor, moon_01
   Each: https://polyhaven.com/a/<id>
 
 Removed 2026-11-24 (zone 0 now uses scripted textures, nothing else used them): mud_cracked_dry_03, burned_ground_01.
+Removed 2026-11-27 (zone 2 now uses scripted textures, nothing else used them): monastery_stone_floor, rocky_trail.
