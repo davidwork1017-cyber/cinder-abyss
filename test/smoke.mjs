@@ -22995,9 +22995,11 @@ async function main() {
       const lvFor = W.terrain.lvFor;
       // storm-lamps：灯位（feats 里的 lamp）。只在起点圆厅、关键路径大厅（≤ 2 盏）和场地（≤ 4 盏）的北边、房间中心以北 ≥ 1 m；在墙身中线上（可走区域外 0.4–0.6 m）、
       // 离门洞边 ≥ 1.5 m、离雷枢的柱子 / 雷线 ≥ 3 m、灯与灯 ≥ 4.5 m；整区摆出目标（2 × (大厅 + 1) + 4）的七成以上（200 个种子最少 78%）。
-      // 布局本身不动：去掉灯位以后的 spec 和加灯位之前（main 6104301）逐字相同，前 3 个种子按固定的指纹比
+      // 布局本身不动：去掉灯位以后的 spec 和加灯位之前逐字相同，前 3 个种子按固定的指纹比（map-loops 改了布局，指纹换成 7dd1adb 的）
       out.lamps = { n: 0, want: 0, bad: [], hash: [] };
-      const lampHash = ['674a4f70', '9291857e', 'aa902df2']; // main 6104301 在页面里 W.genLayout 的指纹（node 的 Math.atan2 末位会差，指纹不一样，别拿 node 算的填）
+      // map-loops 7dd1adb 在页面里 W.genLayout 的指纹（node 的 Math.atan2 末位会差，指纹不一样，别拿 node 算的填）。
+      // 布局为了环路有意改了（旁支小室、回路走廊、关键路径走廊 7.5–12.5 m），原来 main 6104301 的是 674a4f70 / 9291857e / aa902df2
+      const lampHash = ['5e8f68a0', 'e8454a15', 'bce4c87e'];
       for (let s = 1; s <= 20; s++) {
         const g = W.genLayout('storm', s * 7919 + 3), sp = g.spec;
         out.seeds++;
