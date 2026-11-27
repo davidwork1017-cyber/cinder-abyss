@@ -2047,7 +2047,7 @@
    "ship": true,
    "replaces": null,
    "tris": 500,
-   "verts": 1496,
+   "verts": 1498,
    "materials": 1,
    "textures": 1,
    "bounds": {
@@ -2086,7 +2086,7 @@
    },
    "lod": "hi",
    "mode": "vc",
-   "sha256": "80e97fa24a30d35a268780429d3cda893f75a65d6babc2d275b97beb2262e5d1"
+   "sha256": "132f17fe05a8d66c1fb15aa0b7a95ce131d4e1b37f4ff1cc10e7315a3805fe6f"
   },
   {
    "id": "ca/rift_boulder",
