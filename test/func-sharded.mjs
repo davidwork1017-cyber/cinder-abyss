@@ -51,6 +51,7 @@ try {
 mkdirSync(out, { recursive: true });
 const t0 = Date.now();
 const mmss = (ms) => Math.floor(ms / 60000) + ':' + String(Math.round((ms % 60000) / 1000)).padStart(2, '0');
+const rel = (p) => (path.relative(root, p).startsWith('..') ? p : path.relative(root, p));
 const say = (m) => console.error(new Date().toISOString().slice(11, 19) + 'Z func-sharded: ' + m);
 
 // ------------------------------------------------------------------ 起 n 份
@@ -81,7 +82,7 @@ for (let k = 1; k <= n; k++) {
     });
   });
   kids.push(kid);
-  say('分片 ' + k + '/' + n + '（' + kid.blocks.join(' ') + '）pid ' + ch.pid + ' → ' + path.relative(root, log));
+  say('分片 ' + k + '/' + n + '（' + kid.blocks.join(' ') + '）pid ' + ch.pid + ' → ' + rel(log));
 }
 let stopping = false;
 for (const s of ['SIGTERM', 'SIGINT', 'SIGHUP']) {
@@ -141,7 +142,7 @@ for (const kid of kids) {
   // 每份自己的检查：HEAD、跑完、合计和逐行数的一致、该跑的块都跑了
   const qMs = hTime ? Date.parse(hTime) - kid.start : null;
   const runMs = hTime ? kid.end - Date.parse(hTime) : null;
-  if (!hdr) bad.push('分片 ' + kid.k + ' 没有开头那行（没起来？见 ' + path.relative(root, kid.log) + (kid.err ? '：' + kid.err : '') + '）');
+  if (!hdr) bad.push('分片 ' + kid.k + ' 没有开头那行（没起来？见 ' + rel(kid.log) + (kid.err ? '：' + kid.err : '') + '）');
   else if (hHead !== head) bad.push('分片 ' + kid.k + ' 的 HEAD 是 ' + hHead + '，不是 ' + head + '（跑的时候换了提交？）');
   if (kid.rc !== 0) bad.push('分片 ' + kid.k + ' 退出码 ' + (kid.sig ? '信号 ' + kid.sig : kid.rc) + (kid.rc === 3 ? '（排队超过 ' + waitMin + ' 分钟没拿到令牌）' : kid.rc === 124 || kid.rc === 143 ? '（到了 timeout ' + tmo + ' 秒或被叫停，结果作废）' : ''));
   if (hdr && !finished) bad.push('分片 ' + kid.k + ' 没跑完（没有「== 块 完」）');
@@ -157,7 +158,7 @@ const outLines = [];
 outLines.push('== test:func · HEAD ' + head + ' · ' + new Date(t0).toISOString() + ' · 分片 ' + n + ' 份并行（' + (slot ? 'cc-slot pool ' + name + ' func --wait ' + waitMin + '，' : '不经 cc-slot，') + '每份 timeout ' + tmo + ' 秒）· 墙钟 ' + mmss(Date.now() - t0) + ' · 耗时数字不可比 [pool, not comparable]');
 for (const p of per)
   outLines.push(
-    '-- 分片 ' + p.kid.k + '/' + n + '（' + p.kid.blocks.join(' ') + '）：槽位 ' + (p.hSlot || '?') + ' · 排队 ' + (p.qMs === null ? '?' : mmss(Math.max(0, p.qMs))) + ' · 跑了 ' + (p.runMs === null ? '?' : mmss(p.runMs)) + ' · ' + (p.nFail ? '失败 ' + p.nFail + ' 项，' : '') + '通过 ' + p.nOk + ' 项 · rc ' + (p.kid.sig || p.kid.rc) + ' · 日志 ' + path.relative(root, p.kid.log) + (p.hLog ? ' · Chrome 日志 ' + p.hLog : '')
+    '-- 分片 ' + p.kid.k + '/' + n + '（' + p.kid.blocks.join(' ') + '）：槽位 ' + (p.hSlot || '?') + ' · 排队 ' + (p.qMs === null ? '?' : mmss(Math.max(0, p.qMs))) + ' · 跑了 ' + (p.runMs === null ? '?' : mmss(p.runMs)) + ' · ' + (p.nFail ? '失败 ' + p.nFail + ' 项，' : '') + '通过 ' + p.nOk + ' 项 · rc ' + (p.kid.sig || p.kid.rc) + ' · 日志 ' + rel(p.kid.log) + (p.hLog ? ' · Chrome 日志 ' + p.hLog : '')
   );
 for (const b of BLOCKS) {
   if (!byBlock[b]) continue;
@@ -171,5 +172,5 @@ outLines.push(bad.length && !failed ? '失败 ' + bad.length + ' 处（分片本
 const text = outLines.join('\n') + '\n';
 writeFileSync(path.join(out, 'func.log'), text);
 process.stdout.write(text);
-say('合并日志 ' + path.relative(root, path.join(out, 'func.log')));
+say('合并日志 ' + rel(path.join(out, 'func.log')));
 process.exit(failed || bad.length ? 1 : 0);

@@ -30012,15 +30012,16 @@ function treeFitCheck() {
   }
   return out.slice(0, 4);
 }
-// CINDER_FP=1：界面布局每个面板开头打一行 fp（存档 JSON、localStorage 的哈希，13 位以上的数字即时间戳换成 T；现在的种子名的哈希）。
-// 用来比分片开头的状态和整套跑时是不是一样（test/README.md「分片」）
+// CINDER_FP=1：界面布局每个面板开头打一行 fp（存档 JSON、localStorage 的哈希；现在的种子名的哈希）。用来比分片开头的状态和整套跑时是不是一样
+// （test/README.md「分片」）。每次跑都会变的先换掉：物品 uid（'i' + Date.now 的 36 进制 + 计数 + 随机段）换成 U，存档索引里按原文算的哈希 h 换成 H，
+// 12 位以上的数字（时间戳）换成 T
 function uiStateFp() {
   const h = (str) => {
     let x = 2166136261;
     for (let i = 0; i < str.length; i++) x = Math.imul(x ^ str.charCodeAt(i), 16777619);
     return (x >>> 0).toString(16);
   };
-  const mask = (t) => String(t).replace(/\d{12,}/g, 'T');
+  const mask = (t) => String(t).replace(/\bi[0-9a-z]{10,16}\b/g, 'U').replace(/(\\?"h\\?":)\d+/g, '$1H').replace(/\d{12,}/g, 'T');
   const ls = Object.keys(localStorage).sort().map((k) => k + '=' + mask(localStorage.getItem(k))).join('\n');
   return 'save ' + h(mask(JSON.stringify(G.save))) + ' ls ' + h(ls) + ' seed ' + h(window.__testRand ? window.__testRand.key() : '');
 }
