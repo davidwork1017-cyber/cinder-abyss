@@ -966,16 +966,17 @@
       },
     },
     abyss: {
-      packs: ['zone-abyss', 'rock-dark', 'ground'], // asset-zones：布景全是自产件（kit-abyss 跟着 zone-abyss 加载），不再要 models 包；余烛殿沿用这一行
+      packs: ['zone-abyss', 'ground'], // tex-rest：岩台 / 熔渣壳 / 柱状岩换成脚本画的贴图（p_basalt / p_cinder / p_drock，tools/gen-paint-textures.mjs，在 zone-abyss 包里），不再要照片的 rock-dark 包。asset-zones：布景全是自产件（kit-abyss 跟着 zone-abyss 加载），不再要 models 包；余烛殿沿用这一行
       // zones-abyss（owner 11-18：太红太饱和）：路面是低饱和的炭灰紫褐，路外是更暗的玄武岩壳，熔岩流贴图不再整片发光；
       // 红橙只留给路面上零星几片发光的裂缝（lava.patch）、余烬口、深渊底的熔岩缝和火星
       mats: [
-        { tex: 'dark_rock_02', tile: 5.0, con: 0.55, nrm: 0.9, rough: 1, k: 0.6, sat: 0.45, col: 0x57525c },
-        { tex: 'dark_rock_02', tile: 5.0, con: 0.62, nrm: 0.9, rough: 1, k: 0.5, sat: 0.4, col: 0x47424e }, // zones-polish：原来是 Lava001（熔岩流的暗纹在路面上是一块块脏斑），换成同一种石板的暗一档：斑块读成颜色深一点的石板，靠崖、靠墙的路边也暗一些
-        { tex: 'dark_rock', tile: 6.5, con: 0.8, nrm: 1.0, rough: 1, k: 0.9, col: 0x3a3442 }, // 岩壁外的岩顶：岩石之间露出来的地方也要落在岩壁那一档（15–25%）
+        // tex-rest：三套都换成脚本画的平铺贴图（层状的玄武岩台面，缝低、熔岩光沿缝走；积灰的熔渣壳；柱状节理的暗岩）
+        { tex: 'p_basalt', tile: 5.5, con: 0.8, nrm: 0.9, rough: 1, k: 0.47, sat: 0.45, col: 0x57525c }, // tex-rest：k 0.6 → 0.47（画的贴图对比低，同样的 k 显得亮；按分离表定档，高档地面 25–35%、首领不比 main 差）
+        { tex: 'p_cinder', tile: 4.5, con: 0.8, nrm: 0.9, rough: 1, k: 0.39, sat: 0.4, col: 0x47424e }, // tex-rest：dark_rock_02 的暗一档 → 积灰的熔渣壳，k 0.5 → 0.39。zones-polish：原来是 Lava001（熔岩流的暗纹在路面上是一块块脏斑），换成同一种石板的暗一档：斑块读成颜色深一点的石板，靠崖、靠墙的路边也暗一些
+        { tex: 'p_drock', tile: 6.5, con: 0.9, nrm: 1.0, rough: 1, k: 0.9, col: 0x3a3442 }, // 岩壁外的岩顶：岩石之间露出来的地方也要落在岩壁那一档（15–25%）
       ],
       lava: { mode: 1, color: 0xff6a22, k: 1.6, patch: [0, 0.72] },
-      rock: { tex: 'dark_rock', tile: 2.6, nrm: 1.2, cap: 0x5a5262, capAll: 0.18 }, // 朝上的面盖一层很淡的灰烬，岩石的顶面不至于一片死黑
+      rock: { tex: 'p_drock', tile: 2.6, nrm: 1.2, cap: 0x5a5262, capAll: 0.18 }, // tex-rest：dark_rock → p_drock。 朝上的面盖一层很淡的灰烬，岩石的顶面不至于一片死黑
       grade: { sat: 1.0, con: 1.08, lift: 0x0a0612, gain: 0xf8f4f8, vig: 0.26, sh: 0x5a5a98, hi: 0xffc89a, tk: 0.12, shS: 0.8 },
       bloom: { th: 0.97, k: 0.16, r: 0.32 }, // 卡通：泛光只留给最亮的特效核心，不再给整片画面罩一层雾
       mist: { color: 0x1c1622, a: 0.3 },
@@ -1004,15 +1005,16 @@
       },
     },
     rift: {
-      packs: ['zone-rift', 'rock-grey', 'ground'], // asset-zones：布景全是自产件（kit-rift 跟着 zone-rift 加载），不再要 1.4 MB 的 models 包
+      packs: ['zone-rift', 'ground'], // tex-rest：琉璃板 / 月岩碎屑 / 板岩换成脚本画的贴图（p_glass / p_regol / p_slate，tools/gen-paint-textures.mjs，在 zone-rift 包里），不再要照片的 rock-grey 包。asset-zones：布景全是自产件（kit-rift 跟着 zone-rift 加载），不再要 1.4 MB 的 models 包
       // 卡通（zones-rift）：路面是偏冷的青灰板岩（不再是满地的饱和绿），贴图起伏压低；路外是更暗的月岩，岩壁外近黑的青
       mats: [
-        { tex: 'slate_floor', tile: 5.5, con: 0.55, nrm: 0.8, rough: 0.7, k: 0.58, sat: 0.85, col: 0x3f5856 },
-        { tex: 'moon_01', tile: 6.0, con: 0.7, nrm: 1.1, rough: 1, k: 0.55, sat: 0.7, col: 0x394446 },
-        { tex: 'Rock035', tile: 6.5, con: 0.9, nrm: 1.0, rough: 1, k: 0.8, col: 0x1c2628 },
+        // tex-rest：三套都换成脚本画的平铺贴图（直边的熔融琉璃板、板里很淡的流纹；坑坑洼洼的月岩碎屑；劈开的板岩）
+        { tex: 'p_glass', tile: 6.0, con: 0.8, nrm: 0.8, rough: 0.7, k: 0.35, sat: 0.85, col: 0x3f5856 }, // tex-rest：k 0.58 → 0.35（main 的地面已经贴着 35% 的上限；按分离表压回档里，角色、怪、首领都和地面拉得更开）
+        { tex: 'p_regol', tile: 6.0, con: 0.9, nrm: 1.1, rough: 1, k: 0.34, sat: 0.7, col: 0x394446 }, // tex-rest：k 0.55 → 0.34
+        { tex: 'p_slate', tile: 6.5, con: 0.9, nrm: 1.0, rough: 1, k: 0.75, col: 0x1c2628 },
       ],
       lava: null,
-      rock: { tex: 'Rock035', tile: 2.8, nrm: 1.1, cap: 0, capAll: 0 },
+      rock: { tex: 'p_slate', tile: 2.8, nrm: 1.1, cap: 0, capAll: 0 }, // tex-rest：Rock035 → p_slate
       grade: { sat: 1.04, con: 1.1, lift: 0x020a10, gain: 0xf4fbff, vig: 0.24, sh: 0x4a80b0, hi: 0xfff2dc, tk: 0.1, shS: 0.85 },
       bloom: { th: 0.97, k: 0.16, r: 0.32 }, // 卡通：泛光只留给最亮的特效核心，不再给整片画面罩一层雾
       mist: { color: 0x16303a, a: 0.3 },
@@ -1022,7 +1024,7 @@
       layer: { tex: 'g_cover_rift', tile: 5, con: 0.55, rough: 1, k: 0.46, sat: 0.6, col: 0x47584f, path: 0.6, pT: 0.58, edge: 0.9, jag: 1.0, blend: 0.08, edgeW: 1.0, mv: 0.1, mh: 0.1, scorch: 0.45, sT: 0.64, ao2: 0.22 }, // scorch：成片的月岩地（mv 小一点：这一区 main 的地面已经在 33% 上下）
       deco: { cover: 0x46605a, floor: 0.8, wild: 1, ao: 0.85, aoR: 0.9, scorch: 0, clusters: 0.6, kinds: [13, 4, 7, 8, 11, 14], tint: 0x3a4a4a }, // 覆盖斑贴近板岩的明暗（原来 0x5a7a70 太亮，路面上一块块亮斑）
       pool: { col: 0x5ad8e8, k: 0.25, r: 3, gain: 1.2, glows: true }, // 晶簇周围映出电光青（淡一些：墙边晶簇多，地面别亮出 35%）
-      blots: { k: 0.4, r: 0.7, op: 0.3, tex: 'crack' }, // zones-polish：细裂纹代替暗块。污斑少一半多、小一点（zones-ash 加的旋钮）
+      blots: { k: 0.4, r: 0.58, op: 0.2, show: 0.5, tex: 'crack' }, // tex-rest：画的琉璃板干净了，根须一样的暗裂纹块显得扎眼：只画一半、小一圈、淡三分之一（r 0.7 → 0.58，op 0.3 → 0.2；k 不动，随机数的取用次数不变）。zones-polish：细裂纹代替暗块。污斑少一半多、小一点（zones-ash 加的旋钮）
       // 下面三个旋钮原来是 rift 的 dress 运行时找网格改的（zones-integrate 收进表里）：法阵缩到 0.45、电光青压淡；水晶和光晕电光青；
       // 通用岩石换成卡通材质（底色 = rockTop / def.rock，高画质 ×0.88、低画质 ×0.7），按低频噪声成簇留空
       sigil: { r: 0.378, col: 0x7aeeff, k: 0.55 },

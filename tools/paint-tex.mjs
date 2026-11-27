@@ -99,38 +99,61 @@ function chebCell(u, v, P, s, ax = 1) {
   }
   return [f1, f2, id, cx0 * P, cy0 * P];
 }
-// 错缝铺的长方石板（四方连续）：R 行，行高不一；每行 3–6 块，板长不一、每行错开。
-// 返回这一点所在的板：key（行 × 8 + 块）、id（0..1）、板的范围（x 可能跨过 0/1 的接缝）、中心、到最近板缝的距离 dE（像素）
+// 错缝铺的长方石板（四方连续）：R 行，行高不一；每行 3–5 块，板长不一、每行错开；约三成的板再分成上下两块或田字四块，
+// 少数几块竖着跨两行（打破一行一行的节奏）。每块板绕自己的中心转一点（±2.6°），板缝因此有宽有窄。
+// 返回这一点所在的板：key、id（0..1）、板的范围（x 可能跨过 0/1 的接缝）、中心、到最近板缝的距离 dE（像素）
 const SLAB_R = 6;
-function slabAt(u, v, S) {
-  const vv = md(v, 1), uu = md(u, 1);
+function slabRow(r, S) {
+  const rr = md(r, SLAB_R);
+  let y0 = 0, tot = 0;
   const hs = [];
-  let tot = 0;
-  for (let r = 0; r < SLAB_R; r++) {
-    const h = 0.6 + 0.8 * hashI(r, 3, S + 100);
+  for (let k = 0; k < SLAB_R; k++) {
+    const h = 0.6 + 0.8 * hashI(k, 3, S + 100);
     hs.push(h);
     tot += h;
   }
-  let y0 = 0, r = 0;
-  for (; r < SLAB_R - 1; r++) {
-    if (vv < y0 + hs[r] / tot) break;
-    y0 += hs[r] / tot;
+  for (let k = 0; k < rr; k++) y0 += hs[k] / tot;
+  const y1 = rr === SLAB_R - 1 ? 1 : y0 + hs[rr] / tot, wrapN = Math.floor(r / SLAB_R);
+  const n = 3 + Math.floor(hashI(rr, 5, S + 101) * 3), off = hashI(rr, 7, S + 102);
+  const cut = (k) => (k <= 0 ? 0 : k >= n ? 1 : (k + 0.36 * (hashI(rr * 16 + k, 9, S + 103) - 0.5)) / n);
+  return { rr, y0: y0 + wrapN, y1: y1 + wrapN, n, off, cut };
+}
+// 跨两行的板：第 r 行第 j 块往下（v 变大的方向）一直伸到第 r + 1 行
+const slabTall = (rr, j, S) => hashI(rr * 8 + j, 67, S + 108) < 0.13;
+function slabAt(u, v, S) {
+  const vv = md(v, 1), uu = md(u, 1);
+  let r = 0;
+  for (; r < SLAB_R - 1; r++) if (vv < slabRow(r, S).y1) break;
+  const R0 = slabRow(r, S);
+  let y0 = R0.y0, y1 = R0.y1, off = R0.off;
+  const find = (R, xu) => {
+    let j = 0;
+    for (; j < R.n - 1; j++) if (xu < R.cut(j + 1)) break;
+    return j;
+  };
+  let xu = md(uu - off, 1), j = find(R0, xu), x0 = R0.cut(j), x1 = R0.cut(j + 1);
+  let key = r * 8 + j, extra = 1e9;
+  // 上一行有跨下来的板盖住这一点：这一点属于那块板
+  const Ru = slabRow(r - 1, S), xuU = md(uu - Ru.off, 1), jU = find(Ru, xuU);
+  if (slabTall(Ru.rr, jU, S)) {
+    off = Ru.off; xu = xuU; j = jU; x0 = Ru.cut(jU); x1 = Ru.cut(jU + 1); y0 = Ru.y0; key = Ru.rr * 8 + jU;
+  } else {
+    // 没盖住，但这块板里有上一行跨下来的板的边：那条边也是板缝
+    for (let k = 0; k < Ru.n; k++) {
+      if (!slabTall(Ru.rr, k, S)) continue;
+      for (const e of [Ru.cut(k) + Ru.off, Ru.cut(k + 1) + Ru.off]) {
+        const de = Math.abs(wrapD(uu - e));
+        const inOwn = md(e - off, 1);
+        if (inOwn > x0 && inOwn < x1) extra = Math.min(extra, de * N);
+      }
+    }
   }
-  let y1 = r === SLAB_R - 1 ? 1 : y0 + hs[r] / tot;
-  const n = 3 + Math.floor(hashI(r, 5, S + 101) * 3), off = hashI(r, 7, S + 102);
-  const xu = md(uu - off, 1);
-  let j = 0, x0 = 0, x1 = 1;
-  const cut = (k) => (k <= 0 ? 0 : k >= n ? 1 : (k + 0.36 * (hashI(r * 16 + k, 9, S + 103) - 0.5)) / n);
-  for (j = 0; j < n; j++) {
-    x0 = cut(j);
-    x1 = cut(j + 1);
-    if (xu < x1) break;
-  }
-  if (j >= n) j = n - 1;
-  let key = r * 8 + j;
-  // 约三成的板再分开：横着切成上下两块，或者切成田字的四小块（打破一行一行的节奏）
+  // 这块板自己跨两行：下边界是下一行的底
+  const tallHere = key === r * 8 + j && slabTall(R0.rr, j, S);
+  if (tallHere) y1 = slabRow(r + 1, S).y1;
+  // 约三成的板再分开（跨行的板不分）
   const sp = hashI(key, 61, S + 105);
-  if (sp < 0.3) {
+  if (sp < 0.3 && !tallHere && y0 === R0.y0) {
     const ym = y0 + (y1 - y0) * (0.4 + 0.2 * hashI(key, 63, S + 106));
     const top = vv >= ym;
     if (top) y0 = ym;
@@ -145,8 +168,35 @@ function slabAt(u, v, S) {
     }
     key += 4096;
   }
-  const dE = Math.min(xu - x0, x1 - xu, vv - y0, y1 - vv) * N;
-  return { key, id: hashI(key, 11, S + 104), x0: x0 + off, x1: x1 + off, y0, y1, cx: (x0 + x1) / 2 + off, cy: (y0 + y1) / 2, dE };
+  const cx = (x0 + x1) / 2 + off, cy = (y0 + y1) / 2;
+  // 每块板转一点：在板自己转过的框里再量一次到边的距离，取小的（板缝有宽有窄，不会比网格上的窄）
+  const a = (hashI(key, 69, S + 109) - 0.5) * 0.09, ca = Math.cos(a), sa = Math.sin(a);
+  const lx = wrapD(uu - cx), ly = vv - cy, rx = lx * ca - ly * sa, ry = lx * sa + ly * ca;
+  const dR = Math.min((x1 - x0) / 2 - Math.abs(rx), (y1 - y0) / 2 - Math.abs(ry)) * N;
+  const dG = Math.min(xu - x0, x1 - xu, vv - y0, y1 - vv) * N;
+  const dE = Math.min(dG, dR, extra);
+  return { key, id: hashI(key, 11, S + 104), x0: x0 + off, x1: x1 + off, y0, y1, cx, cy, dE };
+}
+
+// tex-rest：各向异性的 Worley（横向 Px、纵向 Py 个胞一个周期，距离按胞的大小归一），返回同 worley
+function worleyA(u, v, Px, Py, s, jit = 0.85) {
+  const x = u * Px, y = v * Py, ix = Math.floor(x), iy = Math.floor(y), ky = Py / Px;
+  let f1 = 9, f2 = 9, id = 0, cx0 = 0, cy0 = 0;
+  for (let j = -1; j <= 1; j++) {
+    for (let i = -1; i <= 1; i++) {
+      const cx = md(ix + i, Px), cy = md(iy + j, Py);
+      const px = ix + i + 0.5 + (hashI(cx, cy, s) - 0.5) * jit, py = iy + j + 0.5 + (hashI(cx, cy, s + 7) - 0.5) * jit;
+      const d = Math.hypot(px - x, (py - y) / ky);
+      if (d < f1) {
+        f2 = f1;
+        f1 = d;
+        id = hashI(cx, cy, s + 13);
+        cx0 = (px - x) / Px;
+        cy0 = (py - y) / Py;
+      } else if (d < f2) f2 = d;
+    }
+  }
+  return [f1, f2, id, cx0 * Px, cy0 * Px];
 }
 
 // ---------- 三张贴图：fn(u, v) → { c: [r,g,b]（0..1 显示值）, h, ao, rough } ----------
@@ -329,11 +379,11 @@ const TEX = {
   // 板面色调差很小（±4%）、低频的成片明暗，不画像素级的颗粒；板边只是软地压暗一点，不起亮边。
   p_slab: {
     seed: 701,
-    nrm: 1.3,
+    nrm: 1.0,
     fn(u0, v0, S) {
       // 板缝不是尺子画的：低频扭曲 + 一点高频的毛
-      let [u, v] = warp(u0, v0, 3, 0.02, S + 1);
-      [u, v] = warp(u, v, 16, 0.004, S + 13);
+      let [u, v] = warp(u0, v0, 3, 0.022, S + 1);
+      [u, v] = warp(u, v, 9, 0.006, S + 13);
       const L = slabAt(u, v, S);
       const jw = 1.3 + 1.0 * fbm(u0, v0, 10, 2, S + 2); // 板缝半宽（像素）
       const id = L.id;
@@ -348,7 +398,7 @@ const TEX = {
         const d = (a * dx + (1 - a) * dy) * 1.3 + 0.35 * Math.hypot(dx, dy) + (fbm(u0, v0, 18, 2, S + 5) - 0.5) * 0.02;
         chip = Math.max(chip, 1 - sstep(rc - 0.003, rc + 0.003, d));
       }
-      const gone = id > 0.975 ? 1 : 0; // 整块没了（很少）
+      const gone = id > 0.988 ? 1 : 0; // 整块没了（很少）
       const dE = L.dE; // 到板缝的距离（像素）
       const joint = Math.max(1 - sstep(jw - 0.7, jw + 0.7, dE), chip, gone);
       // 裂开的板：过板里一点的一道斜线，扭得厉害、断断续续、粗细沿线变化
@@ -368,14 +418,13 @@ const TEX = {
       let t = 0.93 + (id - 0.5) * 0.07 + plane * 0.05 + (lo - 0.5) * 0.24 + 0.05 * wear;
       t = 0.8 + 0.34 * poster(clamp01((t - 0.72) / 0.42), 4, 0.42);
       const near = (1 - sstep(jw, jw + 7, dE)) * 0.5; // 板边软的一圈压暗（磨圆的边、积灰）
-      t *= (1 - 0.1 * near) * (1 - 0.35 * crack);
-      // 砂砾：缝里、崩角、空出来的地方；暗一档，带很低频的深浅和零星的大颗
-      const [f1, , pid] = worley(u0, v0, 40, S + 17, 0.8);
-      const peb = pid > 0.7 ? 1 - sstep(0.18, 0.3, f1) : 0;
-      const grit = 0.72 + 0.08 * fbm(u0, v0, 12, 2, S + 11) + 0.12 * peb;
+      t *= (1 - 0.07 * near) * (1 - 0.3 * crack);
+      // 砂砾：缝里、崩角、空出来的地方；只暗一点（缝的对比低），软的低频深浅，没有一颗颗的石子（游戏镜头下读成骰子点）
+      const grit = 0.8 + 0.06 * fbm(u0, v0, 8, 3, S + 11);
       t = t * (1 - joint) + grit * joint;
       const warm = (hashI(L.key, 53, S + 12) - 0.5) * 0.03 * (1 - joint);
-      const h = clamp01((0.62 + plane * 0.04 + (lo - 0.5) * 0.05 - 0.06 * near - 0.12 * crack) * (1 - joint) + (0.26 + 0.06 * fbm(u0, v0, 12, 2, S + 11) + 0.1 * peb) * joint);
+      // 板面高（0.74）：覆盖层的砂砾按高度混合，只积在缝里和空出来的地方，不从板面上冒出一颗颗暗点
+      const h = clamp01((0.74 + plane * 0.04 + (lo - 0.5) * 0.05 - 0.06 * near - 0.12 * crack) * (1 - joint) + (0.28 + 0.05 * fbm(u0, v0, 8, 3, S + 11)) * joint);
       return { c: [t * 0.5 * (1 + warm), t * 0.5, t * 0.5 * (1 - warm)], h, ao: 1 - 0.3 * joint - 0.25 * crack - 0.06 * near, rough: 1 };
     },
   },
@@ -426,6 +475,175 @@ const TEX = {
       const val = t * (1 - 0.5 * crev);
       const h = clamp01(0.55 + plane * 0.6 + (id - 0.5) * 0.2 + (strata - 0.5) * 0.1 - crev * 0.5);
       return { c: [val * 0.5 * 1.005, val * 0.5, val * 0.5 * 1.015], h, ao: 1 - 0.45 * crev, rough: 1 };
+    },
+  },
+  // ---------- tex-rest：第 3 区（烬渊深处，余烛殿沿用） ----------
+  // 层状的玄武岩台面（种子 1103，顶替 dark_rock_02 的路面）：一层层的岩台，台沿是断续的横向台阶线（上面一层亮一点），
+  // 台面再被竖向的裂缝分成长条的岩板（横向拉长的胞）；一簇簇的地方才有细裂。缝都低（h < 0.42），游戏里路面裂缝的熔岩光沿着它们走。
+  p_basalt: {
+    seed: 1103,
+    nrm: 1.1,
+    fn(u0, v0, S) {
+      const clM = sstep(0.55, 0.66, fbm(u0, v0, 3, 3, S + 1));
+      const calm = sstep(0.5, 0.62, fbm(u0, v0, 2, 3, S + 3)) * (1 - clM);
+      // 岩台：4 层一个周期，台沿横向起伏得厉害；每层一档色调，台沿上侧一条软的亮带、下侧软的压暗（台阶，不是线）
+      const R = 4, vv = v0 * R + 0.9 * (fbm(u0, v0, 3, 3, S + 4) - 0.5) + 0.12 * (fbm(u0, v0, 11, 2, S + 5) - 0.5);
+      const layer = Math.floor(vv), fr = vv - layer;
+      const lid = hashI(md(layer, R), 3, S + 6);
+      const dL = Math.min(fr, 1 - fr) * (N / R); // 到台沿的距离（像素）
+      // 台沿的缝只在一部分地方有（断续），细
+      const wL = 1.6 * sstep(0.42, 0.6, fbm(u0, v0, 5, 2, S + 7)) * (1 - calm) * (0.5 + 0.7 * fbm(u0, v0, 20, 1, S + 8));
+      const cL = line(dL, wL);
+      // 岩板：横向拉长的大胞（横 2、纵 5 个一个周期），缝少、断得多
+      const [u, v] = warp(u0, v0, 5, 0.05, S + 9);
+      const A = worleyA(u, v, 2, 5, S + 10, 0.9);
+      const eA = (A[1] - A[0]) * (N / 2) * 0.5;
+      const wA = 1.4 * sstep(0.46, 0.62, fbm(u0, v0, 6, 2, S + 11)) * (1 - calm) * (0.5 + 0.7 * fbm(u0, v0, 22, 1, S + 12));
+      const cA = line(eA, wA);
+      // 细裂：只在很少几簇里，连成短线（不留孤立的暗点）
+      const [u2, v2] = warp(u0, v0, 10, 0.03, S + 13);
+      const B = worley(u2, v2, 9, S + 14, 0.9);
+      const cB = line(edgePx(B[1] - B[0], 9), 0.9 * clM * sstep(0.45, 0.6, fbm(u0, v0, 5, 2, S + 15)));
+      const crack = Math.max(cL, cA * 0.9, cB * 0.6);
+      const lo = fbm(u0, v0, 3, 3, S + 16);
+      const lip = 1 - sstep(0, 0.18, fr), toe = sstep(0.8, 1, fr);
+      let t = 0.92 + (lid - 0.5) * 0.12 + (A[2] - 0.5) * 0.04 + (lo - 0.5) * 0.2 + 0.05 * lip - 0.05 * toe + 0.02 * calm;
+      t = 0.8 + 0.34 * poster(clamp01((t - 0.72) / 0.42), 4, 0.42);
+      t *= 1 - 0.42 * crack;
+      const h = clamp01(0.62 + 0.06 * (0.5 - fr) - 0.48 * cL - 0.42 * cA - 0.24 * cB + 0.04 * (lo - 0.5));
+      return { c: [t * 0.5 * 1.01, t * 0.5, t * 0.5 * 1.02], h, ao: 1 - 0.35 * crack - 0.06 * toe, rough: 1 };
+    },
+  },
+  // 积灰的熔渣壳（种子 1201，路边的粗糙地面；原来是同一种石板压暗一档）：一块块龟裂的薄壳（小胞、缝暗），
+  // 软边的成片积灰（亮一点、平），零星的小块熔渣。
+  p_cinder: {
+    seed: 1201,
+    nrm: 1.3,
+    fn(u0, v0, S) {
+      const [u, v] = warp(u0, v0, 4, 0.06, S + 1);
+      const A = worley(u, v, 6, S + 2, 0.9);
+      const w = 1.3 * sstep(0.3, 0.5, fbm(u0, v0, 6, 2, S + 3)) * (0.6 + 0.6 * fbm(u0, v0, 18, 1, S + 4));
+      const cr = line(edgePx(A[1] - A[0], 6), w);
+      const ash = sstep(0.5, 0.68, fbm(u0, v0, 3, 3, S + 5));
+      const lo = fbm(u0, v0, 2, 3, S + 6);
+      let t = 0.86 + (A[2] - 0.5) * 0.08 + (lo - 0.5) * 0.2;
+      t = 0.78 + 0.34 * poster(clamp01((t - 0.65) / 0.45), 3, 0.35);
+      t *= 1 - 0.5 * cr * (1 - ash);
+      const [f1, , id] = worley(u0, v0, 18, S + 7, 0.8);
+      const sl = id > 0.88 ? (1 - sstep(0.16, 0.26, f1)) * (1 - ash) : 0;
+      t = t * (1 - sl) + 0.72 * sl;
+      t = t * (1 - 0.6 * ash) + 1.04 * 0.6 * ash;
+      const h = clamp01(0.5 + 0.06 * (A[2] - 0.5) - 0.3 * cr * (1 - ash) + 0.12 * ash + 0.2 * sl);
+      return { c: [t * 0.5, t * 0.5, t * 0.5 * 1.02], h, ao: 1 - 0.35 * cr * (1 - ash) - 0.1 * sl, rough: 1 };
+    },
+  },
+  // 柱状节理的暗岩（种子 1307，顶替 dark_rock：墙外的岩顶和岩石 / 布景的三向投影）：近似六边形的岩柱截面
+  // （抖动小的 Worley），每根柱子一个缓坡和一点色调差，柱缝暗、断断续续；一部分柱面上再裂一两道。
+  p_drock: {
+    seed: 1307,
+    nrm: 1.5,
+    fn(u0, v0, S) {
+      const [u, v] = warp(u0, v0, 4, 0.03, S + 50);
+      const A = worley(u, v, 5, S, 0.5);
+      const [, , id, cx, cy] = A;
+      const ang = id * 6.2832, plane = (cx * Math.cos(ang) + cy * Math.sin(ang)) * 0.4;
+      const lo = fbm(u0, v0, 3, 2, S + 6);
+      let t = 0.82 + 0.22 * id + plane * 0.5 + (lo - 0.5) * 0.22;
+      t = 0.66 + 0.56 * poster(clamp01((t - 0.5) / 0.85), 5, 0.42);
+      const brk = sstep(0.42, 0.6, fbm(u0, v0, 4, 2, S + 80));
+      const cA = line(edgePx(A[1] - A[0], 5), 1.8 * brk * (0.6 + 0.6 * fbm(u0, v0, 14, 1, S + 70)));
+      const B = worley(u, v, 12, S + 20, 0.9);
+      const cB = line(edgePx(B[1] - B[0], 12), 1.0 * (id > 0.65 ? 1 : 0) * sstep(0.4, 0.6, fbm(u0, v0, 9, 2, S + 90)));
+      const crev = Math.max(cA, cB * 0.7);
+      const val = t * (1 - 0.5 * crev);
+      const h = clamp01(0.55 + plane * 0.6 + (id - 0.5) * 0.25 - crev * 0.5);
+      return { c: [val * 0.5 * 1.01, val * 0.5, val * 0.5 * 1.03], h, ao: 1 - 0.45 * crev, rough: 1 };
+    },
+  },
+  // ---------- tex-rest：第 4 区（坠星裂谷） ----------
+  // 熔融琉璃板（种子 1409，顶替 slate_floor）：裂成直边的多边形大板（不扭曲的 Worley，缝是直的），
+  // 板里一圈圈很淡的流纹（熔过又凝住）、几道贝壳状的弧形断口；缝窄而暗，低（星辉的颜色交给游戏里的晶簇和光）。
+  p_glass: {
+    seed: 1409,
+    nrm: 0.9,
+    fn(u0, v0, S) {
+      const A = worley(u0, v0, 4, S, 0.95);
+      const [f1, f2, id, cx, cy] = A;
+      const eA = edgePx(f2 - f1, 4);
+      // 一簇簇的地方大板再碎成小板（约两成面积），别处是整块的大板
+      const cl = sstep(0.62, 0.72, fbm(u0, v0, 3, 3, S + 1));
+      const B = worley(u0, v0, 9, S + 20, 0.95);
+      const eB = edgePx(B[1] - B[0], 9);
+      const jw = 1.0 + 0.6 * fbm(u0, v0, 10, 2, S + 2);
+      const brk = sstep(0.4, 0.56, fbm(u0, v0, 6, 2, S + 3)); // 大板的缝也会断开（熔在一起的地方）
+      const joint = Math.max(line(eA, jw * brk), cl * line(eB, jw * 0.7) * sstep(0.35, 0.5, fbm(u0, v0, 7, 2, S + 9)));
+      // 流纹：每块板一个方向的平行带，扭过、很淡（熔过又凝住）
+      const a = id * 6.2832, [wu, wv] = warp(u0, v0, 5, 0.06, S + 4);
+      const along = ((wu - u0) * 4 - cx) * Math.cos(a) + ((wv - v0) * 4 - cy) * Math.sin(a);
+      const fl = poster(Math.sin(along * 14 + id * 20) * 0.5 + 0.5, 3, 0.3) * sstep(0.35, 0.6, fbm(u0, v0, 4, 2, S + 5));
+      // 贝壳状的断口：少数板上一道大弧，断续
+      let conch = 0;
+      if (id < 0.2) {
+        const k = Math.floor(id * 1e6), ax = cx + (hashI(k, 3, S + 6) - 0.5) * 0.9, ay = cy + (hashI(k, 5, S + 6) - 0.5) * 0.9;
+        const rr = Math.hypot(ax, ay) * (N / 4), r0 = 30 + 30 * hashI(k, 7, S + 6);
+        conch = line(Math.abs(rr - r0), 1.1 * sstep(0.45, 0.62, fbm(u0, v0, 8, 2, S + 7))) * sstep(2, 6, eA);
+      }
+      const lo = fbm(u0, v0, 3, 3, S + 8);
+      let t = 0.92 + (id - 0.5) * 0.08 + (lo - 0.5) * 0.2 + (fl - 0.5) * 0.08;
+      t = 0.8 + 0.34 * poster(clamp01((t - 0.72) / 0.42), 4, 0.42);
+      t *= (1 - 0.3 * joint) * (1 - 0.2 * conch);
+      const near = (1 - sstep(jw, jw + 6, eA)) * 0.4 * brk;
+      t *= 1 - 0.06 * near;
+      const h = clamp01(0.6 + 0.03 * (fl - 0.5) - 0.45 * joint - 0.12 * conch - 0.04 * near);
+      return { c: [t * 0.5 * 0.99, t * 0.5 * 1.01, t * 0.5], h, ao: 1 - 0.35 * joint - 0.15 * conch, rough: clamp01(0.55 + 0.4 * joint + 0.15 * (1 - fl)) };
+    },
+  },
+  // 坑坑洼洼的月岩碎屑地（种子 1511，顶替 moon_01）：大小几档、边缘软的浅坑（坑里暗一点、坑沿只亮一点点，不起亮边），
+  // 低频的成片深浅，零星几点暗的晶尘。
+  p_regol: {
+    seed: 1511,
+    nrm: 1.3,
+    fn(u0, v0, S) {
+      const lo = fbm(u0, v0, 2, 3, S) * 0.6 + fbm(u0, v0, 5, 2, S + 1) * 0.4;
+      let t = 0.84 + 0.18 * poster(clamp01((lo - 0.3) / 0.45), 3, 0.3);
+      let h = 0.5 + 0.1 * (lo - 0.5), bowl = 0;
+      for (const [P, k, s2, th] of [[5, 1, 2, 0.6], [11, 0.7, 3, 0.8], [19, 0.5, 4, 0.9]]) {
+        const [u, v] = warp(u0, v0, 8, 0.02, S + s2 * 10);
+        const [f1, , id] = worley(u, v, P, S + s2, 0.8);
+        if (id < th) continue;
+        const rr = 0.18 + 0.2 * (id - th) / (1 - th), b = 1 - sstep(rr * 0.6, rr, f1), rim = sstep(rr * 0.75, rr, f1) * (1 - sstep(rr, rr * 1.35, f1));
+        bowl = Math.max(bowl, b * k);
+        t *= 1 - 0.16 * b * k;
+        t *= 1 + 0.04 * rim * k;
+        h += (-0.28 * b * (1 - f1 / rr) + 0.06 * rim) * k;
+      }
+      const [g1, , gid] = worley(u0, v0, 26, S + 7, 0.8);
+      const dust = gid > 0.9 ? 1 - sstep(0.12, 0.2, g1) : 0;
+      t *= 1 - 0.18 * dust;
+      return { c: [t * 0.5, t * 0.5 * 1.005, t * 0.5 * 1.01], h: clamp01(h), ao: 1 - 0.25 * bowl, rough: 1 };
+    },
+  },
+  // 劈开的板岩（种子 1613，顶替这一区用的 Rock035：墙外的岩顶和岩石 / 布景的三向投影）：很密的横向薄层（软分档），
+  // 被直边的斜裂分成棱角分明的块，块面有缓坡；暗缝断续。
+  p_slate: {
+    seed: 1613,
+    nrm: 1.5,
+    fn(u0, v0, S) {
+      const A = worley(u0, v0, 3, S, 0.9), B = worley(u0, v0, 6, S + 20, 0.9);
+      const useB = A[2] > 0.55, sub = useB ? 1 : 0;
+      const [, , id, cx, cy] = useB ? B : A;
+      const ang = id * 6.2832, plane = (cx * Math.cos(ang) + cy * Math.sin(ang)) * (useB ? 0.5 : 0.3);
+      const strata = poster(fbm(u0, 8 * v0 + 0.25 * fbm(u0, v0, 3, 2, S + 61), 2, 3, S + 60), 5, 0.3);
+      const lo = fbm(u0, v0, 3, 2, S + 6);
+      let t = 0.8 + 0.2 * id + plane * 0.5 + (lo - 0.5) * 0.18 + (strata - 0.5) * 0.2;
+      t = 0.66 + 0.56 * poster(clamp01((t - 0.5) / 0.85), 5, 0.42);
+      const brk = sstep(0.35, 0.55, fbm(u0, v0, 5, 2, S + 80));
+      const cA = line(edgePx(A[1] - A[0], 3), 2.0 * brk * (0.6 + 0.6 * fbm(u0, v0, 12, 1, S + 70)));
+      const cB = line(edgePx(B[1] - B[0], 6), 1.2 * sub * sstep(0.35, 0.55, fbm(u0, v0, 8, 2, S + 90)));
+      const crev = Math.max(cA, cB * 0.85);
+      const val = t * (1 - 0.5 * crev);
+      const h = clamp01(0.55 + plane * 0.6 + (id - 0.5) * 0.2 + (strata - 0.5) * 0.12 - crev * 0.5);
+      return { c: [val * 0.5 * 0.99, val * 0.5 * 1.01, val * 0.5 * 1.01], h, ao: 1 - 0.45 * crev, rough: 1 };
     },
   },
 };

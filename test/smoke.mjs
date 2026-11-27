@@ -1221,6 +1221,9 @@ async function mainBody() {
     { zi: 1, pack: 'zone-frost', ids: ['p_ice', 'p_snow', 'p_frock'], old: ['Ice002', 'Snow013'], noPack: 'rock-grey' },
     // tex-rest：第 2 区（雷鸣遗迹）石板 / 砂砾 / 岩石
     { zi: 2, pack: 'zone-storm', ids: ['p_slab', 'p_grit', 'p_srock'], old: ['monastery_stone_floor', 'rocky_trail'], noPack: 'rock-grey' },
+    // tex-rest：第 3 区（烬渊深处，余烛殿沿用）岩台 / 熔渣壳 / 柱状岩；第 4 区（坠星裂谷）琉璃板 / 月岩碎屑 / 板岩
+    { zi: 3, pack: 'zone-abyss', ids: ['p_basalt', 'p_cinder', 'p_drock'], old: ['dark_rock_02', 'dark_rock', 'Lava001'], noPack: 'rock-dark' },
+    { zi: 4, pack: 'zone-rift', ids: ['p_glass', 'p_regol', 'p_slate'], old: ['slate_floor', 'moon_01', 'Rock035'], noPack: 'rock-grey' },
   ];
   for (const PZ of PAINT_ZONES) {
     await step('贴图：第 ' + PZ.zi + ' 区地面和岩石用脚本画的贴图，高档 512² 带法线贴图，低档 256²、不传法线贴图（进区和原地换档都对）', async () => {

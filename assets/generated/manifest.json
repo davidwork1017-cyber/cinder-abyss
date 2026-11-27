@@ -103,6 +103,47 @@
     }
    }
   },
+  "p_basalt": {
+   "gen": "tools/gen-paint-textures.mjs",
+   "fn": "paint('p_basalt') 种子 1103",
+   "px": 512,
+   "enc": {
+    "chrome": "158.0.8127.36",
+    "q": 0.84
+   },
+   "maps": {
+    "albedo": {
+     "pix": "0ece7c9cb91372e95399dfdd67db6054ce62f8e6402a660565c8871660853477",
+     "jpg": "fd5cd22c8d91d0eb56917f999f44483d87de7a8070aa59f13f5077845533db78",
+     "bytes": 8659
+    },
+    "normal": {
+     "pix": "fe24cb38f056423ccb35cb15498193734ea6a3245ba92b4b461065fdf1b9c83e",
+     "jpg": "1044fa10e8ab711415c26ef03acd094c1c4010bc12cc8b34d3f6f247de2abe55",
+     "bytes": 6988
+    },
+    "arh": {
+     "pix": "007805c53b9358535504917c31f269561c6db24f307a30eafded2134ef00ac60",
+     "jpg": "f955e2d82a2c84edd8c44871012639322dbec1adfa4753135a06e58326984154",
+     "bytes": 8579
+    }
+   },
+   "lo": {
+    "px": 256,
+    "maps": {
+     "albedo": {
+      "pix": "35f089ffb4fc7535b32a8552f0dfe69fbaa92736e6291989bd1998da9328b036",
+      "jpg": "6f0cfc0e44ccc418db5e2dfb954703304d267008542e5416d7d5e35e0924e49a",
+      "bytes": 3674
+     },
+     "arh": {
+      "pix": "048cd11b2637d2a8e841981827dc8ba467a100ceff5ed18b4629dc24cbaebe51",
+      "jpg": "7de3f93d77e79ee6096f6dd84ced229e6fb14a2304f3903509ca0f5789783a9c",
+      "bytes": 3684
+     }
+    }
+   }
+  },
   "p_burn": {
    "gen": "tools/gen-paint-textures.mjs",
    "fn": "paint('p_burn') 种子 307",
@@ -144,6 +185,88 @@
     }
    }
   },
+  "p_cinder": {
+   "gen": "tools/gen-paint-textures.mjs",
+   "fn": "paint('p_cinder') 种子 1201",
+   "px": 512,
+   "enc": {
+    "chrome": "158.0.8127.36",
+    "q": 0.84
+   },
+   "maps": {
+    "albedo": {
+     "pix": "db06479af41a6bd7863ee1ccccf98d014cd4bb3b18878e8a1d4e73cc2a812aba",
+     "jpg": "bfe88c1d131f46cdb8139b0e184f8cd5979cf7c46d7e333d78a2347066b29e58",
+     "bytes": 14129
+    },
+    "normal": {
+     "pix": "5bd502eab7d48ccc86bb0722506267c1b6c558b18df8446cf4f1b20cae770e57",
+     "jpg": "648c10e45ee45d69b6bca2c091bc68e653162eedf96111c7060692766c0df238",
+     "bytes": 13624
+    },
+    "arh": {
+     "pix": "d2784e3a0887932945ad7faff98cfa40d06a737c945749501bb478ec1c9c99f6",
+     "jpg": "6604851b8cf4f6807c2494c1d9d83465a81bcc8e978eba8db136778a106d2c96",
+     "bytes": 14323
+    }
+   },
+   "lo": {
+    "px": 256,
+    "maps": {
+     "albedo": {
+      "pix": "4777234e52148ab314714e4faddd6a679906c4cdd2dcea977f2de4dc351a1715",
+      "jpg": "ca11f7afc39e8646913e28a6a9a0911c10d355191932a7f23fc8733f6e302b8f",
+      "bytes": 6113
+     },
+     "arh": {
+      "pix": "e00b26b6da7e97a86e077c6e951d91d62c21fdd5f0adc541aa50ef084b75a739",
+      "jpg": "b2b08bad8c325b4a2ba0644231eebe74766626e7040d1150b88096ab5096f577",
+      "bytes": 5810
+     }
+    }
+   }
+  },
+  "p_drock": {
+   "gen": "tools/gen-paint-textures.mjs",
+   "fn": "paint('p_drock') 种子 1307",
+   "px": 512,
+   "enc": {
+    "chrome": "158.0.8127.36",
+    "q": 0.84
+   },
+   "maps": {
+    "albedo": {
+     "pix": "6587807986fa7844b870d017dadf8e07a0cd9df9c8be078b3513683a6c557e4f",
+     "jpg": "d4167f25965ecdc291020195acfc0a7a60fa1311918dfae1fdb950037df6ac3c",
+     "bytes": 18140
+    },
+    "normal": {
+     "pix": "39ff5551fa1af4bd6d3361bca679f1e56a6d24b091a238422230004942509f02",
+     "jpg": "14df44a32a406f65b92d67e3ac7c64d787a8ba74bc644e58410d5f2d640e397c",
+     "bytes": 22040
+    },
+    "arh": {
+     "pix": "ed85dcb494377f0a24546a7a3e6bacef37a0c9e0bbc9ff0069f4580856206b8c",
+     "jpg": "1091575afdb0d9a2336d1562963ec1434b3cd64973cb158c0652583ed64a0113",
+     "bytes": 22006
+    }
+   },
+   "lo": {
+    "px": 256,
+    "maps": {
+     "albedo": {
+      "pix": "08eb3be87e36e0f213fc5260648e16dc5ebc32e77c3cadf9c24b866ebcd974d1",
+      "jpg": "8c0e0d28ad3dd27e26b5eabbacde18b59939a19e01cd972adb9ec76662fc5234",
+      "bytes": 7436
+     },
+     "arh": {
+      "pix": "f9fe6d05461db097abdb7b60d04cb69d0034ffa0b6070fc2de8598005fa28343",
+      "jpg": "0928890f86ecd475aa2fa13f29b465a8b315b03dc422b1645a71a5318aa6de34",
+      "bytes": 8755
+     }
+    }
+   }
+  },
   "p_frock": {
    "gen": "tools/gen-paint-textures.mjs",
    "fn": "paint('p_frock') 种子 607",
@@ -181,6 +304,47 @@
       "pix": "d82b963e46eefb490f2114629edb7c3e961dbef2d7448aa7f64f75b9945b356d",
       "jpg": "8a1a4ecbcc06dd4132958fd25e2ffffd595933e8ac75783564bbfc0f5d8de94b",
       "bytes": 7862
+     }
+    }
+   }
+  },
+  "p_glass": {
+   "gen": "tools/gen-paint-textures.mjs",
+   "fn": "paint('p_glass') 种子 1409",
+   "px": 512,
+   "enc": {
+    "chrome": "158.0.8127.36",
+    "q": 0.84
+   },
+   "maps": {
+    "albedo": {
+     "pix": "2da52292b3c9ecc33981ae92eb6604eef16c75d6d7c15949370ba182193ce49e",
+     "jpg": "28aebc4ad35c0530fef6353b53308b9e4b641d968b48a95840eeca8c62ac48df",
+     "bytes": 12979
+    },
+    "normal": {
+     "pix": "90114fd64ae8859d2ad92aa1a1ac1db155881c61e2e6b1403d833229ca2e8704",
+     "jpg": "1cfd331af2c53f5bfb1d0f196f9741478f123d51a1c6406a9c2dfe052052a65c",
+     "bytes": 11552
+    },
+    "arh": {
+     "pix": "cfaba30130c11d67b0d221b765379f4a0b4d6a48918f07540321901d25d6684b",
+     "jpg": "9246c5bc7c118569a30844a24cc086d4ee28352d1126b578afd3dfc2e961e2e0",
+     "bytes": 20310
+    }
+   },
+   "lo": {
+    "px": 256,
+    "maps": {
+     "albedo": {
+      "pix": "f14e05cad635fd106f940701626d36703aae3cfb3bb83173ef1dd8d4da4176fe",
+      "jpg": "42bac36052fab06d471db65bfd4088ba66b77c689e2044e1e25adea273a60531",
+      "bytes": 5460
+     },
+     "arh": {
+      "pix": "b07578da5b311e52776a7b20331fd68a596ac7f44e9f071336ee91ee727c83ba",
+      "jpg": "9ea88a42516d81d3da4612ffe0733de542598e2c2d1d86b179a70de320b95077",
+      "bytes": 7617
      }
     }
    }
@@ -308,6 +472,47 @@
     }
    }
   },
+  "p_regol": {
+   "gen": "tools/gen-paint-textures.mjs",
+   "fn": "paint('p_regol') 种子 1511",
+   "px": 512,
+   "enc": {
+    "chrome": "158.0.8127.36",
+    "q": 0.84
+   },
+   "maps": {
+    "albedo": {
+     "pix": "2f0dc39360b1754f54e72da0671db42594ad8e2b54924473655391bcdbd0fa29",
+     "jpg": "157cd42b5d22686e58e7cf58e5f6adee157cf72694c9148445c4a8eecfa0caa8",
+     "bytes": 9290
+    },
+    "normal": {
+     "pix": "bd9df7372e5f03ba67edc474ee5e0474d57f5c2be701d0b9e3937e10ae1c48b2",
+     "jpg": "c7de06863776c8015b775d6d842e56b66801403cd3d0f260275d8f21f025485b",
+     "bytes": 6203
+    },
+    "arh": {
+     "pix": "9f8265fcb6a47dcb5a91366f23be512992baee17a2c615463d9e837b8a11fd10",
+     "jpg": "ad97a5123c70ac012ab5c7deb36d13edc1556618ce0866d5454b9cd3620c7ed9",
+     "bytes": 9276
+    }
+   },
+   "lo": {
+    "px": 256,
+    "maps": {
+     "albedo": {
+      "pix": "d3b848e606ad59e91f1524cff5965177705e4a444bfab965bbdcc892f4c5264a",
+      "jpg": "c4ae2ba67bb9280a083d72b33aef43cc459d7a85c3eeec5a1d5c7e4d3b3aa27e",
+      "bytes": 4211
+     },
+     "arh": {
+      "pix": "ea13b34a584dacbc6b46a1d0ad68f8f33c789e909cd6ddbcd0e563043646c89a",
+      "jpg": "dfcc5595f47fa6d629e8f8e5e9704bed489d8c1ac462ff6e5df389e433b07a93",
+      "bytes": 4231
+     }
+    }
+   }
+  },
   "p_rock": {
    "gen": "tools/gen-paint-textures.mjs",
    "fn": "paint('p_rock') 种子 101",
@@ -359,33 +564,74 @@
    },
    "maps": {
     "albedo": {
-     "pix": "932afe2d605a037fc31b805cbf3664b3c234755ab3ab27614ecafac07e37f584",
-     "jpg": "7c20810d85b137e1ecd8c6bdd38ecd065689ddfa3c4c8e652953e33400bb1843",
-     "bytes": 14880
+     "pix": "80deb3e811b090e19fa309ea4b365dd99a8db997821b1302954195c623fcec92",
+     "jpg": "2a4d67e0268a11d56a2c88ed4b5d651e540f1501019d1e2affd5c282c2ee5eb7",
+     "bytes": 11982
     },
     "normal": {
-     "pix": "7389dc140751a3c43836a1ffc252a4db5c636944016705e125687b5e334ec2b2",
-     "jpg": "bda88c27a43500a6825d7f9cf43a24e17287e1ea0983851ce96610bb8f4a3ec2",
-     "bytes": 18066
+     "pix": "14b74cfdb41a54c1935789a656b74c646639d5bb5e81768ded7a81d8a710a97d",
+     "jpg": "2c3caa014c236378e9414cba898aa92e64a796b568893444d9a4393eb0e87589",
+     "bytes": 16795
     },
     "arh": {
-     "pix": "302b0d213d3d9e29cee9d7d323d614efb4f41e957e1ff59c13c2a19e9e39ef55",
-     "jpg": "f4b9a0b4b1e60460c3a8cb3fce5aecbb1ad7b9371a987ff9fce6a7b013b3ccf9",
-     "bytes": 19759
+     "pix": "b4df3534b6709442a3bff6b83003e25c9b8cf43f388757873f21a586fa0bfa9c",
+     "jpg": "062a3d37f590aaf4bcfb633f74e184bda339551edd28a718bb38456cc8971d35",
+     "bytes": 20241
     }
    },
    "lo": {
     "px": 256,
     "maps": {
      "albedo": {
-      "pix": "de4157f5adf58ae97314060ae8c75408557567563a23480f923114e9bae6d716",
-      "jpg": "ecaf7198c3365adabd75f9da952078546d0f6dca6be6e306e015765e1e7fffe4",
-      "bytes": 6270
+      "pix": "43db43168bb0509ef8a74815377b36038a44de53d3cd0f6a984513981bf151f7",
+      "jpg": "4fac0989f7c5374c8e2c7b6986d42f0dbbfa62c031c26620479a22f667ab5439",
+      "bytes": 5095
      },
      "arh": {
-      "pix": "49e3fa4016a449d45810fbf79eed48641fd8c6e1fb1ef04d5f3bdb46d0098250",
-      "jpg": "3bfdb303bc41cae449ee89175a2e8f605642a499a0c090e1e374a9b8111d7330",
-      "bytes": 8257
+      "pix": "cdd58a0a85ead99c83cd7b90848442847baaef1f3ed0333fc7377e714a85017d",
+      "jpg": "6e463efc44dfe46b7eba0a23c549f817879498fe2480f3163050d1d25d910c5e",
+      "bytes": 8562
+     }
+    }
+   }
+  },
+  "p_slate": {
+   "gen": "tools/gen-paint-textures.mjs",
+   "fn": "paint('p_slate') 种子 1613",
+   "px": 512,
+   "enc": {
+    "chrome": "158.0.8127.36",
+    "q": 0.84
+   },
+   "maps": {
+    "albedo": {
+     "pix": "6c2cda8da9c193f01a340699dfbcf88c95bd230fbb1682c5b04f348ab4e139d2",
+     "jpg": "e2c05a7229b4aadb3ddf032ab4803edf80f2a1a25046f7dda8319be98dd71db5",
+     "bytes": 19815
+    },
+    "normal": {
+     "pix": "84b44881e3342e777f213714193957034e9d8b2b61bbb642ebec358161399d30",
+     "jpg": "9274e316748f107e9dcacf6e1dacc47af79f429c78f6cdf6dccd71d980074305",
+     "bytes": 24309
+    },
+    "arh": {
+     "pix": "54b8d7cc9552d3948e1cabbb7cffc655ceeb00e2062ed652cebaf87c663c163d",
+     "jpg": "60262061e303813bf8eb3b8a11eccc7aa8588c6716261500945a756b20d759b1",
+     "bytes": 23380
+    }
+   },
+   "lo": {
+    "px": 256,
+    "maps": {
+     "albedo": {
+      "pix": "a2b6341c3536d8d5a815800b16141c59e139c7067a18f0939739389378f25a89",
+      "jpg": "30dd9ca78cafc5db83c50af58d1aa2bc06aa00f2bf44f75b271ac16c0b182948",
+      "bytes": 8137
+     },
+     "arh": {
+      "pix": "ed80cd29e2e94f3b9058859f9d5032566d7fa37ab2da944b1219799ac5b1113d",
+      "jpg": "cc629035cc1c44177b9c0e61baeeaca53856bb60ead23ae7457f84cb7135c1fd",
+      "bytes": 9316
      }
     }
    }
