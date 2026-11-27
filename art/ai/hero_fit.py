@@ -38,6 +38,28 @@ NAMES = [b[0] for b in BONES]
 PARENT = dict(BONES)
 
 
+def rig_bones(rig):
+    """各角色的骨骼集合（标准名，父骨骼和现网模型一致，所以程序化关节、动作采样都不变）：
+      hero：主角 53 根；husk：游魂 = 现网 Zombie 的 41 根（Mixamo 名按 STD_ALIAS.mixamo 换成标准名：手只有拇指和食指，各 4 节，脚尖 ball_leaf）；
+      thrall：烬骸仆从 = 现网 Skeleton 的 12 根（STD_ALIAS.monster：没有手、脚、锁骨，手臂直接挂在骨盆下）"""
+    if rig == 'hero':
+        return BONES
+    if rig == 'husk':
+        out = [('pelvis', None), ('spine_01', 'pelvis'), ('spine_02', 'spine_01'), ('spine_03', 'spine_02'), ('neck_01', 'spine_03'), ('Head', 'neck_01'), ('head_leaf', 'Head')]
+        for s in 'lr':
+            out += [('clavicle_' + s, 'spine_03'), ('upperarm_' + s, 'clavicle_' + s), ('lowerarm_' + s, 'upperarm_' + s), ('hand_' + s, 'lowerarm_' + s)]
+            for f in ('thumb', 'index'):
+                out += [('%s_0%d_%s' % (f, k, s), 'hand_' + s if k == 1 else '%s_0%d_%s' % (f, k - 1, s)) for k in (1, 2, 3, 4)]
+        for s in 'lr':
+            out += [('thigh_' + s, 'pelvis'), ('calf_' + s, 'thigh_' + s), ('foot_' + s, 'calf_' + s), ('ball_' + s, 'foot_' + s), ('ball_leaf_' + s, 'ball_' + s)]
+        return out
+    if rig == 'thrall':
+        return [('pelvis', None), ('spine_03', 'pelvis'), ('neck_01', 'spine_03'), ('Head', 'neck_01'),
+                ('thigh_r', 'pelvis'), ('calf_r', 'thigh_r'), ('thigh_l', 'pelvis'), ('calf_l', 'thigh_l'),
+                ('upperarm_r', 'pelvis'), ('lowerarm_r', 'upperarm_r'), ('upperarm_l', 'pelvis'), ('lowerarm_l', 'upperarm_l')]
+    raise RuntimeError('未知骨骼集合 ' + rig)
+
+
 def weld(V, F, eps=1e-5):
     key = np.round(V / eps).astype(np.int64)
     _, idx, inv = np.unique(key, axis=0, return_index=True, return_inverse=True)
@@ -124,8 +146,12 @@ def landmarks(W, WF, o):
         if gap is None:
             raise RuntimeError('手臂和躯干之间没有空隙（fit.gap_%s）' % side)
         xg = 0.5 * (gap[0] + gap[1])
-        root = components(n, edges, sx > xg)
-        av = root == root[tip_i]
+        if 'arm_ymin' in o:
+            # 骨头一节一节分开的模型（骷髅）：网格不连通，手臂按位置切（空隙外侧、arm_ymin 以上）
+            av = (sx > xg) & (y > o['arm_ymin'])
+        else:
+            root = components(n, edges, sx > xg)
+            av = root == root[tip_i]
         AP = W[av]
         # 躯干外沿：胸口高度、不在手臂分量里的点
         sh_band = o.get('torso_band', [0.66, 0.72])
@@ -345,6 +371,14 @@ def fit(V, F, spec=None):
         src['calf_' + s] = g(A['knee'])
         src['foot_' + s] = g(A['ankle'])
         src['ball_' + s] = g(A['ball'])
+        # 末端骨骼（游魂的骨骼集合要）：指尖 = 第三节再顺着往外一节；脚尖 = 脚掌最前端（贴地那一圈里 z 最大的点）
+        for f in ('thumb', 'index'):
+            a, b = src['%s_02_%s' % (f, s)], src['%s_03_%s' % (f, s)]
+            src['%s_04_%s' % (f, s)] = b + (b - a)
+        bl = src['ball_' + s]
+        ft = (np.abs(Wg[:, 0] - bl[0]) < 0.07) & (Wg[:, 1] < bl[1] + 0.05) & (Wg[:, 2] > bl[2])
+        tip = float(Wg[ft, 2].max()) if ft.sum() else bl[2] + 0.06
+        src['ball_leaf_' + s] = np.array([bl[0], bl[1], max(tip, bl[2] + 0.02)])
     for n, p in o.get('pivots', {}).items():
         if n not in src:
             raise RuntimeError('fit.pivots：没有骨骼 ' + n)
@@ -359,17 +393,18 @@ def to_source(p, f):
     return (np.asarray(p) - f['offset']) / f['scale']
 
 
-def skeleton_txt(f, name, native=True):
-    """骨架文本（golem 的格式）：名字 父骨骼 x y z；native = 源 GLB 自己的坐标，否则游戏坐标（米）"""
+def skeleton_txt(f, name, native=True, rig='hero'):
+    """骨架文本（golem 的格式）：名字 父骨骼 x y z；native = 源 GLB 自己的坐标，否则游戏坐标（米）；rig = 骨骼集合（rig_bones）"""
     k = 1.0 / f['scale']
-    head = ['# %s fitted hero skeleton (%d bones, UE / UAL standard names; art/ai/hero_fit.py). Columns: name parent x y z ("-" = root).' % (name, len(NAMES)),
-            '# glTF axes: +Y up, +Z forward (the hero faces +Z), +X = the hero\'s own left. Pose: the source mesh\'s own A-pose.']
+    bs = rig_bones(rig)
+    head = ['# %s fitted %s skeleton (%d bones, UE / UAL standard names; art/ai/hero_fit.py). Columns: name parent x y z ("-" = root).' % (name, rig, len(bs)),
+            '# glTF axes: +Y up, +Z forward (the model faces +Z), +X = the model\'s own left. Pose: the source mesh\'s own A-pose.']
     if native:
         head.append('# Units: the SOURCE model.glb\'s own coordinates (overlays it as-is). Game metres = source * %.6f + (%.6f, %.6f, %.6f).' % (f['scale'], *f['offset']))
     else:
         head.append('# Units: game metres (feet on y = 0, hips at x = z = 0, height %.2f). Source = (game - offset) * %.6f.' % (f['height'], k))
     out = []
-    for n, p in BONES:
+    for n, p in bs:
         q = to_source(f['src'][n], f) if native else f['src'][n]
         out.append('%s %s %.6f %.6f %.6f' % (n, p or '-', q[0], q[1], q[2]))
     return '\n'.join(head + out) + '\n'

@@ -106,9 +106,9 @@ def load_weights(path, f, shape_fn=None):
     J = acc(pr['attributes']['JOINTS_0']).astype(np.int64)
     Wt = acc(pr['attributes']['WEIGHTS_0'], norm=True).astype(np.float64)
     names = [js['nodes'][j]['name'] for j in js['skins'][0]['joints']]
-    bad = sorted(set(names) - set(hf.NAMES))
+    bad = sorted(set(names) - RBN)
     if bad:
-        raise RuntimeError('权重 GLB 的骨骼不在主角骨架里：' + ','.join(bad))
+        raise RuntimeError('权重 GLB 的骨骼不在这套骨架里：' + ','.join(bad))
     if shape_fn is not None:
         V = shape_fn(V)
     G = V * f['scale'] + f['offset']
@@ -123,6 +123,39 @@ def load_weights(path, f, shape_fn=None):
 
 
 # ---------------------------------------------------------------- regions + band weights (on the dense welded source, game metres)
+# 骨骼集合（spec.rig，缺省 hero）：run() 开头设好。区域渐变先按主角的 53 根算，再并到这套骨骼上（collapse）
+RB = hf.BONES
+RBN = set(hf.NAMES)
+ALIAS = {}
+STRICT = set()
+
+
+def set_rig(spec):
+    global RB, RBN, ALIAS, STRICT
+    # weights.strict：自动蒙皮的主导骨落在这几根上、又不是这个区域自己的骨骼时，改用区域渐变（UniRig 把锁骨 / 颈椎分得不对称、管得太宽时用）
+    STRICT = set(spec.get('weights', {}).get('strict', []))
+    rig = spec.get('rig', 'hero')
+    RB = hf.rig_bones(rig)
+    RBN = {n for n, _ in RB}
+    # 游魂的手只有拇指和食指：连指手套那三节（middle_0k）并到食指；其余不在集合里的骨骼沿父骨骼往上并
+    ALIAS = {'%s_0%d_%s' % (f, k, sd): 'index_0%d_%s' % (k, sd) for f in ('middle', 'ring', 'pinky') for k in (1, 2, 3) for sd in 'lr'} if rig == 'husk' else {}
+
+
+def collapse_name(n):
+    n = ALIAS.get(n, n)
+    while n not in RBN:
+        n = hf.PARENT[n]
+    return n
+
+
+def collapse(w):
+    out = {}
+    for k, v in w.items():
+        c = collapse_name(k)
+        out[c] = out.get(c, 0.0) + v
+    return out
+
+
 def smooth(t):
     t = np.clip(t, 0.0, 1.0)
     return t * t * (3 - 2 * t)
@@ -149,7 +182,7 @@ def source_weights(f, spec):
     neck = S['neck_01']
     head_cut = neck[1] + o.get('head_above_neck', 0.03)
     head_band = o.get('head_band', 0.03)
-    trunk = [('pelvis', S['pelvis'][1]), ('spine_01', S['spine_01'][1]), ('spine_02', S['spine_02'][1]), ('spine_03', S['spine_03'][1]), ('neck_01', S['neck_01'][1])]
+    trunk = [(b, S[b][1]) for b in ('pelvis', 'spine_01', 'spine_02', 'spine_03', 'neck_01') if b in RBN]
     tb = o.get('trunk_band', 0.08)
     for i in range(n):
         p = W[i]
@@ -270,23 +303,24 @@ def source_weights(f, spec):
                     w = {k: v * (1 - c) for k, v in w.items()}
                     w['clavicle_' + s] = w.get('clavicle_' + s, 0) + c
         out_r[i] = reg
-        out_w[i] = {k: float(v) for k, v in w.items() if v > 1e-4}
+        out_w[i] = {k: float(v) for k, v in collapse(w).items() if v > 1e-4}
     return out_r, out_w, out_k
 
 
 def region_bone(reg):
-    return reg.replace('coat_', 'thigh_')
+    return collapse_name(reg.replace('coat_', 'thigh_'))
 
 
 def family(n):
     fam = {n}
-    if hf.PARENT.get(n):
-        fam.add(hf.PARENT[n])
-    fam |= {c for c, p in hf.BONES if p == n}
+    par = dict(RB)
+    if par.get(n):
+        fam.add(par[n])
+    fam |= {c for c, p in RB if p == n}
     return fam
 
 
-TORSO = {'pelvis', 'spine_01', 'spine_02', 'spine_03', 'neck_01', 'clavicle_l', 'clavicle_r'}
+TORSO = {'pelvis', 'spine_01', 'spine_02', 'spine_03', 'neck_01', 'clavicle_l', 'clavicle_r'}  # 不在骨骼集合里的那几根不会出现
 
 
 def combine(reg, band, kind, auto, mode, st):
@@ -296,6 +330,9 @@ def combine(reg, band, kind, auto, mode, st):
         return band
     rb = region_bone(reg)
     dom = max(sorted(auto), key=lambda k: auto[k])
+    if dom in STRICT and dom != rb:
+        st['strict'] = st.get('strict', 0) + 1
+        return band
     ok = dom in family(rb) or (dom in TORSO and rb in TORSO) or dom in band
     if not ok:
         st['mismatch'] += 1
@@ -494,6 +531,9 @@ def bake_fist(Vd, VW, f, spec, log, key):
     前两节和现网主角的卷曲一样）。顶点按权重混合（线性蒙皮），四指 / 拇指骨骼的枢轴跟着挪。返回 (新顶点, 新的骨骼枢轴表)"""
     ang = spec.get('fist', [1.25, 1.25, 0.35])
     src = {k: np.array(v, dtype=np.float64) for k, v in f['src'].items()}
+    if ang is False:
+        # 不卷拳（游魂的爪子张着；仆从没有手骨）
+        return Vd, src
     M = {}
     for s in 'lr':
         ax = f['lm'][s]['curl_axis']
@@ -658,7 +698,7 @@ def build_lod(key, target, Wsrc, WF, f, regs, bands, kinds, auto_src, mode, smp,
     #（颜色取这一组的平均，量化到 8 位）：只在真正的色块边界上拆开，文件小得多；= 0 时每个不同的颜色都单独一个顶点（16 位颜色）
     pk = spec.get('pack', {})
     tol = pk.get('weld', 0)
-    bi = {n: i for i, n in enumerate(hf.NAMES)}
+    bi = {n: i for i, (n, _) in enumerate(RB)}
     P, J, Wt, C, I = [], [], [], [], []
     groups = {}
     cidx = np.zeros((len(Fd), 3), dtype=np.int64)
@@ -718,10 +758,10 @@ def build_lod(key, target, Wsrc, WF, f, regs, bands, kinds, auto_src, mode, smp,
                 Wt.append([1.0, 0.0, 0.0, 0.0])
                 C.append([gc[0], gc[1], gc[2], 1.0])
             I.extend([[base + a, base + b, base + c] for a, b, c in gi])
-    bones = [(n, p, tuple(float(x) for x in src[n])) for n, p in hf.BONES]
+    bones = [(n, p, tuple(float(x) for x in src[n])) for n, p in RB]
     path = os.path.join(out, '%s_%s_%s.glb' % (name, mode, key))
-    nbytes = glbw.write(path, [dict(P=np.array(P), I=np.array(I), J=np.array(J), W=np.array(Wt), C=np.array(C), c8=tol > 0, mat='AIHero', base=[1, 1, 1, 1], name='ai_hero_body')], bones,
-                        name='ai_hero', extras=dict(source='cinder ai3d-hero lab', mode=mode, lod=key))
+    nbytes = glbw.write(path, [dict(P=np.array(P), I=np.array(I), J=np.array(J), W=np.array(Wt), C=np.array(C), c8=tol > 0, mat=spec.get('mat', 'AIHero'), base=[1, 1, 1, 1], name=spec.get('mesh', 'ai_hero') + '_body')], bones,
+                        name=spec.get('mesh', 'ai_hero'), extras=dict(source=spec.get('lab', 'cinder ai3d-hero lab'), mode=mode, lod=key))
     cnt = {}
     for q in VW:
         for n, _ in q:
@@ -743,6 +783,7 @@ def run(o):
     os.makedirs(out, exist_ok=True)
     for ob in list(bpy.data.objects):
         bpy.data.objects.remove(ob)
+    set_rig(spec)
     log = dict(spec=spec, source_sha256=sha256(src), blender=bpy.app.version_string, numpy=np.__version__)
     d = load(src)
     # 脚本修形（头缩放 / 腿拉长 / 护膝压平）：按位置的变形，同一个函数也套到 UniRig 的权重网格上
@@ -751,13 +792,14 @@ def run(o):
     if shape_log:
         log['shape'] = shape_log
     f = hf.fit(d['V'], d['F'], spec)
-    name = 'hero_' + spec['name']
+    name = spec.get('prefix', 'hero') + '_' + spec['name']
+    rig = spec.get('rig', 'hero')
     with open(os.path.join(out, spec['name'] + '-skeleton.txt'), 'w') as fh:
-        fh.write(hf.skeleton_txt(f, spec['name']))
+        fh.write(hf.skeleton_txt(f, spec['name'], rig=rig))
     with open(os.path.join(out, spec['name'] + '-skeleton-m.txt'), 'w') as fh:
-        fh.write(hf.skeleton_txt(f, spec['name'], native=False))
+        fh.write(hf.skeleton_txt(f, spec['name'], native=False, rig=rig))
     log['fit'] = dict(height=f['height'], scale=round(f['scale'], 6), offset=[round(float(x), 6) for x in f['offset']], crotch=round(f['lm']['crotch'], 5),
-                      src={n: [round(float(x), 5) for x in f['src'][n]] for n in hf.NAMES},
+                      src={n: [round(float(x), 5) for x in f['src'][n]] for n, _ in RB},
                       thumb={s: f['lm'][s]['thumb_n'] for s in 'lr'}, wrist_t={s: round(f['lm'][s]['t_wr'] / f['lm'][s]['t_tip'], 4) for s in 'lr'})
     G = d['V'] * f['scale'] + f['offset']
     Wsrc, WF = f['W'], f['WF']
@@ -785,16 +827,18 @@ def run(o):
         import shutil
         sd = o['ship'] if os.path.isabs(o['ship']) else os.path.join(ROOT, o['ship'])
         os.makedirs(sd, exist_ok=True)
-        for key, fn in (('hi', 'hero.glb'), ('lo', 'hero_lo.glb')):
+        so = spec.get('ship')  # 敌人等：{files: {hi, lo}, ids: [...], comment}；没写就是主角那一份
+        files = so['files'] if so else {'hi': 'hero.glb', 'lo': 'hero_lo.glb'}
+        for key, fn in sorted(files.items()):
             shutil.copyfile(os.path.join(out, '%s_%s_%s.glb' % (name, mode, key)), os.path.join(sd, fn))
         with open(os.path.join(out, 'provenance-%s.json' % mode), encoding='utf-8') as fh:
             prov = json.load(fh)
-        prov['_comment'] = ('主角的 AI 生成外观（ai3d-hero，%s）的来源记录。源 GLB、概念图、UniRig 的权重 GLB 都不进仓库，只记 sha256（存放在私有的 cinder-ai-src）；'
+        prov['_comment'] = so['comment'] if so else ('主角的 AI 生成外观（ai3d-hero，%s）的来源记录。源 GLB、概念图、UniRig 的权重 GLB 都不进仓库，只记 sha256（存放在私有的 cinder-ai-src）；'
                             'art/ai/hero_rig.py 按 art/ai/hero/%s.json 生成 hero.glb（高 / 中画质）和 hero_lo.glb（低画质的减面版），pack-assets 打进 js/assets/chars.js（aihero_hi / aihero_lo）；'
                             '没有源文件的机器上保留已提交的 GLB。' % (spec['name'], spec['name']))
-        prov['ids'] = ['chars/aihero_hi', 'chars/aihero_lo']
-        prov['outputs'] = {fn: sha256(os.path.join(sd, fn)) for fn in ('hero.glb', 'hero_lo.glb')}
-        with open(os.path.join(sd, 'provenance.json'), 'w', encoding='utf-8') as fh:
+        prov['ids'] = so['ids'] if so else ['chars/aihero_hi', 'chars/aihero_lo']
+        prov['outputs'] = {fn: sha256(os.path.join(sd, fn)) for fn in sorted(files.values())}
+        with open(os.path.join(sd, so.get('provenance', 'provenance.json') if so else 'provenance.json'), 'w', encoding='utf-8') as fh:
             json.dump(prov, fh, ensure_ascii=False, indent=1)
         log['ship'] = dict(dir=os.path.relpath(sd, ROOT), outputs=prov['outputs'])
     with open(os.path.join(out, 'build-%s.json' % mode), 'w', encoding='utf-8') as fh:

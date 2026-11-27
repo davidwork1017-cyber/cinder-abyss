@@ -1,0 +1,63 @@
+{
+ "name": "t06",
+ "source": {
+  "name": "summon-thrall-06",
+  "file": "model.glb",
+  "sha256": "78200b9ad9a54af85db391556fa38946e9dd43d8a5fd9d8b9fe0bd7d7877e948"
+ },
+ "rig": "thrall",
+ "prefix": "thrall",
+ "mat": "AIThrall",
+ "mesh": "ai_thrall",
+ "lab": "cinder ai3d-enemies lab",
+ "tris": {
+  "hi": 2400,
+  "lo": 1800
+ },
+ "fit": {
+  "gap_l": [
+   0.17,
+   0.19
+  ],
+  "gap_r": [
+   0.17,
+   0.19
+  ],
+  "torso_band": [
+   0.6,
+   0.7
+  ],
+  "crotch": 0.45
+ },
+ "regions": {
+  "coat": false
+ },
+ "fist": false,
+ "pack": {
+  "weld": 8
+ },
+ "weights": {
+  "mode": "hybrid",
+  "glb": "rigtest/unirig/summon-thrall-06/model_rigged.glb",
+  "sha256": "8796199b1f5a6cdd0aae4f2020c0ac94729b31984c96e18c5ee4ff3340b1cf3c",
+  "strict": [
+   "neck_01"
+  ]
+ },
+ "shape": {
+  "head_scale": 0.88
+ },
+ "ship": {
+  "files": {
+   "hi": "thrall.glb",
+   "lo": "thrall_lo.glb"
+  },
+  "ids": [
+   "chars/aithrall_hi",
+   "chars/aithrall_lo"
+  ],
+  "provenance": "provenance-thrall.json",
+  "comment": "烬骸仆从的 AI 生成外观（ai3d-enemies，t06）的来源记录。源 GLB、概念图、UniRig 的权重 GLB 都不进仓库，只记 sha256（存放在私有的 cinder-ai-src）；art/ai/hero_rig.py 按 art/ai/enemy/t06.json 生成 thrall.glb（高 / 中画质）和 thrall_lo.glb（低画质的减面版），骨骼集合同现网 Skeleton（12 根，标准名），pack-assets 打进 js/assets/chars.js（aithrall_hi / aithrall_lo）；剑和盾仍是程序化的；没有源文件的机器上保留已提交的 GLB。"
+ },
+ "resemblance": "a generic stylised skeleton warrior: cream bones, glowing orange eye sockets, collarbone bar, dark ragged loincloth, empty hands. The prompt names no game or IP; no match seen to a known game character design, colours or emblems."
+}
