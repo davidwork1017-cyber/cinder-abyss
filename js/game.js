@@ -30,13 +30,26 @@
   // 带节流的提示，避免同一条消息刷屏。只动界面（G.ui.toast 不取随机数、不改游戏状态），所以按真实时间节流：
   // 面板开着（游戏时间不走）时点「分解」「拾取」之类的提示照样能再出来
   const toastAt = {};
+  function uiDue(key, gapMs) {
+    if (!key) return true;
+    const now = Date.now();
+    if (now - (toastAt[key] || 0) < (gapMs || 1500)) return false;
+    toastAt[key] = now;
+    return true;
+  }
   function toast(msg, color, key, gapMs) {
-    if (key) {
-      const now = Date.now();
-      if (now - (toastAt[key] || 0) < (gapMs || 1500)) return;
-      toastAt[key] = now;
-    }
-    G.ui.toast(msg, color);
+    if (uiDue(key, gapMs)) G.ui.toast(msg, color);
+  }
+  // 拾取时的警告（走近一点、背包满了）不弹 toast，写成拾取记录里的一行（pickup-feed）；节流同 toast，同一个 key 共用一个时钟
+  function feedWarn(msg, key, gapMs) {
+    if (!uiDue(key, gapMs)) return;
+    if (G.ui.feedWarn) G.ui.feedWarn(msg, key);
+    else G.ui.toast(msg, '#ff8a6a');
+  }
+  // 手动分解的结果：写在背包页的绿色小字里（分解是在背包里点的；拾取记录在面板后面看不见）
+  function salvNote(msg) {
+    if (G.ui.salvNote) G.ui.salvNote(msg);
+    else G.ui.toast(msg, '#7fe0c0');
   }
   // 场景里的飘字提示（没有目标、魔力不足……）按游戏时间节流：飘字要取随机数，节流若看真实时间，
   // 帧快帧慢会让同一个种子打出不同的随机序列。暂停 / 面板开着时游戏时间不走，节流也跟着停
@@ -12097,16 +12110,12 @@
     return true;
   }
   // 用不上的宝石（学会了的技能宝石、再也学不到新技能的无铭宝石）：还有能学的技能就化成一颗无铭宝石，否则化成一个随机通货（按普通通货的掉落权重）。
-  // 返回 { blank: true } 或 { cur: 通货 id }，并弹一行提示（what：开头那半句）
-  function convertGem(what, allowBlank) {
-    if (allowBlank && G.blankUseful() && addBlank()) {
-      toast(what + '，化为 1 颗' + G.BLANK_GEM.name + '（共 ' + G.save.blankGems.length + ' 颗）', G.BLANK_GEM.color);
-      return { blank: true };
-    }
+  // 返回拾取记录用的 how：{ t: 'dup', blank: true } 或 { t: 'dup', cur: 通货 id, n: 1 }（拾取不弹 toast，pickup-feed）
+  function convertGem(allowBlank) {
+    if (allowBlank && G.blankUseful() && addBlank()) return { t: 'dup', blank: true };
     const cur = G.rollCurrency();
     grantCurrency(cur, 1);
-    toast(what + '，化为 1 个' + G.CURRENCY[cur].name, G.CURRENCY[cur].color);
-    return { cur };
+    return { t: 'dup', cur, n: 1 };
   }
   // 无铭宝石能学 / 能升的技能：有职业时只限这个职业能用的
   G.blankTargets = () => (G.clsDef() ? G.classGems(G.save.cls) : G.GEM_SKILLS);
@@ -12135,9 +12144,12 @@
     const idx = state.loot.indexOf(loot);
     if (idx < 0 || P.dead) return false;
     if (dist(loot.x, loot.z, P.x, P.z) > 7) {
-      toast('走近一点', '#c8b89a', 'far', 900);
+      feedWarn('走近一点', 'far', 900);
       return false;
     }
+    // 拾取结果交给拾取记录（G.ui.onPickup 的 how）：拾取不弹 toast（pickup-feed）。
+    // how.t：'new' 新学会 / 新得到，'up' 升级，'dup' 重复的化成通货（cur、n）；技能宝石另有 lvl（学会后的等级）、bar（放进了技能栏）
+    let how = null;
 
     // 选项「拾取时自动分解普通物品」：不进背包，直接化成通货（普通物品通常什么也分解不出）
     const scrapped = loot.kind === 'item' && loot.data.rarity === 0 && !!save.opts.autoSalvage && !loot.data.lk; // 锁定的物品（丢出去又捡回来）照常进背包
@@ -12154,7 +12166,7 @@
       G.persist();
     } else if (loot.kind === 'item') {
       if (save.bag.length >= BAG_SIZE) {
-        toast('背包已满', '#ff8a6a', 'bagfull', 2500);
+        feedWarn('背包满了', 'bagfull', 2500);
         return false;
       }
       save.bag.push(loot.data);
@@ -12175,34 +12187,31 @@
       G.sfx('pickup', { cur: 1 });
     } else if (loot.kind === 'skill') {
       const id = loot.data.id;
-      const name = G.SKILLS[id].name;
       if (!save.skills[id]) {
         const free = learnSkill(id);
-        toast('习得技能：' + name + (free >= 0 ? '' : '（按 G 绑定）'), GEM_COLOR);
-      } else loot.conv = convertGem('已学会「' + name + '」', true); // 学会了的：化成无铭宝石或通货（界面的拾取记录看 loot.conv）
+        how = { t: 'new', bar: free >= 0 };
+      } else how = convertGem(true); // 学会了的：化成无铭宝石或通货（拾取记录看 how）
       G.sfx('gem');
       G.persist();
     } else if (loot.kind === 'frag') {
       // 烛芯：按种类计数（熄烛者的开启材料，见 G.FRAGS）
       const F = save.frags;
       F[loot.data] = Math.min(G.FRAG_DROP.max, (F[loot.data] || 0) + 1);
-      toast('获得' + G.FRAGS[loot.data].name + '（共 ' + F[loot.data] + ' 个）', G.FRAGS[loot.data].color);
       G.sfx('gem');
       G.persist();
     } else if (loot.kind === 'blank') {
-      const B = G.BLANK_GEM;
-      if (G.blankUseful() && addBlank()) toast('获得' + B.name + '（共 ' + save.blankGems.length + ' 颗，按 G 使用）', B.color);
-      else loot.conv = convertGem('用不上的' + B.name, false); // 能学的技能都学会了（或已攒满）：化成通货
+      if (G.blankUseful() && addBlank()) how = { t: 'new', n: save.blankGems.length };
+      else how = convertGem(false); // 能学的技能都学会了（或已攒满）：化成通货
       G.sfx('gem');
       G.persist();
     } else {
       const id = loot.data;
       if (save.supports.indexOf(id) < 0) {
         save.supports.push(id);
-        toast('获得辅助宝石：' + G.SUPPORTS[id].name + '（按 G 镶嵌）', SUP_COLOR);
+        how = { t: 'new' };
       } else {
         grantCurrency('augment', 1);
-        toast('重复的辅助宝石化为 1 ' + G.CURRENCY.augment.name, G.CURRENCY.augment.color);
+        how = { t: 'dup', cur: 'augment', n: 1 };
       }
       G.sfx('gem');
       G.persist();
@@ -12211,7 +12220,7 @@
     state.loot.splice(idx, 1);
     if (W.lootPick) W.lootPick(loot.x, loot.z, hexOf(loot.color), !!(loot.mesh.userData && loot.mesh.userData.bt)); // vf-vfx3：拾取的环 + 飞向脚下的碎晶
     W.removeMesh(loot.mesh);
-    G.ui.onPickup(loot, scrapped, offRes); // 拾取记录（带图标）、背包里的「新」标记
+    G.ui.onPickup(loot, scrapped, offRes, how); // 拾取记录（带图标）、背包里的「新」标记
     return true;
   };
 
@@ -12361,7 +12370,7 @@
     const res = G.salvageResult(it);
     for (const id in res) grantCurrency(id, res[id]);
     const txt = resultText(res);
-    if (txt) toast('分解获得：' + txt, '#7fe0c0');
+    if (txt) salvNote('分解获得：' + txt);
     return commit();
   };
 
@@ -12382,7 +12391,7 @@
     save.bag = keep;
     for (const id in sum) grantCurrency(id, sum[id]);
     const txt = resultText(sum);
-    toast('分解了 ' + n + ' 件普通物品' + (txt ? '，获得：' + txt : ''), '#c8b89a');
+    salvNote('分解了 ' + n + ' 件普通物品' + (txt ? '，获得：' + txt : ''));
     return commit();
   };
 
