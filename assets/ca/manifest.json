@@ -729,7 +729,7 @@
    "lod": "hi",
    "mode": "fc",
    "part": "barrel",
-   "sha256": "39e1eeb3732174d93f16180b0b140d990e3d530b677fd3ca96237f8f779aea91"
+   "sha256": "f0a9a2f2ffd332b4fca60675d4a8a61307dcad31bd699013b5f35feca329bbdc"
   },
   {
    "id": "ca/aiwpn_gatling_barrel_lo",
@@ -775,7 +775,7 @@
    "lod": "lo",
    "mode": "fc",
    "part": "barrel",
-   "sha256": "3463bfb1fc6337f0f03fa13dd8ff24f21b03b86ee0d5ee82242e1747ae65c1ce"
+   "sha256": "7bb0e5aac6cb65a1b5ec62e6fcea22d835b5ac71d32ffd4e6f92e339dd8a5eab"
   },
   {
    "id": "ca/aiwpn_gatling_lo",

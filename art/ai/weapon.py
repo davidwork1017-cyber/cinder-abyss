@@ -351,7 +351,7 @@ def build(k, prov, lod='hi', part=None):
             m = a == j
             if m.any():
                 out_c[m] = (out_c[m] * larea[m, None]).sum(0) / larea[m].sum()
-    out_c = _grade(out_c, C.get('grade'))
+    out_c = _grade(out_c, (C.get('grade_parts') or {}).get(part) or C.get('grade'))  # grade_parts：分段各自调（机炮的枪管束比黄铜机匣提得多）
     log['tris'] = dict(body=len(me_body.polygons), glow=len(me_glow.polygons) if me_glow else 0)
     # ---- 进 Kit：先本体、再发光壳（面序 = 减面后网格的面序，固定）----
     kb = k.bm
