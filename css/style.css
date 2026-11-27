@@ -4364,6 +4364,14 @@ html.touch-ui .orb-wrap { display: contents; }
 /* 首领条：顶栏下面、小地图左边 */
 html.touch-ui #boss-box { top: calc(var(--sa-t) + 56px); left: calc(var(--sa-l) + 196px); right: calc(var(--sa-r) + 132px); width: auto; max-width: 460px; margin: 0 auto; transform: translateY(-8px); }
 html.touch-ui #boss-box.on { transform: none; }
+/* 异兆事件条（toast-zero：开始的目标句、结果都写在这里）：触屏上放到顶上一排下面那一格（和首领条同一格，不压在画面中间的角色上），收窄；
+   首领条或新手提示卡占着那一格时往下让到 +112 */
+html.touch-ui #enc-bar { top: calc(var(--sa-t) + 56px); width: min(300px, calc(36 * var(--vw, 1vw))); }
+html.touch-ui.t-boss #enc-bar { top: calc(var(--sa-t) + 112px); }
+html.touch-ui:has(#coach.on) #enc-bar { top: calc(var(--sa-t) + 112px); } /* 单独一条：不认 :has 的浏览器只丢这一条 */
+html.touch-ui #enc-bar .eb-name { font-size: 14px; letter-spacing: 3px; }
+html.touch-ui #enc-bar .eb-track { height: 6px; margin: 3px 0 2px; }
+html.touch-ui #enc-bar .eb-txt { font-size: 11.5px; }
 
 /* 右上：小地图（2D 画布上画，110 px，见 W.mmTouch），主线追踪紧贴在下面，两行 */
 html.touch-ui #quest { right: calc(var(--sa-r) + 8px); top: calc(var(--sa-t) + 122px); width: 158px; }
@@ -4375,6 +4383,9 @@ html.touch-ui #quest .q-how, html.touch-ui #quest .q-h, html.touch-ui #quest .q-
 html.touch-ui #quest.t-q1 { pointer-events: auto; }
 html.touch-ui #quest.t-q1::after { content: ''; position: absolute; left: -6px; right: 0; top: -13px; bottom: -13px; }
 html.touch-ui #quest.t-q1 .q-k { display: none; }
+/* 完成一步（toast-zero）：收成一行时留「主线 n/N 完成」那一行，得到的通货在拾取记录里 */
+html.touch-ui #quest.t-q1.done .q-k { display: block; }
+html.touch-ui #quest.t-q1.done .q-goal { display: none; }
 html.touch-ui #zone-loading { right: calc(var(--sa-r) + 8px); top: calc(var(--sa-t) + 122px); width: 110px; padding: 4px 6px; font-size: 11px; }
 html.touch-ui body.quest-on #combo, html.touch-ui #combo { top: calc(var(--sa-t) + 118px); right: calc(var(--sa-r) + 176px); }
 html.touch-ui #combo-n { font-size: 38px; line-height: 38px; }
