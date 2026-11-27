@@ -865,7 +865,7 @@
    },
    "lod": "hi",
    "mode": "fc",
-   "sha256": "4ac8d90a042ba0353735f7ede18803e4f3b2fe98257d72df93c4d78b2be781f7"
+   "sha256": "c15f71e0ee0b343c7d7da5ce104474a774014ef211362c6e473eae18d512f5f6"
   },
   {
    "id": "ca/aiwpn_hammer_lo",
@@ -874,8 +874,8 @@
    "file": "assets/ca/aiwpn/aiwpn_hammer_lo.glb",
    "ship": true,
    "replaces": null,
-   "tris": 210,
-   "verts": 630,
+   "tris": 209,
+   "verts": 627,
    "materials": 1,
    "textures": 0,
    "bounds": {
@@ -909,7 +909,7 @@
    },
    "lod": "lo",
    "mode": "fc",
-   "sha256": "dcf70892159c0d9cf797aa63f01979506572e412d73f2737e3910181f54cb9e2"
+   "sha256": "9e04342a413e5a5bc6558a1176e1a298b264c37b9a86df18d287698eb0f1e564"
   },
   {
    "id": "ca/aiwpn_staff",
