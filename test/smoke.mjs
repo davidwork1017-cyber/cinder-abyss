@@ -28695,6 +28695,41 @@ async function touchSteps() {
     return '兼容 mousedown ' + a.md + ' / ' + b.md;
   });
 
+  await step('触屏：按钮是图标（touch-icons）——顶栏 7 个、翻滚键、F 键画着 G.icons.ui 的图标、不写字，中文名在 aria-label；首领条里 F 的角标换成图标；帮助页的操作说明画出图标、写着中文名', async () => {
+    const r = await ev(() => {
+      const img = (e) => !!e && /^url\("?data:image\/png/.test(getComputedStyle(e).backgroundImage);
+      const shown = (e) => !!e && getComputedStyle(e).display !== 'none' && e.getClientRects().length > 0;
+      const top = Array.from(document.querySelectorAll('#t-top [data-tt]')).map((b) => ({ k: b.dataset.tt, txt: b.textContent.trim(), aria: b.getAttribute('aria-label') || '', img: img(b.querySelector('.t-ico')), w: Math.round(b.getBoundingClientRect().width), on: shown(b) }));
+      const d = document.getElementById('dodge'), ui = d.querySelector('.d-ui'), glyph = d.querySelector('.d-icon > span');
+      const f = document.getElementById('t-f');
+      return {
+        top,
+        roll: { img: img(ui), on: shown(ui), glyph: shown(glyph), aria: d.getAttribute('aria-label') },
+        f: { txt: f.textContent.trim(), img: img(f.querySelector('.t-ico')), aria: f.getAttribute('aria-label') || '' },
+        fk: { img: img(document.querySelector('#boss-break .t-fk')), kbd: shown(document.querySelector('#boss-break kbd')) },
+        list: G.icons.uiIcons().join(),
+        prewarm: G.icons.keys().filter((k) => /^ui-/.test(k)).length,
+      };
+    });
+    const names = r.top.map((b) => b.aria).join('|');
+    assert(r.top.length === 7 && r.top.every((b) => b.txt === '' && b.img && b.aria) && r.top.filter((b) => b.on).every((b) => b.w >= 44), '顶栏按钮应只有图标、名字在 aria-label、≥ 44 px：' + JSON.stringify(r.top));
+    for (const n of ['背包', '技能', '天赋', '地图', '名牌', '菜单', '方向']) assert(names.includes(n), '顶栏按钮的 aria-label 缺「' + n + '」：' + names);
+    assert(r.roll.img && r.roll.on && !r.roll.glyph && r.roll.aria === '翻滚', '触屏的翻滚键应画图标、不写「翻」：' + JSON.stringify(r.roll));
+    assert(r.f.txt === '' && r.f.img && /互动/.test(r.f.aria), 'F 键应画图标、不写字：' + JSON.stringify(r.f));
+    assert(r.fk.img && !r.fk.kbd, '首领条的破绽提示里 F 角标应换成图标：' + JSON.stringify(r.fk));
+    assert(r.prewarm === 0, '按钮图标不该进图标预热（keys()）：' + r.prewarm);
+    await ev(() => G.ui.open('help', 'keys'));
+    await until(() => document.querySelector('#panel-body .hk'), null, 10000);
+    const h = await ev(() => {
+      const rows = Array.from(document.querySelectorAll('#panel-body .hk'));
+      return { n: rows.length, ico: document.querySelectorAll('#panel-body .hk kbd.kb-ico .ico[class*="ico-ui-"]').length, txt: rows.map((e) => e.innerText.replace(/\s+/g, ' ')).join(' | '), keys: rows.map((e) => e.querySelector('.hk-keys').innerText.trim()).join('|') };
+    });
+    await ev(() => G.ui.close());
+    for (const w of ['翻滚', '互动', '背包 / 技能 / 天赋 / 地图', '名牌', '菜单']) assert(h.txt.includes(w), '触屏操作说明缺「' + w + '」：' + h.txt);
+    assert(h.ico >= 8 && !/(^|\|)(翻|包|F|≡)(\||$)/.test(h.keys), '触屏操作说明里按钮应画成图标（不再写 翻 / 包 / F / ≡）：' + JSON.stringify(h));
+    return '图标 ' + r.list + ' · 操作说明 ' + h.n + ' 行、图标 ' + h.ico + ' 个';
+  });
+
   await step('触屏：竖屏时盖上「请横屏游玩」、模拟暂停，转回横屏继续', async () => {
     await ev(() => G.debug.hold(false));
     await page.setViewportSize({ width: 390, height: 844 });
@@ -30214,7 +30249,7 @@ async function touchSteps() {
     return r.lines.length + ' 个画面，共量 ' + r.lines.reduce((n, l) => n + +l.split(' ').pop(), 0) + ' 个框';
   });
 
-  await step('触屏：桌面窗口不开触屏模式（没有 html.touch-ui / t-land / t-rot、没有触屏 DOM、G.touch.on 为假，G.viewW / viewH 就是窗口尺寸），开场卡片的「开始」在 1280×360 / 1024×360 里也在屏内', async () => {
+  await step('触屏：桌面窗口不开触屏模式（没有 html.touch-ui / t-land / t-rot、没有触屏 DOM、G.touch.on 为假，G.viewW / viewH 就是窗口尺寸），开场卡片的「开始」在 1280×360 / 1024×360 里也在屏内；翻滚键画图标（touch-icons），首领条的 F 照旧是按键', async () => {
     if (browser) await browser.close().catch(() => {});
     ({ browser, page, errors } = await launch({ width: 1280, height: 360 }));
     await install();
@@ -30239,12 +30274,15 @@ async function touchSteps() {
             vp: document.querySelector('meta[name=viewport]').content,
             aim: G.input.aim,
             go: go.top >= 0 && go.bottom <= innerHeight && go.left >= 0 && go.right <= innerWidth,
+            // touch-icons：翻滚键桌面也画图标（「翻」字藏起来、键名「空格」照旧）；首领条的 F 照旧是按键，手的图标不画
+            roll: /^url\("?data:image\/png/.test(getComputedStyle(document.querySelector('#dodge .d-ui')).backgroundImage) && getComputedStyle(document.querySelector('#dodge .d-icon > span')).display === 'none' && document.querySelector('#dodge .s-key').textContent === '空格',
+            fk: getComputedStyle(document.querySelector('#boss-break .t-fk')).display === 'none' && getComputedStyle(document.querySelector('#boss-break kbd')).display !== 'none',
           };
         })
       );
     }
-    const bad = out.filter((r) => r.on || r.cls || r.land || !r.view || r.dom || r.mf || r.aim !== null || r.vp !== 'width=device-width, initial-scale=1' || !r.go);
-    assert(!bad.length, '桌面不应开触屏、「开始」应在屏内：' + JSON.stringify(bad));
+    const bad = out.filter((r) => r.on || r.cls || r.land || !r.view || r.dom || r.mf || r.aim !== null || r.vp !== 'width=device-width, initial-scale=1' || !r.go || !r.roll || !r.fk);
+    assert(!bad.length, '桌面不应开触屏、「开始」应在屏内、翻滚键画图标、首领条的 F 照旧：' + JSON.stringify(bad));
     await ev(() => G.ui.close());
     return out.map((r) => r.size).join(' / ');
   });
