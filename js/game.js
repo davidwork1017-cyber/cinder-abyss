@@ -11238,6 +11238,8 @@
         tu.fx.len = tu.len;
         tu.fx.on = on;
         tu.fx.t = tu.t;
+        tu.fx.tx = on ? tu.tgt.x : null; // 目标在哪（只给画面：射线画到多远、转向中压暗）
+        tu.fx.tz = on ? tu.tgt.z : null;
       }
       tu.tt -= dt;
       if (tu.tt > 0) continue;
@@ -11270,7 +11272,7 @@
       const sd = i % 2 ? -1 : 1;
       const p = turretSpot(T, sd);
       const tu = { x: p.x, z: p.z, ang: c.aim, t: T.dur, tt: T.tick * (0.5 + 0.25 * i), ctx, k: 1 / ticks, tgt: null, rt: 0, len: 0, fx: null };
-      tu.fx = G.world.turret ? G.world.turret(tu.x, tu.z, tu.ang, T.dur, { y: T.y, side: sd }) : null; // 只是画面句柄：模拟不读它
+      tu.fx = G.world.turret ? G.world.turret(tu.x, tu.z, tu.ang, T.dur, { y: T.y, side: sd, half: T.width / 2 }) : null; // 只是画面句柄：模拟不读它
       turrets.push(tu);
     }
     G.sfx('cast', { id: ctx.id });

@@ -4558,12 +4558,54 @@ async function mainBody() {
           spinMin = Math.min(spinMin, P.gun.spin);
         }
         G.input.mouse.b[2] = false;
+        // turret-align：每帧量一次画出来的炮管（实例矩阵 × 炮管尖 / 炮管轴）和射线：起点、方向、画到多远、转向中压暗了没有
+        G.world.turretProbe = true;
+        const al = { n: 0, dW: 0, ang: 0, rPx: 0, pastMin: 1e9, pastMax: -1e9, overLen: 0, kAmin: 1, kAend: 1 };
+        const M4 = new THREE.Matrix4(), tip = new THREE.Vector3(), ax = new THREE.Vector3(), bd = new THREE.Vector3();
+        const probe = (dist) => {
+          for (const tu of G.turretList()) {
+            const h = tu.fx;
+            if (!h || !h.on || !h.pb || !h.pbB) continue;
+            M4.fromArray(h.pb.m);
+            tip.fromArray(h.pb.tip).applyMatrix4(M4);
+            ax.fromArray(h.pb.ax).transformDirection(M4);
+            const b = h.pbB;
+            bd.set(b[3] - b[0], b[4] - b[1], b[5] - b[2]).normalize();
+            al.n++;
+            al.dW = Math.max(al.dW, Math.hypot(b[0] - tip.x, b[1] - tip.y, b[2] - tip.z));
+            al.ang = Math.max(al.ang, (Math.acos(Math.min(1, bd.dot(ax))) * 180) / Math.PI);
+            // 画出来的外焰带子（实例矩阵）的起点，在画面上离炮管尖多远（带子摊在镜头平面里，长度不对时起点会跑到炮管后面）
+            const ps = G.world.project(h.pbR[0], h.pbR[1], h.pbR[2]), pt = G.world.project(tip.x, tip.y, tip.z);
+            al.rPx = Math.max(al.rPx, Math.hypot(ps.x - pt.x, ps.y - pt.y));
+            al.kAmin = Math.min(al.kAmin, h.kA);
+            al.kAend = h.kA;
+            const vis = Math.hypot(b[3] - tu.x, b[5] - tu.z);
+            if (vis > tu.len + 0.01) al.overLen++;
+            if (!dist) continue;
+            // 线上最远的敌人（和 enemiesInLine 同一个判法）：射线画到它的中心再往后不到 1 米
+            const sn = Math.sin(tu.ang), cs = Math.cos(tu.ang);
+            let far = -1;
+            for (const e of S.enemies) {
+              if (e.dead) continue;
+              const dx = e.x - tu.x, dz = e.z - tu.z, along = dx * sn + dz * cs;
+              if (along < -e.r || along > tu.len + e.r || Math.abs(dx * cs - dz * sn) > G.SKILLS.meltray.turret.width / 2 + e.r) continue;
+              far = Math.max(far, along);
+            }
+            if (far > 0) {
+              al.pastMin = Math.min(al.pastMin, vis - Math.min(tu.len, far)); // 到得了那个敌人（被墙截短时到 len）
+              al.pastMax = Math.max(al.pastMax, vis - far); // 也不再往后伸出去（最多 1 米）
+            }
+          }
+        };
         const L0 = G.turretList();
         out.cast = { n: L0.length, casts: (S.stats.turretCasts || 0) - casts0, heat: +heatAt.toFixed(2), heatNow: +P.gauge.heat.toFixed(1), rangedAfter, spinMin: +spinMin.toFixed(2), side: L0.map((t) => Math.sign(+(t.z - P.z).toFixed(2))).sort().join(','), near: L0.every((t) => Math.hypot(t.x - P.x, t.z - P.z) < 2.2) };
         // 0.6 秒：没有集火目标 → 打最近的（一排木桩的头一个），射线贯穿整排（gun-gauge：炮台只活 3 秒，各段缩短）
         S.focusT = 0;
         const TD = G.SKILLS.meltray.turret.dur;
-        RW.run(60 * 0.6, aimR);
+        for (let i = 0; i < 36; i++) {
+          RW.run(1, aimR);
+          probe(i >= 12);
+        }
         out.line = line.map((e) => Math.round(e.maxHp - e.hp));
         out.offPre = Math.round(off.maxHp - off.hp);
         out.far = Math.round(far.maxHp - far.hp);
@@ -4576,7 +4618,11 @@ async function mainBody() {
         const t0 = L0[0], want = Math.atan2(off.x - t0.x, off.z - t0.z);
         out.turnGap = +Math.abs(Math.atan2(Math.sin(want - t0.ang), Math.cos(want - t0.ang))).toFixed(2);
         const offA = off.hp;
-        RW.run(60 * 0.8, aimR);
+        for (let i = 0; i < 48; i++) {
+          RW.run(1, aimR);
+          probe(false);
+        }
+        out.align = Object.fromEntries(Object.entries(al).map(([k, v]) => [k, +v.toFixed(3)]));
         out.tgtOff = L0.every((t) => t.tgt === off);
         out.offHit = Math.round(offA - off.hp);
         // 目标死了：重新挑（回到那排木桩）
@@ -4643,6 +4689,7 @@ async function mainBody() {
         out.wild.splash = (S.stats.wildSplash || 0) - sp0;
         out.wild.pair = Math.round(pair.maxHp - pair.hp);
       } finally {
+        G.world.turretProbe = false;
         G.BUILDUP.th = th0;
         G.input.keys.KeyD = false;
         save.equip.weapon = keepW;
@@ -4655,6 +4702,12 @@ async function mainBody() {
     assert(r.cast.rangedAfter >= 14 && r.cast.spinMin === 1, '放炮台时右键扫射不该断、机炮转速不掉：' + JSON.stringify(r.cast));
     assert(r.line.every((v) => v > 0) && r.offPre === 0 && r.far === 0, '炮台应打最近的敌人、射线贯穿那一排，不打别处的：' + JSON.stringify(r));
     assert(r.bu.fire > 0 && r.bu.light > 0, '炮台的射线应同时累积火与雷的异常值：' + JSON.stringify(r.bu));
+    // turret-align：射线起点 = 画出来的炮管尖（≤ 2 厘米，画出来的带子起点在画面上 ≤ 3 像素）、方向 = 炮管方向（≤ 0.5°）；只画到线上最远的敌人后面一点（不再整条伸到墙）、不超过 len；
+    // 转向集火目标的途中压暗（kA < 0.5），转到位后恢复
+    const A = r.align;
+    assert(A.n >= 100 && A.dW <= 0.02 && A.ang <= 0.5 && A.rPx <= 3, '炮台的射线应从画出来的炮管口起、顺着炮管走：' + JSON.stringify(A));
+    assert(A.overLen === 0 && A.pastMin >= -0.05 && A.pastMax <= 1, '射线应画到线上最远的敌人后面一点为止（不超过 len）：' + JSON.stringify(A));
+    assert(A.kAmin < 0.5 && A.kAend === 1, '炮台转向集火目标的途中射线应压暗、转到位后恢复：' + JSON.stringify(A));
     assert(r.turnGap > 0.5 && r.tgtOff && r.offHit > 0, '有集火目标时炮台应转过去打它（转向有上限、不瞬间对准）：' + JSON.stringify(r));
     assert(r.reTarget.offDead && r.reTarget.line0 > 0, '目标死了炮台应重新挑：' + JSON.stringify(r.reTarget));
     assert(r.after === 0 && r.afterDmg === 0, '到时间后炮台应收起、不再出伤害：' + JSON.stringify(r));
@@ -4662,7 +4715,7 @@ async function mainBody() {
     assert(r.nova.hit.every((v) => v > 0) && r.nova.far === 0 && r.nova.heat === 0 && r.nova.fields === 1 && r.nova.burn > 0, '焚天炎爆不对：' + JSON.stringify(r.nova));
     assert(r.wsU === 'wildfire' && r.wild.on && r.wild.heat === 0 && r.wild.during && !r.wild.end && r.wild.moved > 3, '乱射应开启、翻滚不断、照常走动、2 秒后结束：' + JSON.stringify(r.wild));
     assert(r.wild.hit.filter((v) => v > 0).length >= 2 && r.wild.shots >= 18 && r.wild.splash > 0 && r.wild.pair > 0, '乱射应自动打身边的敌人、弹片波及旁边的：' + JSON.stringify(r.wild));
-    return '炮台 ' + r.line.join('/') + '（转向差 ' + r.turnGap + '，集火 ' + r.offHit + '）· 炎爆 ' + r.nova.hit.join('/') + ' + 火场 ' + r.nova.burn + ' · 乱射 ' + r.wild.shots + ' 发';
+    return '炮台 ' + r.line.join('/') + '（转向差 ' + r.turnGap + '，集火 ' + r.offHit + '；射线离炮管口 ' + A.dW + ' 米 / 画面上 ' + A.rPx + ' 像素、偏 ' + A.ang + '°，画过最远的敌人 ' + A.pastMin + '～' + A.pastMax + ' 米，转向时亮度 ' + A.kAmin + '）· 炎爆 ' + r.nova.hit.join('/') + ' + 火场 ' + r.nova.burn + ' · 乱射 ' + r.wild.shots + ' 发';
   });
 
   await step('熔光炮台按机炮普攻折算：两座炮台打满 3 秒、都打在同一个木桩上，合计约等于机炮普攻扫射 basicSec 秒（不镶辅助、转满之后的秒伤），物品等级 10 和 40（带上附加伤害与攻速）都成立；技能卡上的「两座合计」和实际打出来的对得上', noRes(async () => {

@@ -28659,7 +28659,7 @@
   const TUR = [];
   W.turret = function (x, z, ang, dur, o) {
     o = o || {};
-    const h = { x, z, ang, dur, t: dur, len: 0, on: false, y: o.y || 0.95, side: o.side || 1, born: wtime, k: 0, rel: -9, scorch: 0 };
+    const h = { x, z, ang, dur, t: dur, len: 0, on: false, y: o.y || 0.95, side: o.side || 1, born: wtime, k: 0, rel: -9, scorch: 0, half: o.half || 0.6, tx: null, tz: null, vl: 0, kA: 1 };
     TUR.push(h);
     // 落地：脚下一圈细环（玩家色调的余烬橙）+ 几块碎石弹起
     if (PF.vShape) b2Ring(x, z, 0.9, 0xff9a40, 0x5a2410, 0.25);
@@ -29353,6 +29353,23 @@
   const SP_ = window.CA_SKILL_PIECES || {};
   const TU_AI = SP_.turret && SP_.turretHead && SP_.turretBarrel && SP_.turretBarrel.muzzle ? SP_.turretBarrel.muzzle : null;
   const TU_BK = 1.8; // 炮管沿炮管方向拉长的倍数（从炮管根部拉，根部不动）：游戏镜头 1.0× 下要读得出指向
+  // turret-align：炮口 = 炮管前端那一圈面的中心（炮管件本地坐标，拉长前），射线从它经炮管这一帧的矩阵变换后的位置起
+  const TU_TIP = (() => {
+    const B = SP_.turretBarrel;
+    if (!TU_AI || !B.p) return null;
+    let zm = -1e9, x = 0, y = 0, z = 0, n = 0;
+    for (let i = 2; i < B.p.length; i += 3) zm = Math.max(zm, B.p[i]);
+    for (let i = 0; i < B.p.length; i += 3) if (B.p[i + 2] >= zm - 0.03) { x += B.p[i]; y += B.p[i + 1]; z += B.p[i + 2]; n++; }
+    return [x / n, y / n, z / n];
+  })();
+  const TU_TIP_C = [0, 1, 0]; // 拼件炮管（冰晶件）的尖
+  const _tuTip = new T.Vector3(), _tuAx = new T.Vector3();
+  // 炮口和炮管方向（世界坐标）：用刚摆好的炮管矩阵 _pm 变换本地的尖和本地的轴（射线顺着画出来的炮管走，不另算一遍）
+  function tuMuzzle(h, tip, axis) {
+    _tuTip.set(tip[0], tip[1], tip[2]).applyMatrix4(_pm);
+    _tuAx.set(0, axis === 1 ? 1 : 0, axis === 2 ? 1 : 0).transformDirection(_pm);
+    if (W.turretProbe) h.pb = { m: _pm.toArray(), tip: tip.slice(), ax: axis === 2 ? [0, 0, 1] : [0, 1, 0] };
+  }
   function drawTurretAI(h, dt, sc, sn, cs, lo, kl) {
     const fire = h.on && h.len > 0, B = SP_.turretBarrel, z0 = B.z0;
     tuPose(h.x, 0, h.z, 0, h.ang, 0, sc, sc, sc);
@@ -29363,9 +29380,8 @@
     tuPose(h.x + sn * back, 0, h.z + cs * back, 0, h.ang, 0, sc, sc, sc * TU_BK);
     _tuC.set(0xb0561e).convertSRGBToLinear(); // 余烬色的炮管：开火时亮芯更热（射线仍是最亮的东西）
     vsNow(VSH.turretBarrel, _tuC.r * kl, _tuC.g * kl, _tuC.b * kl, fire ? 0.38 : 0.18, 0.4, 0);
-    // 炮口：拉长后的炮管口再往前 0.04 米
-    const mz0 = ((TU_AI[2] - z0) * TU_BK + z0 + 0.04) * sc, mx0 = TU_AI[0] * sc;
-    return turretBeam(h, dt, sc, sn, cs, lo, kl, h.x + mx0 * cs + mz0 * sn, TU_AI[1] * sc, h.z - mx0 * sn + mz0 * cs);
+    tuMuzzle(h, TU_TIP, 2); // 炮管朝本地 +z
+    return turretBeam(h, dt, sc, lo, kl);
   }
   function tuPose(x, y, z, rx, ry, rz, sx, sy, sz) {
     _tuE.set(rx, ry, rz, 'YXZ');
@@ -29402,6 +29418,7 @@
     const bx = h.x - sn * 0.22 * sc, bz = h.z - cs * 0.22 * sc, by = h.y * sc, bl = 1.0 * sc;
     pose(bx, by, bz, HALF_PI, h.ang, 0, 0.46 * sc, bl, 0.46 * sc);
     vsNow(VSH.crystal, _tuC.r, _tuC.g, _tuC.b, fire ? 0.32 : 0.15, 0.45, 0);
+    tuMuzzle(h, TU_TIP_C, 1); // 冰晶件的尖朝本地 +y
     if (!lo) {
       // 炮管根上一圈箍（两块小碎石）
       for (const sd of [1, -1]) {
@@ -29410,35 +29427,87 @@
       }
     }
     // 炮口：小团余烬光（开火时亮一些、一跳一跳）
-    return turretBeam(h, dt, sc, sn, cs, lo, kl, bx + sn * bl * 0.9, by, bz + cs * bl * 0.9);
+    return turretBeam(h, dt, sc, lo, kl);
   }
-  // 炮口的光团 + 射线（拼件炮台和 AI 炮台共用；mx / by / mz 是炮口的世界坐标）
-  function turretBeam(h, dt, sc, sn, cs, lo, kl, mx, by, mz) {
-    const fire = h.on && h.len > 0;
+  // 射线画到哪（只是画面，命中照旧按整条 len 结算）：线上最远的那个敌人（和 game.js 的 enemiesInLine 同一个判法）再往后一点；
+  // 线上没有敌人（还在转向目标）时画到目标那么远，最多 len。原来整条画到墙（最远 14 米）：两座炮台的射线在目标处交叉成 X、一直伸出画面
+  function turretReach(h) {
+    const sn = Math.sin(h.ang), cs = Math.cos(h.ang), es = (G.state && G.state.enemies) || [], half = h.half;
+    let far = -1;
+    for (let i = 0; i < es.length; i++) {
+      const e = es[i];
+      if (e.dead) continue;
+      const dx = e.x - h.x, dz = e.z - h.z, r = e.r || 0.5, along = dx * sn + dz * cs;
+      if (along < -r || along > h.len + r || Math.abs(dx * cs - dz * sn) > half + r) continue;
+      far = Math.max(far, along + r * 0.5);
+    }
+    if (far < 0) far = h.tx === null ? 2.5 : Math.hypot(h.tx - h.x, h.tz - h.z);
+    return Math.min(h.len, Math.max(0.6, far));
+  }
+  // 射线的带子：长轴就是真的这一段（中心 ± 方向 × l / 2），宽度轴和射线、镜头后向都垂直（正对镜头看是满宽）。
+  // mStretch 把长轴摊进镜头平面、长度给满 l：射线朝着 / 背着镜头时画出来比真的长（游戏镜头下约 1.3 倍）、透视下还偏几度，
+  // 两头都伸出去——起点跑到炮管后面、尽头越过目标（手机横屏上起点离炮管尖最多 37 像素）。这样画，带子的中线落在真的起点和尽头上（换哪个镜头看都一样）
+  function mBeam(x, y, z, dx, dy, dz, w, l) {
+    _by.set(dx, dy, dz);
+    _bx.crossVectors(_by, camB);
+    if (_bx.lengthSq() < 1e-8) _bx.set(1, 0, 0);
+    _bx.normalize();
+    _pm.makeBasis(_bx.multiplyScalar(w), _by.multiplyScalar(l), camB);
+    _pm.setPosition(x, y, z);
+  }
+  // 两点之间的一段射线带子（mBeam 的起点 / 尽头写法）：玩家的熔光射线用
+  function mSeg(x0, y0, z0, x1, y1, z1, w) {
+    const dx = x1 - x0, dy = y1 - y0, dz = z1 - z0, l = Math.max(1e-4, Math.hypot(dx, dy, dz));
+    mBeam((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2, dx / l, dy / l, dz / l, w, l);
+  }
+  // 炮口的光团 + 射线（拼件炮台和 AI 炮台共用）：炮口 _tuTip、方向 _tuAx 都来自这一帧画出来的炮管（tuMuzzle）
+  function turretBeam(h, dt, sc, lo, kl) {
+    const fire = h.on && h.len > 0, mx = _tuTip.x, by = _tuTip.y, mz = _tuTip.z;
     h.k += ((fire ? 1 : 0) - h.k) * Math.min(1, dt * 12);
     const fl = 0.85 + 0.15 * Math.sin(wtime * 41 + h.side * 2);
     mBill(mx, by, mz, (0.22 + 0.18 * h.k) * fl * sc);
     pfPut('glow', (0.45 + 0.35 * h.k) * kl, (0.13 + 0.1 * h.k) * kl, 0.025 * kl);
     if (!fire) {
       h.wasOn = false;
+      if (W.turretProbe) h.pbB = null;
       return;
     }
-    if (!h.wasOn) h.rel = wtime; // 射线亮起的那一下：炮口一点近白，只亮 60 毫秒
+    // 射线顺着画出来的炮管（水平、和炮管同高），长度画到 turretReach（平滑跟着，敌人走动 / 换目标时不跳）
+    const ddx = _tuAx.x, ddz = _tuAx.z, dy = _tuAx.y, fwd = (mx - h.x) * ddx + (mz - h.z) * ddz;
+    const reach = turretReach(h);
+    if (!h.wasOn) {
+      h.rel = wtime; // 射线亮起的那一下：炮口一点近白，只亮 60 毫秒
+      h.vl = reach;
+    } else h.vl += (reach - h.vl) * Math.min(1, dt * 18);
     h.wasOn = true;
-    // 射线：比玩家那道细一半多（两道同时在场），外焰 → 内焰 → 细热芯，全是暗一档的余烬红，不混白
-    const len = h.len, x0 = mx, z0 = mz, y0 = by, x1 = h.x + sn * len, z1 = h.z + cs * len, y1 = 0.7;
-    const L = Math.max(0.3, Math.hypot(x1 - x0, z1 - z0)), dy = (y1 - y0) / L, cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, cz = (z0 + z1) / 2;
-    const ddx = (x1 - x0) / L, ddz = (z1 - z0) / L;
-    const pulse = (1 + 0.1 * Math.sin(wtime * 47 + h.side) + 0.05 * Math.sin(wtime * 83)) * h.k;
-    mStretch(cx, cy, cz, ddx, dy, ddz, 0.3 * pulse, L);
-    pfPut('beam', 0.16 * kl, 0.016 * kl, 0.003 * kl);
-    mStretch(cx, cy, cz, ddx, dy, ddz, 0.13 * pulse, L);
-    pfPut('beam', 0.14 * kl, 0.018 * kl, 0.003 * kl);
-    mStretch(cx, cy, cz, ddx, dy, ddz, 0.04, L);
-    pfPut('beam', 0.3 * kl, 0.06 * kl, 0.011 * kl);
+    // 转向中（炮管离目标还差得远）：射线压暗、收细，不在空地上扫出一道亮线（命中照旧）
+    let kA = 1;
+    if (h.tx !== null) {
+      const ta = Math.atan2(h.tx - h.x, h.tz - h.z) - h.ang, err = Math.abs(Math.atan2(Math.sin(ta), Math.cos(ta)));
+      kA = Math.max(0.25, Math.min(1, 1 - (err - 0.35) / 0.9));
+    }
+    h.kA = kA;
+    // 射线：比玩家那道细一半多（两道同时在场），外焰 → 内焰 → 细热芯，全是暗一档的余烬红，不混白。
+    // 三层的尾巴一层比一层长一点（最长到 len）：尽头收成细尖，不是一刀切断
+    const room = Math.max(0.3, h.len - fwd), L = Math.min(room, Math.max(0.3, h.vl - fwd));
+    const x0 = mx, z0 = mz, y0 = by, x1 = x0 + ddx * L, z1 = z0 + ddz * L, y1 = y0 + dy * L;
+    const pulse = (1 + 0.1 * Math.sin(wtime * 47 + h.side) + 0.05 * Math.sin(wtime * 83)) * h.k * (0.6 + 0.4 * kA), kc = kl * kA;
+    const seg = (l, w, r, g, b) => {
+      mBeam(x0 + ddx * l * 0.5, y0 + dy * l * 0.5, z0 + ddz * l * 0.5, ddx, dy, ddz, w, l);
+      pfPut('beam', r, g, b);
+    };
+    seg(L, 0.3 * pulse, 0.16 * kc, 0.016 * kc, 0.003 * kc);
+    if (W.turretProbe) {
+      // 画出来的外焰带子的两头（实例矩阵的中心 ± 长轴的一半）
+      const e = _pm.elements;
+      h.pbB = [x0, y0, z0, x1, y1, z1];
+      h.pbR = [e[12] - e[4] / 2, e[13] - e[5] / 2, e[14] - e[6] / 2, e[12] + e[4] / 2, e[13] + e[5] / 2, e[14] + e[6] / 2];
+    }
+    seg(Math.min(room, L + 0.35), 0.13 * pulse, 0.14 * kc, 0.018 * kc, 0.003 * kc);
+    seg(Math.min(room, L + 0.7), 0.04, 0.3 * kc, 0.06 * kc, 0.011 * kc);
     if (wtime - h.rel < 0.06) {
       const cl = Math.min(0.8, L);
-      mStretch(x0 + ddx * cl * 0.5, y0 + dy * cl * 0.5, z0 + ddz * cl * 0.5, ddx, dy, ddz, 0.07, cl);
+      mBeam(x0 + ddx * cl * 0.5, y0 + dy * cl * 0.5, z0 + ddz * cl * 0.5, ddx, dy, ddz, 0.07, cl);
       pfPut('beam', 1.6, 1.4, 1.1);
     }
     // 缠在射线上的几道短电弧（雷），比玩家那道稀；低画质不画（电弧件常常整场只有它在用，省一次 draw call）
@@ -29448,12 +29517,12 @@
       const f = (i + hash2(Math.floor(wtime * 18), i + 17)) / nArc;
       _pq.copy(camQ).multiply(_pq2.setFromAxisAngle(Z_AXIS, Math.atan2(ddz, ddx) + rand(-0.5, 0.5)));
       mPose(x0 + ddx * L * f, y0 + dy * L * f, z0 + ddz * L * f, _pq, rand(0.6, 1.0), rand(0.2, 0.3), 1);
-      pfPut('arc', 0.36 * kl, 0.085 * kl, 0.02 * kl);
+      pfPut('arc', 0.36 * kc, 0.085 * kc, 0.02 * kc);
     }
     // 尽头：一小团光（不放大成亮团），偶尔一两颗火星
     mBill(x1, y1, z1, 0.5 * Math.min(1.2, pulse));
-    pfPut('glow', 0.5 * kl, 0.14 * kl, 0.025 * kl);
-    if (dt > 0 && !lo && vrnd() < dt * 14) {
+    pfPut('glow', 0.5 * kc, 0.14 * kc, 0.025 * kc);
+    if (dt > 0 && !lo && vrnd() < dt * 14 * kA) {
       const a = rand(0, TAU), v = rand(1.5, 4);
       spawnP(x1, y1, z1, Math.sin(a) * v - ddx * 1.5, rand(1, 3), Math.cos(a) * v - ddz * 1.5, rand(0.12, 0.25), rand(0.06, 0.1), 1, 0.5, 0.12, 8, 2);
     }
@@ -29474,11 +29543,11 @@
       len = 14;
       for (let d = 0.5; d <= 14; d += 0.5) if (!W.shotFree(x0 + dx * d, z0 + dz * d, 0)) { len = d; break; }
     }
-    const x1 = x0 + dx * len, z1 = z0 + dz * len, y1 = y0 - 0.25, mx = (x0 + x1) / 2, mz = (z0 + z1) / 2, my = (y0 + y1) / 2;
+    const x1 = x0 + dx * len, z1 = z0 + dz * len, y1 = y0 - 0.25;
     if (L.ext >= wtime && L.charge >= 0) {
       // 蓄力：细细的瞄准线（越蓄越亮、越稳）+ 枪口聚起的光团，四周的光粒往枪口收
       const k = L.charge, fl = k >= 1 ? 1 : 0.6 + 0.4 * Math.abs(Math.sin(wtime * (20 + k * 30)));
-      mStretch(mx, my, mz, dx, (y1 - y0) / len, dz, 0.045 + 0.05 * k, len);
+      mSeg(x0, y0, z0, x1, y1, z1, 0.045 + 0.05 * k);
       pfPut('beam', (0.9 + k) * fl, (0.3 + 0.5 * k) * fl, 0.08 * fl);
       // skill-b2：枪口的光团收小、改成琥珀色（原来蓄满时是 1.1 米的光晕裹一颗近白的芯）
       mBill(x0, y0, z0, 0.25 + 0.45 * k);
@@ -29497,16 +29566,21 @@
     // skill-b3a：光束身是暗一档的余烬红（加色叠在地面上也只是红橙，不过色调压缩的肩），中间一道很细的热芯（橙黄、不混白）；
     // 近白只留枪口（放出后 60 毫秒）和落点的一小颗。低画质直接画到画布、没有色调压缩：再压两成
     const kl = qualId === 'low' ? 0.8 : 1;
-    mStretch(mx, my, mz, dx, (y1 - y0) / len, dz, 0.62 * pulse, len);
+    // turret-align：带子沿真的那一段画（mSeg / mBeam）。原来的 mStretch 把带子摊进镜头平面、长度给满，射线朝着 / 背着镜头时两头伸出去（起点跑到枪后面）
+    mSeg(x0, y0, z0, x1, y1, z1, 0.62 * pulse);
+    if (W.turretProbe) {
+      const e = _pm.elements;
+      W.laserPb = { b: [x0, y0, z0, x1, y1, z1], r: [e[12] - e[4] / 2, e[13] - e[5] / 2, e[14] - e[6] / 2, e[12] + e[4] / 2, e[13] + e[5] / 2, e[14] + e[6] / 2] };
+    }
     pfPut('beam', 0.2 * kl, 0.02 * kl, 0.004 * kl); // skill-b2：外焰压一点（原来 0.95 / 0.26 / 0.05）
-    mStretch(mx, my, mz, dx, (y1 - y0) / len, dz, 0.28 * pulse, len);
+    mSeg(x0, y0, z0, x1, y1, z1, 0.28 * pulse);
     pfPut('beam', 0.17 * kl, 0.022 * kl, 0.004 * kl); // skill-b2：内焰压两档（原来 1.4 / 0.75 / 0.22，叠在外焰上整条成了近白）
-    mStretch(mx, my, mz, dx, (y1 - y0) / len, dz, 0.07, len);
+    mSeg(x0, y0, z0, x1, y1, z1, 0.07);
     pfPut('beam', 0.32 * kl, 0.065 * kl, 0.012 * kl); // skill-b3a：细热芯（三层加地面也只到橙：地面本身约 0.4，光束只能再加约 0.5，过了就被色调压缩推成黄白）
     // skill-b2：白热的芯只留枪口那一段（≤ 1.2 米）、只在放出后的 60 毫秒里（原来是整条 12 米、0.4 秒的近白粗芯）
     if (wtime - (L.rel || -9) < 0.06) {
       const cl = Math.min(1.2, len), cf = cl / len;
-      mStretch(x0 + (x1 - x0) * cf * 0.5, y0 + (y1 - y0) * cf * 0.5, z0 + (z1 - z0) * cf * 0.5, dx, (y1 - y0) / len, dz, 0.12, cl);
+      mSeg(x0, y0, z0, x0 + (x1 - x0) * cf, y0 + (y1 - y0) * cf, z0 + (z1 - z0) * cf, 0.12);
       pfPut('beam', 2.2, 2.0, 1.6);
     }
     // 缠在光束上的电弧（雷）
