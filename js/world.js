@@ -29386,6 +29386,17 @@
     if (far < 0) far = h.tx === null ? 2.5 : Math.hypot(h.tx - h.x, h.tz - h.z);
     return Math.min(h.len, Math.max(0.6, far));
   }
+  // 射线的带子：长轴就是真的这一段（中心 ± 方向 × l / 2），宽度轴和射线、镜头后向都垂直（正对镜头看是满宽）。
+  // mStretch 把长轴摊进镜头平面、长度给满 l：射线朝着 / 背着镜头时画出来比真的长（游戏镜头下约 1.3 倍）、透视下还偏几度，
+  // 两头都伸出去——起点跑到炮管后面、尽头越过目标（手机横屏上起点离炮管尖最多 37 像素）。这样画，带子的中线落在真的起点和尽头上（换哪个镜头看都一样）
+  function mBeam(x, y, z, dx, dy, dz, w, l) {
+    _by.set(dx, dy, dz);
+    _bx.crossVectors(_by, camB);
+    if (_bx.lengthSq() < 1e-8) _bx.set(1, 0, 0);
+    _bx.normalize();
+    _pm.makeBasis(_bx.multiplyScalar(w), _by.multiplyScalar(l), camB);
+    _pm.setPosition(x, y, z);
+  }
   // 炮口的光团 + 射线（拼件炮台和 AI 炮台共用）：炮口 _tuTip、方向 _tuAx 都来自这一帧画出来的炮管（tuMuzzle）
   function turretBeam(h, dt, sc, lo, kl) {
     const fire = h.on && h.len > 0, mx = _tuTip.x, by = _tuTip.y, mz = _tuTip.z;
@@ -29419,16 +29430,21 @@
     const x0 = mx, z0 = mz, y0 = by, x1 = x0 + ddx * L, z1 = z0 + ddz * L, y1 = y0 + dy * L;
     const pulse = (1 + 0.1 * Math.sin(wtime * 47 + h.side) + 0.05 * Math.sin(wtime * 83)) * h.k * (0.6 + 0.4 * kA), kc = kl * kA;
     const seg = (l, w, r, g, b) => {
-      mStretch(x0 + ddx * l * 0.5, y0 + dy * l * 0.5, z0 + ddz * l * 0.5, ddx, dy, ddz, w, l);
+      mBeam(x0 + ddx * l * 0.5, y0 + dy * l * 0.5, z0 + ddz * l * 0.5, ddx, dy, ddz, w, l);
       pfPut('beam', r, g, b);
     };
     seg(L, 0.3 * pulse, 0.16 * kc, 0.016 * kc, 0.003 * kc);
+    if (W.turretProbe) {
+      // 画出来的外焰带子的两头（实例矩阵的中心 ± 长轴的一半）
+      const e = _pm.elements;
+      h.pbB = [x0, y0, z0, x1, y1, z1];
+      h.pbR = [e[12] - e[4] / 2, e[13] - e[5] / 2, e[14] - e[6] / 2, e[12] + e[4] / 2, e[13] + e[5] / 2, e[14] + e[6] / 2];
+    }
     seg(Math.min(room, L + 0.35), 0.13 * pulse, 0.14 * kc, 0.018 * kc, 0.003 * kc);
     seg(Math.min(room, L + 0.7), 0.04, 0.3 * kc, 0.06 * kc, 0.011 * kc);
-    if (W.turretProbe) h.pbB = [x0, y0, z0, x1, y1, z1];
     if (wtime - h.rel < 0.06) {
       const cl = Math.min(0.8, L);
-      mStretch(x0 + ddx * cl * 0.5, y0 + dy * cl * 0.5, z0 + ddz * cl * 0.5, ddx, dy, ddz, 0.07, cl);
+      mBeam(x0 + ddx * cl * 0.5, y0 + dy * cl * 0.5, z0 + ddz * cl * 0.5, ddx, dy, ddz, 0.07, cl);
       pfPut('beam', 1.6, 1.4, 1.1);
     }
     // 缠在射线上的几道短电弧（雷），比玩家那道稀；低画质不画（电弧件常常整场只有它在用，省一次 draw call）
