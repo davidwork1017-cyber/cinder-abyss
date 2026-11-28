@@ -1,6 +1,5 @@
 node_modules/
 .DS_Store
-.asset-cache/
 test-logs/
 art/ai/inbox/
 

@@ -1,5 +1,5 @@
 // 生成地面图层用的程序化贴图（我们自己画的，不是第三方素材，算作原创）。像素在 tools/ground-tex.mjs 里按固定种子算（只用 Node），
-// 这里只负责编码：JPEG 借 playwright-core 带的 Chrome 的 canvas（和 prep-textures.mjs 一样），输出 tools/asset-sources.json 里 kinds 列的通道。
+// 这里只负责编码：JPEG 借 playwright-core 带的 Chrome 的 canvas，输出 tools/asset-sources.json 里 kinds 列的通道。
 // 同时写 assets/generated/manifest.json：每张图的生成函数、尺寸、原始像素（RGBA8）的 sha256、JPEG 的 sha256 和字节数；
 // check-art 只用 Node 重新算像素核对前者、读仓库里的 JPEG 核对后者（JPEG 的字节取决于 Chrome 的编码器版本，所以重新编码只在这里做）。
 // 用法：node tools/gen-ground-textures.mjs [只生成的 id ...]，输出到 assets/generated/<id>/，然后 node tools/pack-assets.mjs 重新打包。

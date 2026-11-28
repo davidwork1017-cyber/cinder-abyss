@@ -1216,9 +1216,15 @@ async function mainBody() {
 
   // tex-t1：第 0 区的路面 / 粗糙地面 / 虚空地面 / 岩石三向投影都是脚本画的贴图；高 / 中档 512² 带法线贴图，低档换 256² 的一套、不传法线贴图（平的法线）
   // tex-t3：第 1 区（霜骨沼泽）也换成脚本画的贴图，两个区各查一遍；第 1 区不再要照片的 rock-grey 包
+  // tex-rest：第 2～4 区也换了，每区各查一遍
   const PAINT_ZONES = [
     { zi: 0, pack: 'zone-ash', ids: ['p_mud', 'p_burn', 'p_rock'], old: ['mud_cracked_dry_03', 'burned_ground_01'], noPack: 'rock-dark' },
     { zi: 1, pack: 'zone-frost', ids: ['p_ice', 'p_snow', 'p_frock'], old: ['Ice002', 'Snow013'], noPack: 'rock-grey' },
+    // tex-rest：第 2 区（雷鸣遗迹）石板 / 砂砾 / 岩石
+    { zi: 2, pack: 'zone-storm', ids: ['p_slab', 'p_grit', 'p_srock'], old: ['monastery_stone_floor', 'rocky_trail'], noPack: 'rock-grey' },
+    // tex-rest：第 3 区（烬渊深处，余烛殿沿用）岩台 / 熔渣壳 / 柱状岩；第 4 区（坠星裂谷）琉璃板 / 月岩碎屑 / 板岩
+    { zi: 3, pack: 'zone-abyss', ids: ['p_basalt', 'p_cinder', 'p_drock'], old: ['dark_rock_02', 'dark_rock', 'Lava001'], noPack: 'rock-dark' },
+    { zi: 4, pack: 'zone-rift', ids: ['p_glass', 'p_regol', 'p_slate'], old: ['slate_floor', 'moon_01', 'Rock035'], noPack: 'rock-grey' },
   ];
   for (const PZ of PAINT_ZONES) {
     await step('贴图：第 ' + PZ.zi + ' 区地面和岩石用脚本画的贴图，高档 512² 带法线贴图，低档 256²、不传法线贴图（进区和原地换档都对）', async () => {
