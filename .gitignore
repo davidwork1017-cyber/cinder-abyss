@@ -6,3 +6,7 @@ art/ai/inbox/
 
 # AI 主角的试验生成物（art/ai/hero_rig.py 的输出目录）；上线的是 assets/ai/hero/ 里那两份
 art/ai/hero/out/
+
+# Python 字节码（里面带生成时的绝对路径，不许进仓库；tools/check-art.mjs 会查）
+__pycache__/
+*.pyc

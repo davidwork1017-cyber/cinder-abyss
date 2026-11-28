@@ -328,8 +328,11 @@ def _lab(rgb_lin):
 
 
 # ---------- 入口（catalog 的 gen='ai'） ----------
-def ai(k, prov, lod='hi', mode='albedo'):
-    """k = core.Kit；prov = provenance.json 的仓库内路径；lod = processing.lods 里的哪一档；mode = albedo / vc"""
+def ai(k, prov, lod='hi', mode='albedo', part=None):
+    """k = core.Kit；prov = provenance.json 的仓库内路径；lod = processing.lods 里的哪一档；mode = albedo / vc / fc（武器：逐面取色 + 发光拆分，见 art/ai/weapon.py）"""
+    if mode == 'fc':
+        from ai import weapon
+        return weapon.build(k, prov, lod, part)
     P = load_prov(dict(prov=prov))
     spec = P['processing']
     log = {}

@@ -210,6 +210,37 @@
       try {
         const e = data.geo[key], f32 = (b) => new Float32Array(b64ToBuf(b));
         const g = new T.BufferGeometry();
+        if (e.fc) {
+          // AI 武器（ai3d-weapons，外观 fc）：带索引的紧凑包（tools/glb.mjs 的 packFc），展开成不带索引的三角形、按面算法线（平直），发光进 aGlow
+          // fc: 2 = 量化过的（16 位位置按包围盒 q 还原、8 位 sRGB 颜色转线性、8 位发光）
+          const idx = e.i32 ? new Uint32Array(b64ToBuf(e.i)) : new Uint16Array(b64ToBuf(e.i)), qp = new Uint16Array(b64ToBuf(e.p)), qc = new Uint8Array(b64ToBuf(e.c)), qg = e.g ? new Uint8Array(b64ToBuf(e.g)) : null;
+          const nv = qp.length / 3, P0 = new Float32Array(nv * 3), C0 = new Float32Array(nv * 3), G0 = qg ? new Float32Array(nv) : null, q = e.q;
+          const s2l = (x) => (x <= 0.04045 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4));
+          for (let k = 0; k < nv * 3; k++) {
+            const a = k % 3;
+            P0[k] = q[a] + (qp[k] / 65535) * q[3 + a];
+            C0[k] = s2l(qc[k] / 255);
+          }
+          if (G0) for (let k = 0; k < nv; k++) G0[k] = qg[k] / 255;
+          const P = new Float32Array(idx.length * 3), C = new Float32Array(idx.length * 3), GL = G0 ? new Float32Array(idx.length) : null;
+          for (let k = 0; k < idx.length; k++) {
+            const v = idx[k];
+            P[k * 3] = P0[v * 3]; P[k * 3 + 1] = P0[v * 3 + 1]; P[k * 3 + 2] = P0[v * 3 + 2];
+            C[k * 3] = C0[v * 3]; C[k * 3 + 1] = C0[v * 3 + 1]; C[k * 3 + 2] = C0[v * 3 + 2];
+            if (GL) GL[k] = G0[v];
+          }
+          g.setAttribute('position', new T.BufferAttribute(P, 3));
+          g.setAttribute('color', new T.BufferAttribute(C, 3));
+          if (GL) g.setAttribute('aGlow', new T.BufferAttribute(GL, 1));
+          g.computeVertexNormals();
+          g.computeBoundingBox();
+          g.computeBoundingSphere();
+          const bb = g.boundingBox;
+          geos[key] = g;
+          geoInfo[key] = { h: bb.max.y - bb.min.y, r: Math.max(-bb.min.x, bb.max.x, -bb.min.z, bb.max.z), y0: bb.min.y };
+          geoPack[key] = name;
+          continue;
+        }
         g.setAttribute('position', new T.BufferAttribute(f32(e.p), 3));
         g.setAttribute('color', new T.BufferAttribute(f32(e.c), 3));
         if (e.i) {
@@ -469,6 +500,12 @@
   };
   A.texPending = (name) => !!(texState[name] && !texState[name].done); // 测试用：这个包这一档的解码还在路上
   A.geo = (key) => geos[key] || null;
+  // 用完就放掉的几何体（AI 武器：主角骨架和两档掉落模型都建好以后，包里解码出来的源几何体不再要）
+  A.dropGeo = (key) => {
+    delete geos[key];
+    delete geoInfo[key];
+    delete geoPack[key];
+  };
   A.geoInfo = (key) => geoInfo[key] || null;
   A.geoPack = (key) => geoPack[key] || null;
   A.packOfTex = (id) => INDEX.textures[id] || null;

@@ -505,8 +505,9 @@
   // 每个实例的三角形从 401 降到 150；原有形状的顶点一个不差（同样的三角形、同样的顺序）。
   // 退回：没有顶点纹理单元、着色器编译 / 链接失败（V.shapeProbe），或网址带 vshape=merged 时，用原来的合并几何体（只有原来的 7 个形状，
   // 新形状号映射回原来的形状：冰凌 / 冰簇 / 雷桩 → 冰晶，冰碴 → 碎石；雷桩按原来的三根晶柱 + 三块暗石画，V.shapeSlots = false）
-  V.SH = { tongue: 0, crescent: 1, bar: 2, chip: 3, ring: 4, blade: 5, crystal: 6, icicle: 7, ichip: 8, cluster: 9, pylon: 10, pylonBase: 11 };
-  const SH_N = 12;
+  // ai3d-turret：turret 熔光炮台的炮座 + 腿 / turretHead 炮头（暗铁）/ turretBarrel 炮管（余烬色，指着目标），底在 y = 0、高 1.25，炮管朝 +z，炮口位置在 CA_SKILL_PIECES.turretBarrel.muzzle；turretLens 留着形状号（现在不画）
+  V.SH = { tongue: 0, crescent: 1, bar: 2, chip: 3, ring: 4, blade: 5, crystal: 6, icicle: 7, ichip: 8, cluster: 9, pylon: 10, pylonBase: 11, turret: 12, turretLens: 13, turretHead: 14, turretBarrel: 15 };
+  const SH_N = 16;
   let shGeo = null, shMat = null, shTex = null, shSlot = 0;
   V.shapeSlots = false;
   V.shapeInfo = () => ({ slots: V.shapeSlots, slot: shSlot, tris: shGeo ? shGeo.getAttribute('position').count / 3 : 0 });
@@ -620,6 +621,10 @@
     ai(9, 'cluster', 6);
     ai(10, 'pylon', 6);
     ai(11, 'pylonBase', 3);
+    ai(12, 'turret', 6);
+    ai(13, 'turretLens', 3);
+    ai(14, 'turretHead', 6);
+    ai(15, 'turretBarrel', 6);
     return { L, old };
   }
   // 槽位布局能不能用：有顶点纹理单元、有 AI 件、网址没写 vshape=merged
@@ -648,7 +653,7 @@
   }
   function toMerged(why) {
     V.shapeSlots = false;
-    Object.assign(V.SH, { icicle: 6, ichip: 3, cluster: 6, pylon: 6, pylonBase: 3 });
+    Object.assign(V.SH, { icicle: 6, ichip: 3, cluster: 6, pylon: 6, pylonBase: 3, turret: 6, turretLens: 3, turretHead: 6, turretBarrel: 6 });
     if (!shLog) {
       shLog = true;
       console.warn('[vfx] 形状批退回合并几何体：' + why);

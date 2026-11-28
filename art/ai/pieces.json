@@ -6,6 +6,7 @@
   "assets/ai/skill-ice-shard/provenance.json",
   "assets/ai/skill-ice-chunk/provenance.json",
   "assets/ai/skill-ice-cluster/provenance.json",
+  "assets/ai/skill-turret/provenance.json",
   "assets/ai/skill-pylon/provenance.json"
  ]
 }
