@@ -33,7 +33,7 @@
     }
   },
   "packs": {
-    "chars": { "chars": { "adventurer": "quaternius-modular-men/Adventurer.glb", "zombie": "quaternius-animated-zombie/Zombie.glb", "skeleton": "quaternius-animated-monster/Skeleton.glb", "spider": "quaternius-easy-enemy/Spider.glb", "ual": "ual/ual-clips.glb" } },
+    "chars": { "chars": { "adventurer": "quaternius-modular-men/Adventurer.glb", "zombie": "quaternius-animated-zombie/Zombie.glb", "skeleton": "quaternius-animated-monster/Skeleton.glb", "spider": "ai/spitter/spitter.glb", "ual": "ual/ual-clips.glb" } },
     "rock-dark": { "textures": ["dark_rock"] },
     "rock-grey": { "textures": ["Rock035"] },
     "ground": { "textures": ["g_decals"] },

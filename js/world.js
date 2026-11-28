@@ -14381,8 +14381,6 @@
   };
   // 蜘蛛（Spider）：身体 / 头 / 腹三节，八条腿各三节同名；脚上的 IK 骨骼不参与
   const SP_MAP = { Root: 'root', Body: 'root', Thorax: 'thx', Head: 'head', Abdomen: 'abd' };
-  // 卡通：苔绿的甲壳（背上亮、腿根暗），在暖褐的地面上冷暖分得开，也和主角围巾的青绿不撞（旧的炭黑 / 深梅在卡通光照下是一团黑）
-  const SP_COL = [cLin(0x2e3a2a), cLin(0x7a8e4e)];
 
   // ----- 人形标准骨架（rig-std）：UAL / UBC 的 65 骨骼骨架（UE 风格骨骼名）当人形角色的统一命名层 -----
   // 运行时仍由程序化关节驱动，模型骨架只是交换格式。人形模型（游魂的 Zombie、烬骸仆从的 Skeleton）载入时按各自的 STD_ALIAS
@@ -14728,30 +14726,25 @@
       sock: { weapon: ['hR', 0, -0.05, 0.92], hand: ['hR', 0, -0.05, 0.03], head: ['head', 0, 0.3, 0.02], chest: ['chest', 0, 0.22, 0.06] },
       ankle: (rig) => rig.joints[rig.JI.ftL].py,
     },
-    // 喷吐者：Spider（Easy Enemy）。炭黑的身体，眼睛和腹背上的囊发着元素光；骨架是蜘蛛自己的（八条腿各三节），
-    // 动作用模型自带的走 / 待机 / 攻击 / 死亡采样成关键帧，失衡是程序化的
+    // 喷吐者：ai3d-spitter 起网格换成 AI 生成的蜘蛛（assets/ai/spitter/spitter.glb，art/ai/char_rig.py 贴到 Spider（Easy Enemy）原来的骨架上），
+    // 近黑的甲壳、腹背上四个囊（Material.001，发元素光）；骨架、静止姿态、动作还是原来的（八条腿各三节），失衡是程序化的。
+    // 身高 0.9：模型最高点（囊顶）0.75 × 1.2，和原来模型的缩放一样（骨架尺寸不变）
     spitter: {
-      model: 'spider', height: 0.78, yaw: 0, center: 'Body',
+      model: 'spider', height: 0.9, yaw: 0, center: 'Body',
       map: (n) => (SP_MAP[n] !== undefined ? SP_MAP[n] : /Leg/.test(n) ? n : null),
       pivot: null, // spiderRig 里按骨骼逐个填
       keep: () => false,
+      // 颜色：GLB 里每角烘好的反照率（COLOR_0，线性），再按高度轻轻压暗腿根（和原来一样的 cShade）
       color: (mat, prim, base, vc, y, out) => {
-        const t = smooth01((y - 0.12) / 0.5);
-        for (let k = 0; k < 3; k++) out[k] = SP_COL[0][k] + (SP_COL[1][k] - SP_COL[0][k]) * t;
-        return cShade(out, out, y, 0.78, 0.15);
+        const c = vc || base;
+        for (let k = 0; k < 3; k++) out[k] = c[k];
+        return cShade(out, out, y, 0.9, 0.15);
       },
       surf: () => SURF.chitin,
-      glow: (mat) => (mat === 'Material.001' ? 1.1 : 0),
-      extra: (b, pos) => {
-        // 腹背上的余烬囊：半埋在腹部上方的一团（元素光），囊外两道暗色的甲环
-        const a = pos('Abdomen');
-        const x = a[0], y = a[1] + 0.33, z = a[2] - 0.34;
-        b.at('abd').g(gSph(0.13, 8, 6), 1.2, x, y, z, -0.25, 0, 0, 1.2, 0.45, 1.45);
-        b.surf(SURF.chitin, true).p(gTorus(0.12, 0.018, 4, 12), 0x15110f, x, y + 0.02, z + 0.07, HALF_PI - 0.3, 0, 0, 1.15, 1, 0.7);
-        b.p(gTorus(0.1, 0.016, 4, 12), 0x15110f, x, y - 0.01, z - 0.1, HALF_PI - 0.1, 0, 0, 1.2, 1, 0.7);
-      },
-      // Head 骨骼在身体中部：嘴（weapon / hand）挪到眼睛前下方的口器处，head 挪到眼睛上方
-      sock: { weapon: ['head', 0, -0.02, 0.4], hand: ['head', 0, -0.02, 0.4], head: ['head', 0, 0.14, 0.22], chest: ['root', 0, 0.2, 0.05] },
+      // 腹背上的囊（Material.001）：元素色发光；比原来的 1.1 亮一档，出手那一下进 85–100% 的特效亮度带
+      glow: (mat) => (mat === 'Material.001' ? 1.5 : 0),
+      // Head 骨骼在身体中部：嘴（weapon / hand）挪到口器（AI 外观的头比原来的往前），head 挪到眼睛上方
+      sock: { weapon: ['head', 0, 0, 0.5], hand: ['head', 0, 0, 0.5], head: ['head', 0, 0.14, 0.3], chest: ['root', 0, 0.2, 0.05] },
     },
   };
 
