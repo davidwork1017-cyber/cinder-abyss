@@ -272,9 +272,17 @@
 <script src="js/vfx.js"></script>
 <script src="js/items.js"></script>
 <script src="js/world.js"></script>
-<script>if (/[?&](px|proto)=(?!0(&|$))/.test(location.search)) document.write('<script src="js/pixel.js"><\/script>'); // style-pixel 实验：像素 + 暗色地牢画面（?px= 或 ?proto=1），默认不加载</script>
-<!-- map-open（实验）：开放式地图，只有 ?openmap=1 或 ?proto=1（原型：像素 + 暗色地牢 + 开放式第 1 区）才加载；默认不加载、不改任何行为 -->
-<script>if (/[?&](openmap|proto)=1\b/.test(location.search)) document.write('<script src="js/openmap.js"><\/script>');</script>
+<!-- 实验（默认不加载、不改任何行为）：js/pixel.js 像素 + 暗色地牢画面，js/openmap.js 开放式第 1 区。
+     加载条件：网址参数（?px= / ?openmap=1）或「设置 → 实验」的开关（存在这台设备上：localStorage 'cinder-abyss-lab' = { px, map }，
+     两个都关时没有这个键；不进存档）；?proto=1 这一次两个都开，?proto=0 两个都关（都不改设置）。window.CA_LAB 记着这一次实际加载了哪个 -->
+<script>(function () {
+  var q = location.search, o = {};
+  try { o = JSON.parse(localStorage.getItem('cinder-abyss-lab') || 'null') || {}; } catch (e) {}
+  var p0 = /[?&]proto=0\b/.test(q), p1 = /[?&]proto=1\b/.test(q);
+  var L = (window.CA_LAB = { px: !p0 && (p1 || /[?&]px=(?!0(&|$))/.test(q) || o.px === true), map: !p0 && (p1 || /[?&]openmap=1\b/.test(q) || o.map === true), url: p0 || p1 });
+  if (L.px) document.write('<script src="js/pixel.js"><\/script>');
+  if (L.map) document.write('<script src="js/openmap.js"><\/script>');
+})();</script>
 <script src="js/game.js"></script>
 <script src="js/enemies.js"></script>
 <script src="js/minions.js"></script>

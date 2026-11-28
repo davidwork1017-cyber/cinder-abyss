@@ -17,7 +17,7 @@
 //   pxtel=0|1         敌方预警圈另画一层、不进调色板（边保持清楚、填充保持半透明）
 //   pxstep=0|12       角色动画按每秒几帧取样（只改画面：画的时候换成上一个取样点的骨骼，模拟照常）
 //   pxdir=0|8|16      角色朝向量化成几个方向（只在画的时候改 group.rotation.y，画完恢复）
-//   proto=1           没有 px= 时取预设 d（?proto=1 原型用）
+//   没有 px= 时（?proto=1、设置 → 实验 →「像素画面」）取预设 d
 // 页面里：G.px.set({ h: 400, pal: 1, ... }) 现场改，G.px.cfg 当前配置，G.px.stats 最近一帧的 draw / 三角面数
 (function () {
   const W = G.world, T = THREE;
@@ -32,7 +32,7 @@
     // D：折中（?proto=1 用这一套）：360 高、调色板（轻抖动）、角色描边 + 场景深度边、暗色光照、视野暗角、预警圈不量化、动画 12 帧 / 秒、朝向 8 方向
     d: { h: 360, pal: 1, dith: 0.3, ol: 2, dark: 1, fog: 0.65, con: 1.1, sat: 1.05, tel: 1, step: 12, dir: 8 },
   };
-  let pid = (qs.get('px') || (qs.has('proto') && qs.get('proto') !== '0' ? 'd' : 'a')).toLowerCase();
+  let pid = (qs.get('px') || 'd').toLowerCase(); // 网址没给 px= 时（?proto=1、设置里的「像素画面」）用 d；px=1 = a
   if (!PRESET[pid]) pid = 'a';
   const cfg = Object.assign({ id: pid, snap: 1 }, PRESET[pid]);
   const num = (k, key) => {
@@ -373,18 +373,6 @@
     st.ms = performance.now() - now;
   };
   W.pxRender = pxRender;
-  // ?proto=1 原型：第 1 区（灰烬荒原）用开放式地图（js/openmap.js 换掉了它的生成器）的种子 808（map-open 推荐的那一张），其它区照常随机
-  if (/[?&]proto=1\b/.test(location.search)) {
-    const bz0 = W.buildZone;
-    W.buildZone = function (def) {
-      W.pinZoneSeed(def && def.id === 'ash' && G.openMap ? 808 : null);
-      try {
-        return bz0.apply(this, arguments);
-      } finally {
-        W.pinZoneSeed(null);
-      }
-    };
-  }
   const _v2 = new T.Vector2();
   G.px = {
     cfg,

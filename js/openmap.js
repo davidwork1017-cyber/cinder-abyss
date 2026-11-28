@@ -1405,4 +1405,18 @@
     return out;
   }
   W.openAlt = (k) => (W.zone ? altRoutes(W.zone, k || 2) : null);
+
+  // ?proto=1 和「设置 → 实验 → 开放式荒原」：第 1 区固定种子 808（map-open 推荐的那一张），其它区照常随机。
+  // 只用 ?openmap=1 打开（实验工具，自己用 G.debug.zoneSeed 选种子）时不包
+  if (window.CA_LAB && window.CA_LAB.map && !/[?&]openmap=1\b/.test(location.search)) {
+    const bz0 = W.buildZone;
+    W.buildZone = function (def) {
+      W.pinZoneSeed(def && def.id === 'ash' ? 808 : null);
+      try {
+        return bz0.apply(this, arguments);
+      } finally {
+        W.pinZoneSeed(null);
+      }
+    };
+  }
 })();
