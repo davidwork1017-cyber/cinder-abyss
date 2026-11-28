@@ -15126,7 +15126,7 @@
       ankle: (rig) => rig.joints[rig.JI.ftL].py,
     },
     // 喷吐者：ai3d-spitter 起网格换成 AI 生成的蜘蛛（assets/ai/spitter/spitter.glb，art/ai/char_rig.py 贴到 Spider（Easy Enemy）原来的骨架上），
-    // 近黑的甲壳、腹背上四个囊（Material.001，发元素光）；骨架、静止姿态、动作还是原来的（八条腿各三节），失衡是程序化的。
+    // 冷橄榄绿的甲壳、腹背上四个囊（Material.001，发元素光）；骨架、静止姿态、动作还是原来的（八条腿各三节），失衡是程序化的。
     // 身高 0.9：模型最高点（囊顶）0.75 × 1.2，和原来模型的缩放一样（骨架尺寸不变）
     spitter: {
       model: 'spider', height: 0.9, yaw: 0, center: 'Body',
@@ -15140,7 +15140,7 @@
         return cShade(out, out, y, 0.9, 0.15);
       },
       surf: () => SURF.chitin,
-      // 腹背上的囊（Material.001）：元素色发光；比原来的 1.1 亮一档，出手那一下进 85–100% 的特效亮度带
+      // 腹背上的囊（Material.001）：元素色发光；比原来的 1.1 亮一档（出手那一下比原来亮，元素色本身的亮度封顶，到不了 85%）
       glow: (mat) => (mat === 'Material.001' ? 1.5 : 0),
       // Head 骨骼在身体中部：嘴（weapon / hand）挪到口器（AI 外观的头比原来的往前），head 挪到眼睛上方
       sock: { weapon: ['head', 0, 0, 0.5], hand: ['head', 0, 0, 0.5], head: ['head', 0, 0.14, 0.3], chest: ['root', 0, 0.2, 0.05] },
