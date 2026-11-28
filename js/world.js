@@ -13144,7 +13144,8 @@
       uTRim: { value: 1 }, // 卡通轮廓光的倍数（RIG_FRAG；首领按 BOSS_SPEC.trim）
     };
     ent.uBones = { value: ent.bones };
-    group.userData.pxEnt = ent; // style-pixel 实验（js/pixel.js）：画面里按实体步进动画 / 量化朝向用；平时没人读
+    // style-pixel 实验（js/pixel.js，?px= / ?proto=1 才有 W.pxRender）：画面里按实体步进动画 / 量化朝向用。不可枚举：Object3D.copy 按 JSON 复制 userData 时跳过它
+    if (W.pxRender) Object.defineProperty(group.userData, 'pxEnt', { value: ent, configurable: true });
     ent.pose.set(rig.rest);
     ent.from.set(rig.rest);
     ent.out.set(rig.rest);

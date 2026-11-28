@@ -373,6 +373,18 @@
     st.ms = performance.now() - now;
   };
   W.pxRender = pxRender;
+  // ?proto=1 原型：第 1 区（灰烬荒原）用开放式地图（js/openmap.js 换掉了它的生成器）的种子 808（map-open 推荐的那一张），其它区照常随机
+  if (/[?&]proto=1\b/.test(location.search)) {
+    const bz0 = W.buildZone;
+    W.buildZone = function (def) {
+      W.pinZoneSeed(def && def.id === 'ash' && G.openMap ? 808 : null);
+      try {
+        return bz0.apply(this, arguments);
+      } finally {
+        W.pinZoneSeed(null);
+      }
+    };
+  }
   const _v2 = new T.Vector2();
   G.px = {
     cfg,
