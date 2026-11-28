@@ -3100,6 +3100,8 @@
     W.renderer = renderer;
     W.scene = scene;
     W.camera = camera;
+    // style-pixel（实验，默认关）：js/pixel.js 只在网址带 ?px= 时加载，拿这些句柄做低分辨率 + 暗色地牢的画面；平时 W.pxRender 不存在，什么都不变
+    W._px = { hemi, sun, fill, lamp, pScale: pMat.uniforms.uScale, aoMark: AO_MARK, displayRT, fires: () => zoneFx && zoneFx.fires, view: () => ({ vw, vh, dpr, glDpr: dpr * (qual.scale || 1), q: qualId, fov: BASE_FOV }) };
     initPost();
     applyAO();
     W.resize();
@@ -33121,7 +33123,8 @@
     zoneFrames++;
     autoQualityWatch();
     ldFill();
-    if (post.ok && qual.post) post.composer.render();
+    if (W.pxRender) W.pxRender(); // style-pixel 实验（?px=），见 js/pixel.js
+    else if (post.ok && qual.post) post.composer.render();
     else if (post.fx && qual.fxaa) post.fx.render();
     else renderer.render(scene, camera);
     if (!vshChecked && PF.vShape && PF.vShape.mesh.visible) vshCheck();
