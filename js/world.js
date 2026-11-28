@@ -3103,6 +3103,8 @@
     W.renderer = renderer;
     W.scene = scene;
     W.camera = camera;
+    // style-pixel（实验，默认关）：js/pixel.js 只在网址带 ?px= 时加载，拿这些句柄做低分辨率 + 暗色地牢的画面；平时 W.pxRender 不存在，什么都不变
+    W._px = { hemi, sun, fill, lamp, pScale: pMat.uniforms.uScale, aoMark: AO_MARK, displayRT, fires: () => zoneFx && zoneFx.fires, view: () => ({ vw, vh, dpr, glDpr: dpr * (qual.scale || 1), q: qualId, fov: BASE_FOV }) };
     initPost();
     applyAO();
     W.resize();
@@ -3260,8 +3262,47 @@
     p._s = Math.sin(a);
     p._a = a;
   }
+  // cpoly（map-open：凸多边形，开放式地图的格子用）：sd = -max(到各条边所在直线的有向距离) + round。里面精确（凸多边形内部到边界的距离 = 到最近的边线），
+  // 外面是下界的绝对值（离角远的地方偏小），sd = 0 的边界精确，走路 / 寻路的 pad 判定不受影响。按边的法线一次算好挂在图元上（不可枚举，不进 JSON）
+  function cpolyN(p) {
+    if (Object.prototype.hasOwnProperty.call(p, '_n') && p._np === p.pts) return p._n;
+    const P = p.pts, n = P.length, N = new Float64Array(n * 3);
+    // 法线一律背向顶点的重心（凸多边形里重心在每条边的内侧；外扩时被挤掉的短边顶点顺序会反过来，按绕向算会把法线算反）
+    let cx = 0, cz = 0;
+    for (let i = 0; i < n; i++) (cx += P[i][0] / n), (cz += P[i][1] / n);
+    for (let i = 0; i < n; i++) {
+      const a = P[i], b = P[(i + 1) % n], dx = b[0] - a[0], dz = b[1] - a[1], l = Math.hypot(dx, dz);
+      if (l < 1e-4) {
+        // 重合的顶点：这条边不算（法线为零会把整个多边形的 sd 压到 round）
+        N[i * 3] = N[i * 3 + 1] = 0;
+        N[i * 3 + 2] = -1e18;
+        continue;
+      }
+      let nx = dz / l, nz = -dx / l;
+      if (nx * (cx - a[0]) + nz * (cz - a[1]) > 0) (nx = -nx), (nz = -nz);
+      N[i * 3] = nx;
+      N[i * 3 + 1] = nz;
+      N[i * 3 + 2] = -(nx * a[0] + nz * a[1]);
+    }
+    if (!Object.prototype.hasOwnProperty.call(p, '_n')) {
+      Object.defineProperty(p, '_n', { value: N, writable: true, enumerable: false });
+      Object.defineProperty(p, '_np', { value: P, writable: true, enumerable: false });
+    }
+    p._n = N;
+    p._np = P;
+    return N;
+  }
   function primSd(p, x, z) {
     switch (p.t) {
+      case 'cpoly': {
+        const N = cpolyN(p);
+        let m = -1e18;
+        for (let i = 0; i < N.length; i += 3) {
+          const v = N[i] * x + N[i + 1] * z + N[i + 2];
+          if (v > m) m = v;
+        }
+        return (p.round || 0) - m;
+      }
       case 'circle': {
         const dx = x - p.x, dz = z - p.z;
         return p.r - Math.sqrt(dx * dx + dz * dz);
@@ -3317,8 +3358,9 @@
       case 'arc':
         return [p.x - p.r - p.hw, p.z - p.r - p.hw, p.x + p.r + p.hw, p.z + p.r + p.hw];
       case 'poly':
+      case 'cpoly':
       case 'path': {
-        const m = p.t === 'poly' ? p.round || 0 : typeof p.hw === 'number' ? p.hw : Math.max.apply(null, p.hw);
+        const m = p.t === 'poly' || p.t === 'cpoly' ? p.round || 0 : typeof p.hw === 'number' ? p.hw : Math.max.apply(null, p.hw);
         const b = [1e18, 1e18, -1e18, -1e18];
         for (const q of p.pts) {
           if (q[0] < b[0]) b[0] = q[0];
@@ -3522,6 +3564,18 @@
         const ox = qx > 0 ? qx : 0, oz = qz > 0 ? qz : 0;
         out[i] = rd - Math.sqrt(ox * ox + oz * oz) - Math.min(Math.max(qx, qz), 0);
       }
+    } else if (p.t === 'cpoly') {
+      // 每条边的有向距离沿一行是 x 的一次函数：先放第一条边，其余逐条取 max
+      const N = cpolyN(p), rd = p.round || 0, xs = x0 + i0 * h;
+      for (let k = 0; k < N.length; k += 3) {
+        const a = N[k] * xs + N[k + 1] * z + N[k + 2], b = N[k] * h;
+        if (k === 0) for (let i = 0; i < n; i++) out[i] = a + b * i;
+        else for (let i = 0; i < n; i++) {
+          const v = a + b * i;
+          if (v > out[i]) out[i] = v;
+        }
+      }
+      for (let i = 0; i < n; i++) out[i] = rd - out[i];
     } else for (let i = 0; i < n; i++) out[i] = primSd(p, x0 + (i0 + i) * h, z);
     return out;
   }
@@ -4369,7 +4423,7 @@
       }
     }
     // 不相邻的关键路径房间：边到边 ≥ gap（在 A 的格子上量到 B 的距离）
-    for (const w of pathGaps(spec, ck.gap)) why.push(w);
+    if (ck.gap > 0) for (const w of pathGaps(spec, ck.gap)) why.push(w); // map-open：开放式地图（实验）的格子房间彼此相邻，gap ≤ 0 时不查
     // 怪群槽位、宝箱：离起点、离门，不在灼烧 / 熔岩上
     const doors = spec.links.filter((L) => L.door).map((L) => L.door);
     const bad = (x, z) => pr.hp.some((hz) => hz.kind === 'burn' && primSd(hz.p, x, z) >= 0) || pr.cp.some((c) => c.mat === MAT.LAVA && primSd(c.p, x, z) >= 0);
@@ -4400,6 +4454,12 @@
     return { id: def.id, seed: seed >>> 0, spec, ok: v.ok, why: v.why, area: v.area, hash: specHash(spec), ms: performance.now() - t0 };
   };
   W.specHash = specHash;
+  // map-open（实验，?openmap=1 才加载 js/openmap.js）：开放式地图的生成器 / 外观要用的内部函数。默认关闭时没有任何代码读它
+  W._terrLab = () => ({
+    GEN, ZONE_TERRAIN, CHECK, mulberry32, shuffleR, primSd, primBox, MAT, HAZ, lvFor, validateSpec, rasterize, specHash, terrainOf,
+    geo, bake, gBox, gCyl, gCone, gIco, seg, toonGradient, makeToonMat, mixHex, lin, vnoise, ashMerge, ashBlockGeo, ashBoxGeo, ashSlabGeo, ashBigTreeGeo, ashSnagGeo, ASH_LAY,
+    MM, gridAt, matAt, scene: () => scene, camera: () => camera, renderer: () => renderer, zoneGroup: () => zoneGroup, own,
+  });
 
   // 进区时的布局：legacy 不固定种子时直接用 Math.random；其余用种子，校验失败 seed+1 重试，8 次都不行退回 legacy。永远不抛错
   let zoneSeq = 0, pinSeed = null;
@@ -13092,6 +13152,8 @@
       uTRim: { value: 1 }, // 卡通轮廓光的倍数（RIG_FRAG；首领按 BOSS_SPEC.trim）
     };
     ent.uBones = { value: ent.bones };
+    // style-pixel 实验（js/pixel.js，?px= / ?proto=1 才有 W.pxRender）：画面里按实体步进动画 / 量化朝向用。不可枚举：Object3D.copy 按 JSON 复制 userData 时跳过它
+    if (W.pxRender) Object.defineProperty(group.userData, 'pxEnt', { value: ent, configurable: true });
     ent.pose.set(rig.rest);
     ent.from.set(rig.rest);
     ent.out.set(rig.rest);
@@ -32675,6 +32737,7 @@
       g.stroke();
     }
     g.globalAlpha = 1;
+    if (W.mmBuilt) W.mmBuilt(zone, cv, g); // map-open（实验）：小地图底图画好以后（迷雾 / 地标）
     if (MM.win) return; // 截取模式的边框每帧画在截取框上
     g.strokeStyle = 'rgba(214,160,92,0.55)';
     g.lineWidth = 1;
@@ -33148,6 +33211,7 @@
       if (zn) {
         g.fillStyle = 'rgba(255,255,255,0.35)';
         if (inMM(X(zn.start.x), Z(zn.start.z))) g.fillRect(X(zn.start.x) - 1.5, Z(zn.start.z) - 1.5, 3, 3);
+        if (W.mmOverlay) W.mmOverlay(g, X, Z, inMM, mx, my, S); // map-open（实验）：地标 / 路标石
         // 宝箱：金色小方块，打开以后变暗
         for (const c of zn.chests) {
           if (!inMM(X(c.x), Z(c.z))) continue;
@@ -33215,7 +33279,8 @@
     zoneFrames++;
     autoQualityWatch();
     ldFill();
-    if (post.ok && qual.post) post.composer.render();
+    if (W.pxRender) W.pxRender(); // style-pixel 实验（?px=），见 js/pixel.js
+    else if (post.ok && qual.post) post.composer.render();
     else if (post.fx && qual.fxaa) post.fx.render();
     else renderer.render(scene, camera);
     if (!vshChecked && PF.vShape && PF.vShape.mesh.visible) vshCheck();
