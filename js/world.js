@@ -14853,7 +14853,9 @@
     return true;
   }
   // 调试 / 冒烟测试用：标准骨架的对照表和动作包
-  W.std = { JOINT: STD_JOINT, PIVOT: STD_PIVOT, MASK: STD_MASK, joint: stdJoint, mask: stdMask, drive: stdDrive, chord: (rig) => stdChord(rig, stdDrive(rig)), pack: () => cModel('ual') };
+  W.std = { JOINT: STD_JOINT, PIVOT: STD_PIVOT, MASK: STD_MASK, joint: stdJoint, mask: stdMask, drive: stdDrive, chord: (rig) => stdChord(rig, stdDrive(rig)), pack: () => cModel('ual'),
+    // 退路的配置（AI 模型缺了 / 套用出错时用的 Quaternius 模型，cSpec(key, true)）：冒烟测试拿它查 STD_ALIAS 的改名
+    old: (key) => { const cs = cSpec(key, true); return cs && { model: cs.model, std: cs.md.std, names: cs.md.names.slice() }; } };
 
   const CSPEC = {
     player: {
