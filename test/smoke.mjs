@@ -1073,6 +1073,7 @@ const FUNC_BLOCKS = [
       await d2b2Steps(); // 职业 D2b-2（class-d2b2）
       await imbueSteps(); // 装填 / 散钉 / 反冲弹 / 绊雷（imbue 批）
       await lootWarmStep(); // 掉落模型都在启动预热里建好（列车 2）
+      await labSteps(); // 设置 → 实验：像素画面 / 开放式荒原（style-pixel / map-open）
     },
   },
 ];
@@ -1215,9 +1216,15 @@ async function mainBody() {
 
   // tex-t1：第 0 区的路面 / 粗糙地面 / 虚空地面 / 岩石三向投影都是脚本画的贴图；高 / 中档 512² 带法线贴图，低档换 256² 的一套、不传法线贴图（平的法线）
   // tex-t3：第 1 区（霜骨沼泽）也换成脚本画的贴图，两个区各查一遍；第 1 区不再要照片的 rock-grey 包
+  // tex-rest：第 2～4 区也换了，每区各查一遍
   const PAINT_ZONES = [
     { zi: 0, pack: 'zone-ash', ids: ['p_mud', 'p_burn', 'p_rock'], old: ['mud_cracked_dry_03', 'burned_ground_01'], noPack: 'rock-dark' },
     { zi: 1, pack: 'zone-frost', ids: ['p_ice', 'p_snow', 'p_frock'], old: ['Ice002', 'Snow013'], noPack: 'rock-grey' },
+    // tex-rest：第 2 区（雷鸣遗迹）石板 / 砂砾 / 岩石
+    { zi: 2, pack: 'zone-storm', ids: ['p_slab', 'p_grit', 'p_srock'], old: ['monastery_stone_floor', 'rocky_trail'], noPack: 'rock-grey' },
+    // tex-rest：第 3 区（烬渊深处，余烛殿沿用）岩台 / 熔渣壳 / 柱状岩；第 4 区（坠星裂谷）琉璃板 / 月岩碎屑 / 板岩
+    { zi: 3, pack: 'zone-abyss', ids: ['p_basalt', 'p_cinder', 'p_drock'], old: ['dark_rock_02', 'dark_rock', 'Lava001'], noPack: 'rock-dark' },
+    { zi: 4, pack: 'zone-rift', ids: ['p_glass', 'p_regol', 'p_slate'], old: ['slate_floor', 'moon_01', 'Rock035'], noPack: 'rock-grey' },
   ];
   for (const PZ of PAINT_ZONES) {
     await step('贴图：第 ' + PZ.zi + ' 区地面和岩石用脚本画的贴图，高档 512² 带法线贴图，低档 256²、不传法线贴图（进区和原地换档都对）', async () => {
@@ -24871,6 +24878,82 @@ async function d2b2Steps() {
 // 铁水弹 / 雷楔 / 霜霰弹改成开关式的装填；散钉拿枪按右键折算、7 枚；反冲弹命中炸开；绊雷连爆 / 到时炸。设计稿 game-workspace/notes/imbue/design-note.md
 // 列车 2：webkit 内存一步（三圈后几何体数不比第一圈多 3 个以上）偶尔不过——追猎弓 / 冰弓 / 符文弓 / 提灯的掉落模型不在启动预热里，
 // 第一次掉落时才烘焙、从此一直留着，第几圈第一次掉到就在第几圈多出来。现在 warmEntities 把每一种掉落模型都建好画过一帧
+async function labSteps() {
+  // style-pixel / map-open：设置 → 实验 的两个开关（像素画面、开放式荒原）。存在这台设备上（localStorage 'cinder-abyss-lab'），不进存档。
+  // 默认关：没有这个键，两个脚本都不加载；打开后写这个键，重新载入才生效（行里提示）；关掉后键删掉，再载入和开之前一样；存档 / 全局设置自始至终不变
+  await uiStep('设置·实验：「像素画面」「开放式荒原」两个开关默认关（没有键、不加载脚本）；打开后存在这台设备上、提示重新载入，载入后两个脚本都在；关掉后键删掉，载入后和打开前一样；存档和全局设置一字不变', async () => {
+    // 设置在哪：标题画面开着就走标题画面的「设置」（#t-view），否则走暂停菜单（#p-view）
+    let root = '#p-view';
+    const where = () => ev(() => ({ title: G.ui.titleOn(), open: G.ui.isOpen(), paused: G.ui.paused(), story: !!(G.ui.storyOn && G.ui.storyOn()), intro: document.getElementById('intro').classList.contains('on'), cls: document.documentElement.className.slice(0, 160) }));
+    const openLab = async () => {
+      const w = await where();
+      try {
+        if (w.title) {
+          // 标题画面上可能还开着别的页（角色、职业……）：按 Esc 退回主菜单，直到「设置」按钮露出来
+          const vis = () => ev(() => { const b = document.querySelector('#t-menu [data-tact="settings"]'); const r = b && b.getBoundingClientRect(); return !!(r && r.width > 0 && r.height > 0 && getComputedStyle(b).visibility !== 'hidden' && document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) && b.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2))); });
+          for (let k = 0; k < 4 && !(await vis()); k++) {
+            await page.keyboard.press('Escape');
+            await sleep(300);
+          }
+          await page.click('#t-menu [data-tact="settings"]');
+          root = '#t-view';
+        } else {
+          await openSettings();
+          root = '#p-view';
+        }
+      } catch (e) {
+        throw new Error('打不开设置：' + JSON.stringify(w) + ' ' + String(e && e.message).split('\n')[0]);
+      }
+    };
+    const closeLab = async () => (root === '#t-view' ? ev(() => G.ui.close()) : closeSettings());
+    const st = () =>
+      ev((root) => {
+        const g = JSON.parse(localStorage.getItem('cinder-abyss-global') || 'null');
+        const sw = (k) => document.querySelector(root + ' [data-tact="' + k + '"]');
+        const px = sw('labpx'), mp = sw('labmap');
+        return {
+          pxJs: !!document.querySelector('script[src$="js/pixel.js"]'), mapJs: !!document.querySelector('script[src$="js/openmap.js"]'),
+          gpx: !!G.px, pxr: typeof G.world.pxRender, open: !!G.openMap,
+          lab: localStorage.getItem('cinder-abyss-lab'), loaded: Object.assign({}, window.CA_LAB || {}),
+          sw: px && mp ? { px: px.classList.contains('on'), map: mp.classList.contains('on'), grp: px.closest('.m-grp').querySelector('.m-gt').textContent, txt: px.innerText + ' | ' + mp.innerText, tip: px.dataset.tip || '' } : null,
+          note: (document.querySelector(root + ' .lab-note') || { innerText: '' }).innerText, reloadBtn: !!document.querySelector(root + ' [data-tact="labreload"]'), root,
+          optsCanon: T.canon(G.save.opts), gopts: g && g.opts ? T.canon(g.opts) : null, slot: JSON.stringify(JSON.parse(localStorage.getItem(G.slotKey(0)) || 'null') ? T.canon(JSON.parse(localStorage.getItem(G.slotKey(0))).opts) : null),
+        };
+      }, root);
+    const reload = async () => {
+      await ev(() => G.persist());
+      await page.reload({ timeout: 90000 });
+      await install();
+      await ev(() => { G.debug.hold(true); G.debug.god(true); T.hintsSeen(); });
+    };
+    await openLab();
+    const s0 = await st();
+    assert(s0.sw && s0.sw.grp === '实验' && !s0.sw.px && !s0.sw.map && s0.sw.txt.includes('像素画面（实验）') && s0.sw.txt.includes('开放式荒原（实验）') && s0.sw.tip.includes('可能有显示问题'), '「实验」一组应有两个关着的开关：' + JSON.stringify(s0.sw));
+    assert(!s0.loaded.px && !s0.loaded.map && !s0.pxJs && !s0.mapJs && !s0.gpx && s0.pxr === 'undefined' && !s0.open && s0.lab === null && !s0.note, '默认关：不该加载脚本、不该有 cinder-abyss-lab：' + JSON.stringify(s0));
+    cleanText(s0.sw.txt, '实验开关');
+    await page.click(root + ' [data-tact="labpx"]');
+    await page.click(root + ' [data-tact="labmap"]');
+    const s1 = await st();
+    assert(s1.sw.px && s1.sw.map && s1.lab === '{"px":true,"map":true}' && s1.optsCanon === s0.optsCanon && s1.gopts === s0.gopts && s1.slot === s0.slot && s1.note.includes('重新载入后生效') && s1.reloadBtn && !s1.pxJs && !s1.mapJs, '打开后应存在这台设备上（存档 / 全局设置不变）、提示重新载入（这一次还没加载）：' + JSON.stringify(s1));
+    await closeLab();
+    await reload();
+    await openLab();
+    const s2 = await st();
+    assert(s2.loaded.px && s2.loaded.map && s2.pxJs && s2.mapJs && s2.gpx && s2.pxr === 'function' && s2.open && s2.sw.px && s2.sw.map && !s2.note, '载入后两个脚本都应加载、开关开着、不再提示：' + JSON.stringify(s2));
+    await page.click(root + ' [data-tact="labpx"]');
+    await page.click(root + ' [data-tact="labmap"]');
+    const s3 = await st();
+    assert(!s3.sw.px && !s3.sw.map && s3.lab === null && s3.note.includes('重新载入后生效'), '关掉后 cinder-abyss-lab 应删掉、提示重新载入：' + JSON.stringify(s3));
+    await closeLab();
+    await reload();
+    await openLab();
+    const s4 = await st();
+    assert(!s4.loaded.px && !s4.loaded.map && !s4.pxJs && !s4.mapJs && !s4.gpx && s4.pxr === 'undefined' && !s4.open && s4.lab === null && !s4.note && s4.optsCanon === s0.optsCanon && s4.gopts === s0.gopts && s4.slot === s0.slot, '关掉再载入后应和打开前一样（不加载、设置一字不差）：' + JSON.stringify({ s0: s0.optsCanon, s4: s4.optsCanon }));
+    await closeLab();
+    return '默认关 → 打开（存这台设备、提示重新载入）→ 载入后 pixel.js + openmap.js → 关掉 → 载入后和打开前一样，存档 / 全局设置不变';
+  });
+}
+
 async function lootWarmStep() {
   await step('掉落模型（列车 2）：启动预热就建好每一种掉落的模型（含追猎弓 / 冰弓 / 符文弓 / 提灯）——每种掉一次再画，几何体数不涨；换区以后再掉一遍也不涨', async () => {
     const drop = () =>

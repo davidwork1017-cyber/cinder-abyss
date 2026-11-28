@@ -6641,6 +6641,37 @@
       );
     return setSw(OFFCLS_NAME, '捡到本职业用不了的武器时直接分解（不动仓库和身上的装备）', !!o.salvageOffCls, 'data-tact="offcls"');
   }
+  // 设置 → 实验（style-pixel / map-open）：两个开关存在这台设备上（localStorage 'cinder-abyss-lab' = { px, map }，两个都关时删掉这个键），不进存档，
+  // 标题画面上还没有存档时也存得住。脚本在开机时由 index.html 按它加载，所以改了要重新载入才生效：开关和这一次实际加载的不一样时，
+  // 下面多一行「重新载入后生效」+ 按钮。网址带 ?proto= 时这一次以网址为准
+  const LAB_KEY = 'cinder-abyss-lab', LAB_TIP = '试玩中的新画面和地图，可能有显示问题';
+  function labGet() {
+    try {
+      const o = JSON.parse(localStorage.getItem(LAB_KEY) || 'null');
+      return { px: !!(o && o.px === true), map: !!(o && o.map === true) };
+    } catch (e) {
+      return { px: false, map: false };
+    }
+  }
+  function labFlip(k) {
+    const o = labGet();
+    o[k] = !o[k];
+    try {
+      if (o.px || o.map) localStorage.setItem(LAB_KEY, JSON.stringify(Object.assign(o.px ? { px: true } : {}, o.map ? { map: true } : {})));
+      else localStorage.removeItem(LAB_KEY);
+    } catch (e) {}
+  }
+  function setLabRows() {
+    const L = window.CA_LAB || {}, cur = labGet(), px = cur.px, mp = cur.map;
+    const tip = ' data-tip="txt:' + LAB_TIP + '"';
+    let h =
+      setSw('像素画面（实验）', '像素风画面，暗处只靠火光照亮', px, 'data-tact="labpx"' + tip) +
+      setSw('开放式荒原（实验）', '灰烬荒原换成一整片连着的大地图，约现在 4 倍大', mp, 'data-tact="labmap"' + tip);
+    if (L.url) h += '<div class="m-row lab-note"><span class="opt-text"><b>这次由网址决定</b><span>网址里带了 proto 参数，开关下次打开游戏时生效</span></span></div>';
+    else if (px !== !!L.px || mp !== !!L.map)
+      h += '<div class="m-row lab-note"><span class="opt-text"><b>重新载入后生效</b><span>进度会先存好</span></span><button type="button" tabindex="-1" class="btn" data-tact="labreload">重新载入</button></div>';
+    return h;
+  }
   function menuSettings() {
     const S = G.save, o = S.opts, Q = S.quest;
     const q = G.world.quality ? G.world.quality() : o.quality;
@@ -6667,6 +6698,7 @@
         setSw('镜头震动', '大招落地、挨重击时镜头晃一下', o.shake !== false, 'data-tact="opt" data-opt="shake"')) +
       // sfx-synth：声音。滑条拖动时立即生效（onMenuInput），松手才存档
       setGrp('声音', setSw('静音', '关掉所有声音', !!o.mute, 'data-tact="opt" data-opt="mute"') + SET_VOL.map((v) => setRow(v[1], v[2], volSlider(v[0]))).join('')) +
+      setGrp('实验', setLabRows()) +
       (menu.title ? '' : setGrp('角色', setDelRow())) +
       '</div>' +
       (touchOn() ? '<p class="m-note">设置会存进存档；触屏的几项只存在这台设备上。</p>' + setDevRow() : '<p class="m-note">设置会存进存档。</p>')
@@ -6903,6 +6935,21 @@
     hideTitle();
   }
   const MENU_ACT = {
+    // 设置 → 实验：存在这台设备上（见 setLabRows），不改存档
+    labpx() {
+      labFlip('px');
+      G.sfx('click');
+      renderMenu();
+    },
+    labmap() {
+      labFlip('map');
+      G.sfx('click');
+      renderMenu();
+    },
+    labreload() {
+      G.persist();
+      location.reload();
+    },
     devinfo() {
       menu.devInfo = !menu.devInfo;
       G.sfx('click');

@@ -930,17 +930,18 @@
       },
     },
     storm: {
-      packs: ['zone-storm', 'rock-grey', 'ground'], // models-drop：摆放表里的 CC0 模型在这一区一个都摆不出来（多种子实测 0 个），不再加载 models 包
+      packs: ['zone-storm', 'ground'], // tex-rest：石板 / 砂砾 / 岩石换成脚本画的贴图（p_slab / p_grit / p_srock，tools/gen-paint-textures.mjs，在 zone-storm 包里），不再要照片的 rock-grey 包。models-drop：摆放表里的 CC0 模型在这一区一个都摆不出来（多种子实测 0 个），不再加载 models 包
       mats: [
         // zones-storm：石板紫的地砖（压掉贴图里偏粉的石块），路外的碎石地更暗；墙外整片是暗的「墙体」地面
-        { tex: 'monastery_stone_floor', tile: 4.6, con: 0.6, nrm: 1.0, rough: 1, k: 0.48, sat: 0.45, col: 0x5c5a70 },
-        { tex: 'rocky_trail', tile: 4.8, con: 0.8, nrm: 1.1, rough: 1, k: 0.44, sat: 0.5, col: 0x4a4860 },
-        { tex: 'Rock035', tile: 6.5, con: 0.8, nrm: 1.0, rough: 1, k: 0.8, sat: 0.6, col: 0x23202e },
+        // tex-rest：三套都换成脚本画的平铺贴图（错缝铺的切石板、崩角和裂开的板、缝里的砂砾；砂砾地；方正的层状岩块）
+        { tex: 'p_slab', tile: 5.5, con: 0.8, nrm: 1.0, rough: 1, k: 0.36, sat: 0.45, col: 0x5c5a70 }, // tex-rest：k 0.48 → 0.36（画的贴图对比低，同样的 k 显得亮；按分离表压回 25–35% 档里）
+        { tex: 'p_grit', tile: 5.0, con: 0.9, nrm: 1.1, rough: 1, k: 0.34, sat: 0.5, col: 0x4a4860 }, // tex-rest：k 0.44 → 0.34
+        { tex: 'p_srock', tile: 6.5, con: 0.9, nrm: 1.0, rough: 1, k: 0.75, sat: 0.6, col: 0x23202e },
       ],
       lava: null,
-      rock: { tex: 'Rock035', tile: 2.8, nrm: 1.1, cap: 0, capAll: 0 },
+      rock: { tex: 'p_srock', tile: 2.8, nrm: 1.1, cap: 0, capAll: 0 }, // tex-rest：Rock035 → p_srock
       grade: { sat: 1.12, con: 1.1, lift: 0x080418, gain: 0xfaf6ff, vig: 0.24, sh: 0x6a6ab0, hi: 0xfff0e4, tk: 0.1, shS: 0.85 },
-      blots: { k: 0.35, r: 0.7, op: 0.3, tex: 'crack' }, // zones-polish：地砖上是细裂纹，不是暗块。zones-storm：地砖上的污斑少一些、小一些（zones-ash 的开关）
+      blots: { k: 0.35, r: 0.58, op: 0.2, show: 0.5, tex: 'crack' }, // tex-rest：画的石板干净了，根须一样的暗裂纹块显得扎眼：只画一半、小一圈、淡三分之一（r 0.7 → 0.58，op 0.3 → 0.2；k 不动，随机数的取用次数不变）。zones-polish：地砖上是细裂纹，不是暗块。zones-storm：地砖上的污斑少一些、小一些（zones-ash 的开关）
       // vf-ground：地砖缝和墙脚积着风吹进来的砂砾；路外是碎砂带、碎石块和水渍
       layer: { tex: 'g_cover_storm', tile: 3.5, con: 0.6, rough: 1, k: 0.52, sat: 0.4, col: 0x4e4c5e, path: 0.6, pT: 0.56, edge: 1, jag: 1.2, blend: 0.08, edgeW: 0.6, mv: 0.14, mh: 0.08, scorch: 0.45, sT: 0.64, ao2: 0.12 }, // ao2 0.24 → 0.12、k 0.46 → 0.52：新布局下墙边地面掉到 23%、低档砂砾斑太暗 // scorch：成片的碎石地（粗糙地面那一套）
       deco: { cover: 0x5e5c6e, floor: 0.8, wild: 1, ao: 0.85, aoR: 0.9, scorch: 0, clusters: 0.6, kinds: [6, 7, 8, 11, 12, 13], tint: 0x4a4858 },
@@ -965,16 +966,17 @@
       },
     },
     abyss: {
-      packs: ['zone-abyss', 'rock-dark', 'ground'], // asset-zones：布景全是自产件（kit-abyss 跟着 zone-abyss 加载），不再要 models 包；余烛殿沿用这一行
+      packs: ['zone-abyss', 'ground'], // tex-rest：岩台 / 熔渣壳 / 柱状岩换成脚本画的贴图（p_basalt / p_cinder / p_drock，tools/gen-paint-textures.mjs，在 zone-abyss 包里），不再要照片的 rock-dark 包。asset-zones：布景全是自产件（kit-abyss 跟着 zone-abyss 加载），不再要 models 包；余烛殿沿用这一行
       // zones-abyss（owner 11-18：太红太饱和）：路面是低饱和的炭灰紫褐，路外是更暗的玄武岩壳，熔岩流贴图不再整片发光；
       // 红橙只留给路面上零星几片发光的裂缝（lava.patch）、余烬口、深渊底的熔岩缝和火星
       mats: [
-        { tex: 'dark_rock_02', tile: 5.0, con: 0.55, nrm: 0.9, rough: 1, k: 0.6, sat: 0.45, col: 0x57525c },
-        { tex: 'dark_rock_02', tile: 5.0, con: 0.62, nrm: 0.9, rough: 1, k: 0.5, sat: 0.4, col: 0x47424e }, // zones-polish：原来是 Lava001（熔岩流的暗纹在路面上是一块块脏斑），换成同一种石板的暗一档：斑块读成颜色深一点的石板，靠崖、靠墙的路边也暗一些
-        { tex: 'dark_rock', tile: 6.5, con: 0.8, nrm: 1.0, rough: 1, k: 0.9, col: 0x3a3442 }, // 岩壁外的岩顶：岩石之间露出来的地方也要落在岩壁那一档（15–25%）
+        // tex-rest：三套都换成脚本画的平铺贴图（层状的玄武岩台面，缝低、熔岩光沿缝走；积灰的熔渣壳；柱状节理的暗岩）
+        { tex: 'p_basalt', tile: 5.5, con: 0.8, nrm: 0.9, rough: 1, k: 0.43, sat: 0.45, col: 0x57525c }, // tex-rest：k 0.6 → 0.43（画的贴图对比低，同样的 k 显得亮；按分离表定档，高档地面 25–35%、首领不比 main 差）
+        { tex: 'p_cinder', tile: 4.5, con: 0.8, nrm: 0.9, rough: 1, k: 0.35, sat: 0.4, col: 0x47424e }, // tex-rest：dark_rock_02 的暗一档 → 积灰的熔渣壳，k 0.5 → 0.35。zones-polish：原来是 Lava001（熔岩流的暗纹在路面上是一块块脏斑），换成同一种石板的暗一档：斑块读成颜色深一点的石板，靠崖、靠墙的路边也暗一些
+        { tex: 'p_drock', tile: 6.5, con: 0.9, nrm: 1.0, rough: 1, k: 0.9, col: 0x3a3442 }, // 岩壁外的岩顶：岩石之间露出来的地方也要落在岩壁那一档（15–25%）
       ],
       lava: { mode: 1, color: 0xff6a22, k: 1.6, patch: [0, 0.72] },
-      rock: { tex: 'dark_rock', tile: 2.6, nrm: 1.2, cap: 0x5a5262, capAll: 0.18 }, // 朝上的面盖一层很淡的灰烬，岩石的顶面不至于一片死黑
+      rock: { tex: 'p_drock', tile: 2.6, nrm: 1.2, cap: 0x5a5262, capAll: 0.18 }, // tex-rest：dark_rock → p_drock。 朝上的面盖一层很淡的灰烬，岩石的顶面不至于一片死黑
       grade: { sat: 1.0, con: 1.08, lift: 0x0a0612, gain: 0xf8f4f8, vig: 0.26, sh: 0x5a5a98, hi: 0xffc89a, tk: 0.12, shS: 0.8 },
       bloom: { th: 0.97, k: 0.16, r: 0.32 }, // 卡通：泛光只留给最亮的特效核心，不再给整片画面罩一层雾
       mist: { color: 0x1c1622, a: 0.3 },
@@ -1003,15 +1005,16 @@
       },
     },
     rift: {
-      packs: ['zone-rift', 'rock-grey', 'ground'], // asset-zones：布景全是自产件（kit-rift 跟着 zone-rift 加载），不再要 1.4 MB 的 models 包
+      packs: ['zone-rift', 'ground'], // tex-rest：琉璃板 / 月岩碎屑 / 板岩换成脚本画的贴图（p_glass / p_regol / p_slate，tools/gen-paint-textures.mjs，在 zone-rift 包里），不再要照片的 rock-grey 包。asset-zones：布景全是自产件（kit-rift 跟着 zone-rift 加载），不再要 1.4 MB 的 models 包
       // 卡通（zones-rift）：路面是偏冷的青灰板岩（不再是满地的饱和绿），贴图起伏压低；路外是更暗的月岩，岩壁外近黑的青
       mats: [
-        { tex: 'slate_floor', tile: 5.5, con: 0.55, nrm: 0.8, rough: 0.7, k: 0.58, sat: 0.85, col: 0x3f5856 },
-        { tex: 'moon_01', tile: 6.0, con: 0.7, nrm: 1.1, rough: 1, k: 0.55, sat: 0.7, col: 0x394446 },
-        { tex: 'Rock035', tile: 6.5, con: 0.9, nrm: 1.0, rough: 1, k: 0.8, col: 0x1c2628 },
+        // tex-rest：三套都换成脚本画的平铺贴图（直边的熔融琉璃板、板里很淡的流纹；坑坑洼洼的月岩碎屑；劈开的板岩）
+        { tex: 'p_glass', tile: 6.0, con: 0.8, nrm: 0.8, rough: 0.7, k: 0.35, sat: 0.85, col: 0x3f5856 }, // tex-rest：k 0.58 → 0.35（main 的地面已经贴着 35% 的上限；按分离表压回档里，角色、怪、首领都和地面拉得更开）
+        { tex: 'p_regol', tile: 6.0, con: 0.9, nrm: 1.1, rough: 1, k: 0.34, sat: 0.7, col: 0x394446 }, // tex-rest：k 0.55 → 0.34
+        { tex: 'p_slate', tile: 6.5, con: 0.9, nrm: 1.0, rough: 1, k: 0.75, col: 0x1c2628 },
       ],
       lava: null,
-      rock: { tex: 'Rock035', tile: 2.8, nrm: 1.1, cap: 0, capAll: 0 },
+      rock: { tex: 'p_slate', tile: 2.8, nrm: 1.1, cap: 0, capAll: 0 }, // tex-rest：Rock035 → p_slate
       grade: { sat: 1.04, con: 1.1, lift: 0x020a10, gain: 0xf4fbff, vig: 0.24, sh: 0x4a80b0, hi: 0xfff2dc, tk: 0.1, shS: 0.85 },
       bloom: { th: 0.97, k: 0.16, r: 0.32 }, // 卡通：泛光只留给最亮的特效核心，不再给整片画面罩一层雾
       mist: { color: 0x16303a, a: 0.3 },
@@ -1021,7 +1024,7 @@
       layer: { tex: 'g_cover_rift', tile: 5, con: 0.55, rough: 1, k: 0.46, sat: 0.6, col: 0x47584f, path: 0.6, pT: 0.58, edge: 0.9, jag: 1.0, blend: 0.08, edgeW: 1.0, mv: 0.1, mh: 0.1, scorch: 0.45, sT: 0.64, ao2: 0.22 }, // scorch：成片的月岩地（mv 小一点：这一区 main 的地面已经在 33% 上下）
       deco: { cover: 0x46605a, floor: 0.8, wild: 1, ao: 0.85, aoR: 0.9, scorch: 0, clusters: 0.6, kinds: [13, 4, 7, 8, 11, 14], tint: 0x3a4a4a }, // 覆盖斑贴近板岩的明暗（原来 0x5a7a70 太亮，路面上一块块亮斑）
       pool: { col: 0x5ad8e8, k: 0.25, r: 3, gain: 1.2, glows: true }, // 晶簇周围映出电光青（淡一些：墙边晶簇多，地面别亮出 35%）
-      blots: { k: 0.4, r: 0.7, op: 0.3, tex: 'crack' }, // zones-polish：细裂纹代替暗块。污斑少一半多、小一点（zones-ash 加的旋钮）
+      blots: { k: 0.4, r: 0.58, op: 0.2, show: 0.5, tex: 'crack' }, // tex-rest：画的琉璃板干净了，根须一样的暗裂纹块显得扎眼：只画一半、小一圈、淡三分之一（r 0.7 → 0.58，op 0.3 → 0.2；k 不动，随机数的取用次数不变）。zones-polish：细裂纹代替暗块。污斑少一半多、小一点（zones-ash 加的旋钮）
       // 下面三个旋钮原来是 rift 的 dress 运行时找网格改的（zones-integrate 收进表里）：法阵缩到 0.45、电光青压淡；水晶和光晕电光青；
       // 通用岩石换成卡通材质（底色 = rockTop / def.rock，高画质 ×0.88、低画质 ×0.7），按低频噪声成簇留空
       sigil: { r: 0.378, col: 0x7aeeff, k: 0.55 },
@@ -3100,6 +3103,8 @@
     W.renderer = renderer;
     W.scene = scene;
     W.camera = camera;
+    // style-pixel（实验，默认关）：js/pixel.js 只在网址带 ?px= 时加载，拿这些句柄做低分辨率 + 暗色地牢的画面；平时 W.pxRender 不存在，什么都不变
+    W._px = { hemi, sun, fill, lamp, pScale: pMat.uniforms.uScale, aoMark: AO_MARK, displayRT, fires: () => zoneFx && zoneFx.fires, view: () => ({ vw, vh, dpr, glDpr: dpr * (qual.scale || 1), q: qualId, fov: BASE_FOV }) };
     initPost();
     applyAO();
     W.resize();
@@ -3257,8 +3262,47 @@
     p._s = Math.sin(a);
     p._a = a;
   }
+  // cpoly（map-open：凸多边形，开放式地图的格子用）：sd = -max(到各条边所在直线的有向距离) + round。里面精确（凸多边形内部到边界的距离 = 到最近的边线），
+  // 外面是下界的绝对值（离角远的地方偏小），sd = 0 的边界精确，走路 / 寻路的 pad 判定不受影响。按边的法线一次算好挂在图元上（不可枚举，不进 JSON）
+  function cpolyN(p) {
+    if (Object.prototype.hasOwnProperty.call(p, '_n') && p._np === p.pts) return p._n;
+    const P = p.pts, n = P.length, N = new Float64Array(n * 3);
+    // 法线一律背向顶点的重心（凸多边形里重心在每条边的内侧；外扩时被挤掉的短边顶点顺序会反过来，按绕向算会把法线算反）
+    let cx = 0, cz = 0;
+    for (let i = 0; i < n; i++) (cx += P[i][0] / n), (cz += P[i][1] / n);
+    for (let i = 0; i < n; i++) {
+      const a = P[i], b = P[(i + 1) % n], dx = b[0] - a[0], dz = b[1] - a[1], l = Math.hypot(dx, dz);
+      if (l < 1e-4) {
+        // 重合的顶点：这条边不算（法线为零会把整个多边形的 sd 压到 round）
+        N[i * 3] = N[i * 3 + 1] = 0;
+        N[i * 3 + 2] = -1e18;
+        continue;
+      }
+      let nx = dz / l, nz = -dx / l;
+      if (nx * (cx - a[0]) + nz * (cz - a[1]) > 0) (nx = -nx), (nz = -nz);
+      N[i * 3] = nx;
+      N[i * 3 + 1] = nz;
+      N[i * 3 + 2] = -(nx * a[0] + nz * a[1]);
+    }
+    if (!Object.prototype.hasOwnProperty.call(p, '_n')) {
+      Object.defineProperty(p, '_n', { value: N, writable: true, enumerable: false });
+      Object.defineProperty(p, '_np', { value: P, writable: true, enumerable: false });
+    }
+    p._n = N;
+    p._np = P;
+    return N;
+  }
   function primSd(p, x, z) {
     switch (p.t) {
+      case 'cpoly': {
+        const N = cpolyN(p);
+        let m = -1e18;
+        for (let i = 0; i < N.length; i += 3) {
+          const v = N[i] * x + N[i + 1] * z + N[i + 2];
+          if (v > m) m = v;
+        }
+        return (p.round || 0) - m;
+      }
       case 'circle': {
         const dx = x - p.x, dz = z - p.z;
         return p.r - Math.sqrt(dx * dx + dz * dz);
@@ -3314,8 +3358,9 @@
       case 'arc':
         return [p.x - p.r - p.hw, p.z - p.r - p.hw, p.x + p.r + p.hw, p.z + p.r + p.hw];
       case 'poly':
+      case 'cpoly':
       case 'path': {
-        const m = p.t === 'poly' ? p.round || 0 : typeof p.hw === 'number' ? p.hw : Math.max.apply(null, p.hw);
+        const m = p.t === 'poly' || p.t === 'cpoly' ? p.round || 0 : typeof p.hw === 'number' ? p.hw : Math.max.apply(null, p.hw);
         const b = [1e18, 1e18, -1e18, -1e18];
         for (const q of p.pts) {
           if (q[0] < b[0]) b[0] = q[0];
@@ -3519,6 +3564,18 @@
         const ox = qx > 0 ? qx : 0, oz = qz > 0 ? qz : 0;
         out[i] = rd - Math.sqrt(ox * ox + oz * oz) - Math.min(Math.max(qx, qz), 0);
       }
+    } else if (p.t === 'cpoly') {
+      // 每条边的有向距离沿一行是 x 的一次函数：先放第一条边，其余逐条取 max
+      const N = cpolyN(p), rd = p.round || 0, xs = x0 + i0 * h;
+      for (let k = 0; k < N.length; k += 3) {
+        const a = N[k] * xs + N[k + 1] * z + N[k + 2], b = N[k] * h;
+        if (k === 0) for (let i = 0; i < n; i++) out[i] = a + b * i;
+        else for (let i = 0; i < n; i++) {
+          const v = a + b * i;
+          if (v > out[i]) out[i] = v;
+        }
+      }
+      for (let i = 0; i < n; i++) out[i] = rd - out[i];
     } else for (let i = 0; i < n; i++) out[i] = primSd(p, x0 + (i0 + i) * h, z);
     return out;
   }
@@ -4366,7 +4423,7 @@
       }
     }
     // 不相邻的关键路径房间：边到边 ≥ gap（在 A 的格子上量到 B 的距离）
-    for (const w of pathGaps(spec, ck.gap)) why.push(w);
+    if (ck.gap > 0) for (const w of pathGaps(spec, ck.gap)) why.push(w); // map-open：开放式地图（实验）的格子房间彼此相邻，gap ≤ 0 时不查
     // 怪群槽位、宝箱：离起点、离门，不在灼烧 / 熔岩上
     const doors = spec.links.filter((L) => L.door).map((L) => L.door);
     const bad = (x, z) => pr.hp.some((hz) => hz.kind === 'burn' && primSd(hz.p, x, z) >= 0) || pr.cp.some((c) => c.mat === MAT.LAVA && primSd(c.p, x, z) >= 0);
@@ -4397,6 +4454,12 @@
     return { id: def.id, seed: seed >>> 0, spec, ok: v.ok, why: v.why, area: v.area, hash: specHash(spec), ms: performance.now() - t0 };
   };
   W.specHash = specHash;
+  // map-open（实验，?openmap=1 才加载 js/openmap.js）：开放式地图的生成器 / 外观要用的内部函数。默认关闭时没有任何代码读它
+  W._terrLab = () => ({
+    GEN, ZONE_TERRAIN, CHECK, mulberry32, shuffleR, primSd, primBox, MAT, HAZ, lvFor, validateSpec, rasterize, specHash, terrainOf,
+    geo, bake, gBox, gCyl, gCone, gIco, seg, toonGradient, makeToonMat, mixHex, lin, vnoise, ashMerge, ashBlockGeo, ashBoxGeo, ashSlabGeo, ashBigTreeGeo, ashSnagGeo, ASH_LAY,
+    MM, gridAt, matAt, scene: () => scene, camera: () => camera, renderer: () => renderer, zoneGroup: () => zoneGroup, own,
+  });
 
   // 进区时的布局：legacy 不固定种子时直接用 Math.random；其余用种子，校验失败 seed+1 重试，8 次都不行退回 legacy。永远不抛错
   let zoneSeq = 0, pinSeed = null;
@@ -13089,6 +13152,8 @@
       uTRim: { value: 1 }, // 卡通轮廓光的倍数（RIG_FRAG；首领按 BOSS_SPEC.trim）
     };
     ent.uBones = { value: ent.bones };
+    // style-pixel 实验（js/pixel.js，?px= / ?proto=1 才有 W.pxRender）：画面里按实体步进动画 / 量化朝向用。不可枚举：Object3D.copy 按 JSON 复制 userData 时跳过它
+    if (W.pxRender) Object.defineProperty(group.userData, 'pxEnt', { value: ent, configurable: true });
     ent.pose.set(rig.rest);
     ent.from.set(rig.rest);
     ent.out.set(rig.rest);
@@ -32672,6 +32737,7 @@
       g.stroke();
     }
     g.globalAlpha = 1;
+    if (W.mmBuilt) W.mmBuilt(zone, cv, g); // map-open（实验）：小地图底图画好以后（迷雾 / 地标）
     if (MM.win) return; // 截取模式的边框每帧画在截取框上
     g.strokeStyle = 'rgba(214,160,92,0.55)';
     g.lineWidth = 1;
@@ -33145,6 +33211,7 @@
       if (zn) {
         g.fillStyle = 'rgba(255,255,255,0.35)';
         if (inMM(X(zn.start.x), Z(zn.start.z))) g.fillRect(X(zn.start.x) - 1.5, Z(zn.start.z) - 1.5, 3, 3);
+        if (W.mmOverlay) W.mmOverlay(g, X, Z, inMM, mx, my, S); // map-open（实验）：地标 / 路标石
         // 宝箱：金色小方块，打开以后变暗
         for (const c of zn.chests) {
           if (!inMM(X(c.x), Z(c.z))) continue;
@@ -33212,7 +33279,8 @@
     zoneFrames++;
     autoQualityWatch();
     ldFill();
-    if (post.ok && qual.post) post.composer.render();
+    if (W.pxRender) W.pxRender(); // style-pixel 实验（?px=），见 js/pixel.js
+    else if (post.ok && qual.post) post.composer.render();
     else if (post.fx && qual.fxaa) post.fx.render();
     else renderer.render(scene, camera);
     if (!vshChecked && PF.vShape && PF.vShape.mesh.visible) vshCheck();

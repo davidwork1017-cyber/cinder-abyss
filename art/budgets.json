@@ -27,12 +27,7 @@
     },
     "zoneGpuMB":   { "high": 32, "mid": 32, "low": 12 },
     "totalGpuMB":  { "high": 48, "mid": 48, "low": 16 },
-    "sharedGpuMB": { "high": 6,  "mid": 6,  "low": 6 },
-    "_legacy": "legacy：还在用照片贴图（photo 类）的区，先按 tex-t2 时的实测封顶（只许降、不许升）；区里的照片都换成脚本画的以后删掉这一行，改按 zoneGpuMB / totalGpuMB 查。sharedGpuMB：共用贴图（角色 / 特效 / 天空等，页面里量：全部贴图 − 区域贴图）的上限，tex-t2 时约 3 MB；legacy 区的整体上限 = 区域封顶 + sharedGpuMB",
-    "legacy": {
-      "storm": { "high": 61.4, "mid": 61.4, "low": 50.7 },
-      "abyss": { "high": 45.4, "mid": 45.4, "low": 34.7 },
-      "rift":  { "high": 61.4, "mid": 61.4, "low": 50.7 }
-    }
+    "_sharedGpuMB": "共用贴图（角色 / 特效 / 天空等，页面里量：全部贴图 − 区域贴图）的上限，tex-t2 时约 3 MB。照片贴图的 legacy 封顶在 tex-rest 时去掉了（五个区都换成了脚本画的贴图），check-textures 的 legacy 机制留着不用",
+    "sharedGpuMB": { "high": 6,  "mid": 6,  "low": 6 }
   }
 }
