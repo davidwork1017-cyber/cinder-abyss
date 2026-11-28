@@ -14,7 +14,7 @@
 | `quaternius-modular-men/` | Quaternius Ultimate Modular Men（Adventurer），https://quaternius.com/packs/ultimatemodularcharacters.html | CC0（`License_ModularMen.txt`） |
 | `quaternius-animated-zombie/` | Quaternius Animated Zombie（Zombie），https://quaternius.com/packs/animatedzombie.html | CC0（包里没有许可证文件，按包页面的 CC0 记在 `License_AnimatedZombie.txt`） |
 | `quaternius-animated-monster/` | Quaternius Animated Monster（Skeleton），https://quaternius.com/packs/animatedmonster.html | CC0（`License_AnimatedMonster.txt`） |
-| `quaternius-easy-enemy/` | Quaternius Easy Enemy（Spider），https://quaternius.com/packs/easyenemy.html | CC0（`License_EasyEnemy.txt`） |
+| `quaternius-easy-enemy/` | Quaternius Easy Enemy（Spider），https://quaternius.com/packs/easyenemy.html；ai3d-spitter 起喷吐者的网格换成 AI 生成的（见下面「AI 生成」），骨架、绑定姿态和动作还从这里的 `Spider.glb` 取 | CC0（`License_EasyEnemy.txt`） |
 | `ual/` | Quaternius Universal Animation Library [Standard]（https://opengameart.org/content/universal-animation-library ，`universal_animation_librarystandard.zip`）和 Universal Animation Library 2 [Standard]（https://opengameart.org/content/universal-animation-library-2 ，`universal_animation_library_2standard.zip`），作者本人在 OpenGameArt 的上传；sha256 记在 `tools/asset-sources.json` 的 `sources.ual` | CC0（下载包里的许可证文件原样复制：`License_UAL1.txt`、`License_UAL2.txt`） |
 
 - 贴图：`node tools/prep-textures.mjs` 下载 1k 原图（缓存在 `.asset-cache/`，不进仓库），压成每套三张 JPEG：`albedo.jpg`、`normal.jpg`（OpenGL 法线）、`arh.jpg`（R 遮蔽 / G 粗糙度 / B 高度；Lava001 的 R 放自发光）。清单在 `tools/asset-sources.json`。
@@ -39,12 +39,14 @@
 | 件 | 用在哪 | 来源记录 |
 | --- | --- | --- |
 | `ca/frost_waystone`（路标石：风化的石柱立在碎石和积雪的基座上） | 霜骨沼泽岸边，每区 3–6 块，低画质不显示 | `ai/frost_waystone/provenance.json` |
+| `ai/spitter/spitter.glb`（喷吐者：八条腿的蜘蛛形小怪，冷橄榄绿的甲壳，腹背上四个发光囊） | 喷吐者的网格（`js/assets/chars.js` 的 spider），所有画质同一份 | `ai/spitter/provenance.json` |
 | `ca/boss_golem`（熔渣巨像：玄武岩块拼成的巨像，胸口是拱形铁栅炉膛，肩上两根短烟囱）、`ca/boss_golem_lo`（低画质的减面版） | 第 0 区首领，`js/assets/boss-golem.js`；低画质用减面版 | `ca/boss/golem.provenance.json` |
 
 - **生成流程**：ComfyUI 0.43.0，只用内置节点。Z-Image Turbo 文生图，TRELLIS.2 图生 3D，另外用到 BiRefNet、DINOv3、MoGe-2。巨像的蒙皮用 UniRig（只算权重，骨架是我们自己拟合的巨像骨架）。提示词、种子、每个组件的版本都在各自的来源记录里。
 - **处理**：
   - 布景件：`art/ai/importer.py`（`gen='ai'`）摆正、去碎块、减面到 `art/budgets.json` 的 `aiprop`，反照率贴图在 `ai/<件>/albedo.jpg`。
   - 巨像：`art/ai/golem_rig.py`（`gen='golem_ai'`）把源模型对到巨像骨架上，减面到首领预算以内（高 7845、低 3837 个三角形），四肢和关节用 UniRig 的权重，头、烟囱、肩甲这些整块的地方按几何区域改成刚性，反照率贴图 512 带在 GLB 里，按游戏镜头的灰度调亮。
+  - 喷吐者：`art/ai/char_rig.py` 把源模型贴到 Spider 原来的骨架上（骨架、绑定姿态、动作都不变）：身体按段刚性绑定，每条腿三段各自转过去、沿骨骼拉伸，后腿用中后腿的拷贝；颜色烘进每角的顶点色（甲壳换成冷橄榄绿，和原来的苔绿一样在暖色地面上靠色相分得开），腹背上的囊单独一块按元素色发光。这一件不走 `npm run build:art`，命令写在 `ai/spitter/provenance.json` 里。
   - 两条路都由 `npm run build:art` 调用；源文件不在的机器上保留已提交的生成物。
 - **许可证**：生成时用到的每个组件都读过许可证原文：
   - ComfyUI：GPL-3.0，只是工具，输出不受约束；
