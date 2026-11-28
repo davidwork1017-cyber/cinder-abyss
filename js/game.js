@@ -93,7 +93,8 @@
     gauge: { heat: 0, focus: 0, heatIdle: 99, focusIdle: 99 },
     // gun：枪械与弓的出手状态。spin 机炮枪管转速（0..1）、ramp 转满后连续开火的秒数、ammo 左轮弹仓、reloadT 装填剩余秒数、
     // cdT 距离下一发最早能出手的秒数（轻点也快不过射速）、hitT 距离上次普攻命中的秒数、cycle 符文弓轮到的元素、emberT 喷枪下一团余烬
-    gun: { spin: 0, ramp: 0, ammo: 6, reloadT: 0, cdT: 0, hitT: 99, cycle: 0, emberT: 0, firing: false },
+    // keepT：边扫射边翻滚时枪管保持转速的剩余秒数（翻滚加一点接回开火的余量，见 G.dodge）
+    gun: { spin: 0, ramp: 0, ammo: 6, reloadT: 0, cdT: 0, hitT: 99, cycle: 0, emberT: 0, keepT: 0, firing: false },
     rbuff: null, // 弓的专注技增益 { id, t, dur }
     rstate: null, // 乱射这类脱离施放系统、不会被打断的持续效果 { id, t, dur, nextT, i, ctx }
     relic: {}, // 身上渊契的机制：{ 渊契 id: true, any: 至少一件 }（computeStats 里由 G.relicSync 汇总，见「渊契」一节）
@@ -6688,8 +6689,9 @@
     if (g.cdT > 0) g.cdT = Math.max(0, g.cdT - dt);
     const c = P.cast && P.cast.ranged ? P.cast : null;
     if (!c) g.firing = false;
-    // 放熔光炮台的那一帧（武器技 meltray）不算停火：机炮的转速照旧
-    if (!(c && c.rtype === 'gatling') && !(P.cast && P.cast.id === 'meltray')) {
+    // 放熔光炮台的那一帧（武器技 meltray）不算停火、扫射中翻滚（keepT）也不算：机炮的转速照旧
+    if (g.keepT > 0) g.keepT = Math.max(0, g.keepT - dt);
+    if (!(c && c.rtype === 'gatling') && !(P.cast && P.cast.id === 'meltray') && !(g.keepT > 0)) {
       g.spin = Math.max(0, g.spin - dt / 0.6);
       g.ramp = Math.max(0, g.ramp - dt * 2);
     }
@@ -6730,7 +6732,7 @@
     P.gauge.heat = P.gauge.focus = 0;
     P.gauge.heatIdle = P.gauge.focusIdle = 99;
     const g = P.gun;
-    g.spin = g.ramp = g.reloadT = g.cdT = 0;
+    g.spin = g.ramp = g.reloadT = g.cdT = g.keepT = 0;
     g.ammo = G.SKILLS.basic_revolver.clip;
     g.hitT = 99;
     g.firing = false;
@@ -11390,6 +11392,7 @@
     return G.clamp(wait + BUFFER_PAD, G.BUFFER, BUFFER_MAX);
   };
 
+  const GUN_ROLL_KEEP = 0.25; // 翻滚结束后枪管还保持转速的秒数（来得及重新按住右键）
   G.dodge = function () {
     if (P.dead || P.roll.t > 0 || P.roll.cd > 0) return false;
     if (P.exec) {
@@ -11415,6 +11418,8 @@
     if (G.runMods.sluggish) r.cdMax *= 1 + G.runMods.sluggish.roll; // 渊印「迟滞」
     r.cd = r.cdMax;
     P.iframe = Math.max(P.iframe, 0.32);
+    // 机炮扫射中翻滚：枪管不停转，滚完接着按住右键就是原来的射速（gun-gauge：躲一下不该把转速和热度节奏一起丢掉）
+    if (P.cast && P.cast.ranged && P.cast.rtype === 'gatling') P.gun.keepT = r.t + GUN_ROLL_KEEP;
     P.cast = null; // 翻滚取消挥砍：没出手的起手直接作废，已出手的跳过收招
     comboReset(); // 换了别的动作：连段从头再来
     // 翻滚之前缓冲着的技能输入一并作废（玩家改了主意）；滚的途中再按的会留到滚完
