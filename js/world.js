@@ -29397,6 +29397,11 @@
     _pm.makeBasis(_bx.multiplyScalar(w), _by.multiplyScalar(l), camB);
     _pm.setPosition(x, y, z);
   }
+  // 两点之间的一段射线带子（mBeam 的起点 / 尽头写法）：玩家的熔光射线用
+  function mSeg(x0, y0, z0, x1, y1, z1, w) {
+    const dx = x1 - x0, dy = y1 - y0, dz = z1 - z0, l = Math.max(1e-4, Math.hypot(dx, dy, dz));
+    mBeam((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2, dx / l, dy / l, dz / l, w, l);
+  }
   // 炮口的光团 + 射线（拼件炮台和 AI 炮台共用）：炮口 _tuTip、方向 _tuAx 都来自这一帧画出来的炮管（tuMuzzle）
   function turretBeam(h, dt, sc, lo, kl) {
     const fire = h.on && h.len > 0, mx = _tuTip.x, by = _tuTip.y, mz = _tuTip.z;
@@ -29480,11 +29485,11 @@
       len = 14;
       for (let d = 0.5; d <= 14; d += 0.5) if (!W.shotFree(x0 + dx * d, z0 + dz * d, 0)) { len = d; break; }
     }
-    const x1 = x0 + dx * len, z1 = z0 + dz * len, y1 = y0 - 0.25, mx = (x0 + x1) / 2, mz = (z0 + z1) / 2, my = (y0 + y1) / 2;
+    const x1 = x0 + dx * len, z1 = z0 + dz * len, y1 = y0 - 0.25;
     if (L.ext >= wtime && L.charge >= 0) {
       // 蓄力：细细的瞄准线（越蓄越亮、越稳）+ 枪口聚起的光团，四周的光粒往枪口收
       const k = L.charge, fl = k >= 1 ? 1 : 0.6 + 0.4 * Math.abs(Math.sin(wtime * (20 + k * 30)));
-      mStretch(mx, my, mz, dx, (y1 - y0) / len, dz, 0.045 + 0.05 * k, len);
+      mSeg(x0, y0, z0, x1, y1, z1, 0.045 + 0.05 * k);
       pfPut('beam', (0.9 + k) * fl, (0.3 + 0.5 * k) * fl, 0.08 * fl);
       // skill-b2：枪口的光团收小、改成琥珀色（原来蓄满时是 1.1 米的光晕裹一颗近白的芯）
       mBill(x0, y0, z0, 0.25 + 0.45 * k);
@@ -29503,16 +29508,21 @@
     // skill-b3a：光束身是暗一档的余烬红（加色叠在地面上也只是红橙，不过色调压缩的肩），中间一道很细的热芯（橙黄、不混白）；
     // 近白只留枪口（放出后 60 毫秒）和落点的一小颗。低画质直接画到画布、没有色调压缩：再压两成
     const kl = qualId === 'low' ? 0.8 : 1;
-    mStretch(mx, my, mz, dx, (y1 - y0) / len, dz, 0.62 * pulse, len);
+    // turret-align：带子沿真的那一段画（mSeg / mBeam）。原来的 mStretch 把带子摊进镜头平面、长度给满，射线朝着 / 背着镜头时两头伸出去（起点跑到枪后面）
+    mSeg(x0, y0, z0, x1, y1, z1, 0.62 * pulse);
+    if (W.turretProbe) {
+      const e = _pm.elements;
+      W.laserPb = { b: [x0, y0, z0, x1, y1, z1], r: [e[12] - e[4] / 2, e[13] - e[5] / 2, e[14] - e[6] / 2, e[12] + e[4] / 2, e[13] + e[5] / 2, e[14] + e[6] / 2] };
+    }
     pfPut('beam', 0.2 * kl, 0.02 * kl, 0.004 * kl); // skill-b2：外焰压一点（原来 0.95 / 0.26 / 0.05）
-    mStretch(mx, my, mz, dx, (y1 - y0) / len, dz, 0.28 * pulse, len);
+    mSeg(x0, y0, z0, x1, y1, z1, 0.28 * pulse);
     pfPut('beam', 0.17 * kl, 0.022 * kl, 0.004 * kl); // skill-b2：内焰压两档（原来 1.4 / 0.75 / 0.22，叠在外焰上整条成了近白）
-    mStretch(mx, my, mz, dx, (y1 - y0) / len, dz, 0.07, len);
+    mSeg(x0, y0, z0, x1, y1, z1, 0.07);
     pfPut('beam', 0.32 * kl, 0.065 * kl, 0.012 * kl); // skill-b3a：细热芯（三层加地面也只到橙：地面本身约 0.4，光束只能再加约 0.5，过了就被色调压缩推成黄白）
     // skill-b2：白热的芯只留枪口那一段（≤ 1.2 米）、只在放出后的 60 毫秒里（原来是整条 12 米、0.4 秒的近白粗芯）
     if (wtime - (L.rel || -9) < 0.06) {
       const cl = Math.min(1.2, len), cf = cl / len;
-      mStretch(x0 + (x1 - x0) * cf * 0.5, y0 + (y1 - y0) * cf * 0.5, z0 + (z1 - z0) * cf * 0.5, dx, (y1 - y0) / len, dz, 0.12, cl);
+      mSeg(x0, y0, z0, x0 + (x1 - x0) * cf, y0 + (y1 - y0) * cf, z0 + (z1 - z0) * cf, 0.12);
       pfPut('beam', 2.2, 2.0, 1.6);
     }
     // 缠在光束上的电弧（雷）
