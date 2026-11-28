@@ -552,6 +552,182 @@
    "sha256": "547a75dd84511feb18273e0e7501f3d9156e11521d6b27d298b54d75d7f18f4f"
   },
   {
+   "id": "ca/aithrall_shield",
+   "category": "aiweapon",
+   "zone": "aithrall",
+   "file": "assets/ca/aithrall/aithrall_shield.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 408,
+   "verts": 1224,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.234,
+     -0.232,
+     -0.059
+    ],
+    "max": [
+     0.236,
+     0.236,
+     0.057
+    ]
+   },
+   "h": 0.468,
+   "r": 0.236,
+   "y0": -0.232,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/thrall_shield/provenance.json",
+     "lod": "hi",
+     "mode": "fc"
+    },
+    "bake": {},
+    "provenance": "assets/ai/thrall_shield/provenance.json",
+    "sourceSha256": "b626c8436f321a03eed6c0a7875461943113f113b0d3fb463f2cfc54d155b864"
+   },
+   "lod": "hi",
+   "mode": "fc",
+   "sha256": "0bc704f176a4e90d23133378149b204a120512c74eb4e4e55dceebb44dd612b9"
+  },
+  {
+   "id": "ca/aithrall_shield_lo",
+   "category": "aiweapon",
+   "zone": "aithrall",
+   "file": "assets/ca/aithrall/aithrall_shield_lo.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 339,
+   "verts": 1017,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.227,
+     -0.232,
+     -0.059
+    ],
+    "max": [
+     0.238,
+     0.236,
+     0.057
+    ]
+   },
+   "h": 0.468,
+   "r": 0.238,
+   "y0": -0.232,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/thrall_shield/provenance.json",
+     "lod": "lo",
+     "mode": "fc"
+    },
+    "bake": {},
+    "provenance": "assets/ai/thrall_shield/provenance.json",
+    "sourceSha256": "b626c8436f321a03eed6c0a7875461943113f113b0d3fb463f2cfc54d155b864"
+   },
+   "lod": "lo",
+   "mode": "fc",
+   "sha256": "bba741a20ff47cfa501cc00f290c1a2b31589ccc72f95574cfbbfd16e799bca1"
+  },
+  {
+   "id": "ca/aithrall_sword",
+   "category": "aiweapon",
+   "zone": "aithrall",
+   "file": "assets/ca/aithrall/aithrall_sword.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 251,
+   "verts": 753,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.12,
+     -0.132,
+     -0.06
+    ],
+    "max": [
+     0.122,
+     0.866,
+     0.064
+    ]
+   },
+   "h": 0.999,
+   "r": 0.122,
+   "y0": -0.132,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/thrall_sword/provenance.json",
+     "lod": "hi",
+     "mode": "fc"
+    },
+    "bake": {},
+    "provenance": "assets/ai/thrall_sword/provenance.json",
+    "sourceSha256": "59b03f305dcdca90fb008b96406b11fb6928371745fe277ad1611f1053b2be8b"
+   },
+   "lod": "hi",
+   "mode": "fc",
+   "sha256": "fcdc8af36a04da6deb23117ed417882925bd9c6afd6c297c53e005c9611e9113"
+  },
+  {
+   "id": "ca/aithrall_sword_lo",
+   "category": "aiweapon",
+   "zone": "aithrall",
+   "file": "assets/ca/aithrall/aithrall_sword_lo.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 164,
+   "verts": 492,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.111,
+     -0.136,
+     -0.06
+    ],
+    "max": [
+     0.113,
+     0.871,
+     0.057
+    ]
+   },
+   "h": 1.007,
+   "r": 0.113,
+   "y0": -0.136,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/thrall_sword/provenance.json",
+     "lod": "lo",
+     "mode": "fc"
+    },
+    "bake": {},
+    "provenance": "assets/ai/thrall_sword/provenance.json",
+    "sourceSha256": "59b03f305dcdca90fb008b96406b11fb6928371745fe277ad1611f1053b2be8b"
+   },
+   "lod": "lo",
+   "mode": "fc",
+   "sha256": "b7a2600f4f0e416102d5a8d8d27bb99a456a0d527f782dc82cf8f7f6ab85f057"
+  },
+  {
    "id": "ca/aiwpn_amulet",
    "category": "aiweapon",
    "zone": "aiwpn",

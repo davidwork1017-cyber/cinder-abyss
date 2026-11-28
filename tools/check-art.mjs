@@ -316,6 +316,7 @@ export function checkArt() {
     }
   }
   checkAiHero(budgets, bad);
+  checkAiEnemies(budgets, bad);
   checkPieces(bad);
   checkRepoPrivacy(bad);
   return { fails, rows, count: man.assets.length };
@@ -387,6 +388,55 @@ function checkAiHero(budgets, bad) {
       if (over) bad(id, over + ' 个顶点超过 4 根骨骼');
       if (sum) bad(id, sum + ' 个顶点权重和不是 1');
       if (pr.attributes.COLOR_0 === undefined) bad(id, '没有 COLOR_0（一角一色）');
+    }
+  }
+}
+
+// AI 生成的游魂 / 烬骸仆从（ai3d-enemies，art/ai/hero_rig.py 按 art/ai/enemy/*.json 生成）：assets/ai/enemy/ 下高 / 低两档 + 来源记录。
+// sha256 和来源记录一致、chars.js 里就是这几份文件、enemy 预算、低档不比现网的 Quaternius 模型重、
+// 骨骼集合和现网模型（按 STD_ALIAS 换成标准名以后）完全一样（world.js 的 AI_ENEMY 靠这个沿用程序化关节和动作）、每个顶点 ≤ 4 根骨骼且和为 1、一角一色
+const AI_ENEMY_BONES = {
+  husk: ['pelvis', 'spine_01', 'spine_02', 'spine_03', 'neck_01', 'Head', 'head_leaf'].concat(...['l', 'r'].map((s) => ['clavicle', 'upperarm', 'lowerarm', 'hand'].map((b) => b + '_' + s)
+    .concat(...['thumb', 'index'].map((f) => [1, 2, 3, 4].map((k) => f + '_0' + k + '_' + s)), ['thigh', 'calf', 'foot', 'ball', 'ball_leaf'].map((b) => b + '_' + s)))),
+  thrall: ['pelvis', 'spine_03', 'neck_01', 'Head', 'thigh_l', 'calf_l', 'thigh_r', 'calf_r', 'upperarm_l', 'lowerarm_l', 'upperarm_r', 'lowerarm_r'],
+};
+function checkAiEnemies(budgets, bad) {
+  const dir = path.join(root, 'assets/ai/enemy');
+  if (!fs.existsSync(dir)) return;
+  const cat = budgets.categories.enemy;
+  const charsSrc = fs.readFileSync(path.join(root, 'js/assets/chars.js'), 'utf8');
+  const chars = JSON.parse(charsSrc.slice(charsSrc.indexOf('= {') + 2, charsSrc.lastIndexOf(';')));
+  const live = { husk: 'quaternius-animated-zombie/Zombie.glb', thrall: 'quaternius-animated-monster/Skeleton.glb' };
+  for (const kind of ['husk', 'thrall']) {
+    const pf = path.join(dir, 'provenance-' + kind + '.json');
+    if (!fs.existsSync(pf)) { bad('ai/enemy/' + kind, '没有来源记录 provenance-' + kind + '.json'); continue; }
+    const prov = JSON.parse(fs.readFileSync(pf, 'utf8'));
+    const old = stats(readGlb(path.join(root, 'assets', live[kind])));
+    const want = AI_ENEMY_BONES[kind].slice().sort().join(',');
+    for (const [fn, key] of [[kind + '.glb', 'ai' + kind + '_hi'], [kind + '_lo.glb', 'ai' + kind + '_lo']]) {
+      const id = 'ai/enemy/' + fn, f = path.join(dir, fn);
+      if (!fs.existsSync(f)) { bad(id, '文件不在'); continue; }
+      const buf = fs.readFileSync(f), sha = crypto.createHash('sha256').update(buf).digest('hex');
+      if (!prov.outputs || prov.outputs[fn] !== sha) bad(id, 'sha256 和 provenance-' + kind + '.json 记的不一致（重新生成以后要一起更新来源记录）');
+      if (!chars.models || chars.models[key] !== buf.toString('base64')) bad(id, 'js/assets/chars.js 里的 ' + key + ' 不是这份文件（重新跑 node tools/pack-assets.mjs）');
+      const g = readGlb(buf), s = stats(g), h = s.max[1] - s.min[1];
+      if (s.tris > cat.tris) bad(id, '三角形 ' + s.tris + ' 超过 enemy 预算 ' + cat.tris);
+      if (key.endsWith('_lo') && s.tris > old.tris) bad(id, '低档 ' + s.tris + ' 个三角形，比现网模型（' + old.tris + '）重');
+      if (s.materials > cat.materials) bad(id, '材质 ' + s.materials + ' 个，超过 ' + cat.materials);
+      if (s.textures > cat.textures) bad(id, '贴图 ' + s.textures + ' 张，超过 ' + cat.textures);
+      if (h < cat.h[0] || h > cat.h[1]) bad(id, '高度 ' + h.toFixed(3) + ' 不在 ' + cat.h.join('–'));
+      if (s.bones.slice().sort().join(',') !== want) bad(id, '骨骼集合和现网模型不一样（world.js 的 AI_ENEMY 要求同一组标准名）');
+      for (const pr of g.json.meshes[0].primitives) {
+        const W = accessor(g, pr.attributes.WEIGHTS_0);
+        let over = 0, sum = 0;
+        for (const w of W) {
+          if (w.filter((x) => x > 0).length > 4) over++;
+          if (Math.abs(w.reduce((a, b) => a + b, 0) - 1) > 0.006) sum++;
+        }
+        if (over) bad(id, over + ' 个顶点超过 4 根骨骼');
+        if (sum) bad(id, sum + ' 个顶点权重和不是 1');
+        if (pr.attributes.COLOR_0 === undefined) bad(id, '没有 COLOR_0（一角一色）');
+      }
     }
   }
 }

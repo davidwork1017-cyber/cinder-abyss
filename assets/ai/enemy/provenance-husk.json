@@ -1,0 +1,265 @@
+{
+ "_comment": "游魂的 AI 生成外观（ai3d-enemies，g01）的来源记录。源 GLB、概念图、UniRig 的权重 GLB 都不进仓库，只记 sha256（存放在私有的 cinder-ai-src）；art/ai/hero_rig.py 按 art/ai/enemy/g01.json 生成 husk.glb（高 / 中画质）和 husk_lo.glb（低画质的减面版），骨骼集合同现网 Zombie（41 根，标准名），pack-assets 打进 js/assets/chars.js（aihusk_hi / aihusk_lo）；没有源文件的机器上保留已提交的 GLB。",
+ "source": {
+  "name": "enemy-ghoul-01",
+  "file": "models/enemy-ghoul-01/model.glb",
+  "sha256": "b3df07b74e034a44030b063410d2dcaf3d90bccd9aa283ada00f440d8e037547",
+  "committed": false,
+  "concept_image": {
+   "file": "models/enemy-ghoul-01/concept.png",
+   "sha256": "661b248692701832a221420070123f91846e2baf43b8e7ff4091c3efc236ca4a",
+   "committed": false,
+   "use": "没有用（只用源 GLB 的反照率）"
+  }
+ },
+ "generation": {
+  "prompt": "full body, standing straight, A-pose, arms held clearly away from the body (about 30-45 degrees), open hands with long thin fingers, legs straight and slightly apart, facing the viewer, not crouching, not in a fighting stance, a gaunt undead humanoid made of ash and cinder, clearly hunched rounded shoulders and a forward-jutting head, back slightly curved, very thin limbs and long arms reaching past the hips, ragged ash-grey and grey-brown cloth strips hanging from the shoulders and waist, pale light ash-grey skin all over the body, arms and legs, covered in thin dark cracks with faint ember-orange light glowing inside them, two small glowing ember eye points in a hollow face, no hair, no weapon, empty hands, adult human proportions with a small head (about one seventh of the height), single creature, symmetric, A-pose or rest pose, plain white background, stylized low-poly toon game character, adult proportions, clean flat colour blocks, soft simple shading, matte, original design, no text, no logos, no emblems",
+  "negative_prompt": null,
+  "seed": 1913,
+  "text_to_image": {
+   "model": "Z-Image Turbo",
+   "weights": [
+    "z_image_turbo_int8_convrot.safetensors",
+    "qwen_3_4b_fp8_mixed.safetensors",
+    "ae.safetensors"
+   ]
+  },
+  "image_to_3d": {
+   "model": "TRELLIS.2",
+   "weights": [
+    "birefnet.safetensors",
+    "dino_v3_L_naf_fp32.safetensors",
+    "moge_2_vitl_normal_fp16.safetensors",
+    "trellis_2_int8_convrot.safetensors",
+    "trellis_2_shape_vae_bf16.safetensors",
+    "trellis_2_texture_vae_bf16.safetensors"
+   ]
+  },
+  "target_faces": 60000,
+  "texture_size": 1024,
+  "comfyui_version": "0.43.0",
+  "generated_at": "2026-11-27T11:00:22-0800",
+  "comfyui": {
+   "repo": "https://github.com/Comfy-Org/ComfyUI",
+   "release": "v0.43.0 (windows portable, nvidia)",
+   "commit": "426f5eea52a7ece1dd599fff4cb6cd1f352ddd24",
+   "license": "GPL-3.0"
+  },
+  "nodes": "全部是 ComfyUI 内置节点（comfy_extras/nodes_trellis2.py、nodes_bg_removal.py、nodes_mesh_postprocess.py），没有自定义节点",
+  "nvdiffrast": "未安装、未使用",
+  "weight_sources": {
+   "birefnet.safetensors": {
+    "hf": "Comfy-Org/BiRefNet",
+    "rev": "884af709e9b795d89dafbf97f29c8d6a2386f5c6",
+    "base": "ZhengPeng7/BiRefNet",
+    "license": "MIT"
+   },
+   "dino_v3_L_naf_fp32.safetensors": {
+    "hf": "Comfy-Org/Pixal3D",
+    "rev": "f37641be376725d324c56626007cc477f1249a69",
+    "base": "Meta DINOv3 ViT-L（Comfy-Org 转换）",
+    "license": "DINOv3 License (https://ai.meta.com/resources/models-and-libraries/dinov3-license/)"
+   },
+   "moge_2_vitl_normal_fp16.safetensors": {
+    "hf": "Comfy-Org/MoGe",
+    "rev": "1484985258ba7ef45c314144fcf0e90924ffbf44",
+    "base": "Ruicheng MoGe-2 ViT-L（normal 版）",
+    "license": "MIT"
+   },
+   "trellis_2_int8_convrot.safetensors": {
+    "hf": "Comfy-Org/TRELLIS.2",
+    "rev": "430a9d09b2416687018c8fe8edced2ad4858a439",
+    "base": "microsoft/TRELLIS.2-4B",
+    "license": "MIT"
+   },
+   "trellis_2_shape_vae_bf16.safetensors": {
+    "hf": "Comfy-Org/Pixal3D",
+    "rev": "f37641be376725d324c56626007cc477f1249a69",
+    "base": "microsoft/TRELLIS.2-4B",
+    "license": "MIT"
+   },
+   "trellis_2_texture_vae_bf16.safetensors": {
+    "hf": "Comfy-Org/Pixal3D",
+    "rev": "f37641be376725d324c56626007cc477f1249a69",
+    "base": "microsoft/TRELLIS.2-4B",
+    "license": "MIT"
+   },
+   "z_image_turbo_int8_convrot.safetensors": {
+    "hf": "Comfy-Org/Z-Image-Turbo",
+    "rev": "6fc90a3b1b653e935a0d175e260736de25b84df5",
+    "base": "Tongyi-MAI/Z-Image-Turbo",
+    "license": "Apache-2.0"
+   },
+   "qwen_3_4b_fp8_mixed.safetensors": {
+    "hf": "Comfy-Org/Z-Image-Turbo",
+    "rev": "6fc90a3b1b653e935a0d175e260736de25b84df5",
+    "base": "Qwen3-4B (Z-Image Turbo 文本编码器)",
+    "license": "Apache-2.0"
+   },
+   "ae.safetensors": {
+    "hf": "Comfy-Org/Z-Image-Turbo",
+    "rev": "6fc90a3b1b653e935a0d175e260736de25b84df5",
+    "base": "Z-Image Turbo VAE",
+    "license": "Apache-2.0"
+   }
+  }
+ },
+ "licences": {
+  "outputs": "组件的许可证都不限制生成物（见 cinder-ai-src/README.md 和 game-workspace notes/ai3d/licence-audit.md）；DINOv3 License 要求注明 Built with DINOv3",
+  "tools_only": "ComfyUI GPL-3.0、UniRig 内嵌的 michelangelo GPL-3.0 只在本地当工具跑，不随游戏分发"
+ },
+ "skinning": {
+  "file": "rigtest/unirig/enemy-ghoul-01/model_rigged.glb",
+  "sha256": "e965217200255504fc892c18b05c763647b446e667405825655942df785cd011",
+  "committed": false,
+  "tool": "UniRig（skin-only，使用 devbox 拟合的骨架）",
+  "unirig": {
+   "repo": "https://github.com/VAST-AI-Research/UniRig",
+   "commit": "6793c6640ff01c8fb389f3993434124bb43d2933",
+   "license": "MIT（内嵌 michelangelo 为 GPL-3.0，仅本地当工具运行）",
+   "windows_patch": "PR #70（HurtzDonutStudios，提交 bc95f6e，未合并）：flash_attn 换成 PyTorch SDPA、Windows DLL 路径、CPU 回退；全文见 scripts/unirig_pr70_windows.patch"
+  },
+  "weights": {
+   "hf": "VAST-AI/UniRig",
+   "revision": "36842e2b5947e9e60f89275b83208c8e74071c63",
+   "file": "skin/articulation-xl/model.ckpt",
+   "sha256": "9d40cf42fb9d4c10d8b373d9f4f557c6fbbc5ebacae7ae6b3dce5a0d8a18bc33",
+   "license": "MIT"
+  },
+  "params": {
+   "seed": 12345,
+   "faces_target_count": 50000,
+   "voxel_skin": {
+    "grid": 196,
+    "backend": "open3d（没装 pyrender）"
+   },
+   "precision": "bf16-mixed"
+  }
+ },
+ "processing": {
+  "tool": "art/ai/hero_rig.py + art/ai/hero_fit.py + art/ai/glbw.py",
+  "blender": "5.2.4 LTS",
+  "numpy": "2.3.4",
+  "mode": "hybrid",
+  "spec": {
+   "name": "g01",
+   "source": {
+    "name": "enemy-ghoul-01",
+    "file": "model.glb",
+    "sha256": "b3df07b74e034a44030b063410d2dcaf3d90bccd9aa283ada00f440d8e037547"
+   },
+   "rig": "husk",
+   "prefix": "ghoul",
+   "mat": "AIGhoul",
+   "mesh": "ai_ghoul",
+   "lab": "cinder ai3d-enemies lab",
+   "tris": {
+    "hi": 2400,
+    "lo": 2100
+   },
+   "fit": {
+    "crotch": 0.42
+   },
+   "regions": {
+    "coat": false
+   },
+   "fist": false,
+   "pack": {
+    "weld": 8
+   },
+   "weights": {
+    "mode": "hybrid",
+    "glb": "rigtest/unirig/enemy-ghoul-01/model_rigged.glb",
+    "sha256": "e965217200255504fc892c18b05c763647b446e667405825655942df785cd011",
+    "strict": [
+     "clavicle_l",
+     "clavicle_r"
+    ]
+   },
+   "colour": {
+    "grade": {
+     "sat": 0.6,
+     "tint": [
+      0.95,
+      0.91,
+      1.08
+     ]
+    }
+   },
+   "ship": {
+    "files": {
+     "hi": "husk.glb",
+     "lo": "husk_lo.glb"
+    },
+    "ids": [
+     "chars/aihusk_hi",
+     "chars/aihusk_lo"
+    ],
+    "provenance": "provenance-husk.json",
+    "comment": "游魂的 AI 生成外观（ai3d-enemies，g01）的来源记录。源 GLB、概念图、UniRig 的权重 GLB 都不进仓库，只记 sha256（存放在私有的 cinder-ai-src）；art/ai/hero_rig.py 按 art/ai/enemy/g01.json 生成 husk.glb（高 / 中画质）和 husk_lo.glb（低画质的减面版），骨骼集合同现网 Zombie（41 根，标准名），pack-assets 打进 js/assets/chars.js（aihusk_hi / aihusk_lo）；没有源文件的机器上保留已提交的 GLB。"
+   },
+   "resemblance": "a generic gaunt undead ghoul: bald pale-grey skin, hollow eye sockets, ragged shoulder wrap and loincloth, bare feet. The prompt names no game or IP; no match seen to a known game creature design, colours or emblems."
+  },
+  "shape": null,
+  "fit": {
+   "height": 1.9,
+   "scale": 1.897747,
+   "offset": [
+    0.000653,
+    0.950057,
+    -0.029057
+   ]
+  },
+  "decimate": {
+   "hi": {
+    "target": 2400,
+    "tris": 2400,
+    "ratio": 0.040001,
+    "source_tris": 59998
+   },
+   "lo": {
+    "target": 2100,
+    "tris": 2100,
+    "ratio": 0.035001,
+    "source_tris": 59998
+   }
+  },
+  "weights": {
+   "hi": {
+    "band": 0,
+    "force": 354,
+    "mismatch": 39,
+    "kept": 724,
+    "strict": 79
+   },
+   "lo": {
+    "band": 0,
+    "force": 317,
+    "mismatch": 34,
+    "kept": 627,
+    "strict": 68
+   }
+  },
+  "coat": {
+   "hi": {
+    "faces": 0,
+    "split": 0
+   },
+   "lo": {
+    "faces": 0,
+    "split": 0
+   }
+  },
+  "fist": null
+ },
+ "outputs": {
+  "husk.glb": "aadd9f6bfe1573565e81e77bfa56807901a234eb023449efe6e2184cf349e093",
+  "husk_lo.glb": "55db9643539183c62d0f9222c9c746791895dcfe1658379a68e239af3a7bd04d"
+ },
+ "resemblance": "a generic gaunt undead ghoul: bald pale-grey skin, hollow eye sockets, ragged shoulder wrap and loincloth, bare feet. The prompt names no game or IP; no match seen to a known game creature design, colours or emblems.",
+ "not_committed_note": "概念图 concept.png、源 GLB、UniRig 的权重 GLB 只在私有的 cinder-ai-src 里",
+ "ids": [
+  "chars/aihusk_hi",
+  "chars/aihusk_lo"
+ ]
+}

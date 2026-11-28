@@ -12509,6 +12509,11 @@
     if (key === 'player' && !noAi && !window.CA_OLD_HERO) {
       const mk = qualId === 'low' ? 'aihero_lo' : 'aihero_hi';
       if (cModel(mk)) sp = Object.assign({}, CSPEC.playerAI, { model: mk, aiHero: true });
+    } else if (AI_ENEMY[key] && !noAi && !window.CA_OLD_ENEMY) {
+      // 游魂 / 烬骸仆从同样默认用 AI 生成的模型（ai3d-enemies：chars 包里的 aihusk_* / aithrall_*，低画质用低档）；
+      // 骨骼集合和现网模型一样（见 AI_ENEMY），程序化关节、动作照旧。包里没有或套用出错（cTry）退回 Quaternius 的模型
+      const mk = 'ai' + key + (qualId === 'low' ? '_lo' : '_hi');
+      if (cModel(mk)) sp = Object.assign({}, CSPEC[key], AI_ENEMY[key], { model: mk, aiHero: true });
     }
     const md = cModel(sp.model);
     if (!md) return null;
@@ -12529,9 +12534,9 @@
       try {
         return make(cs);
       } catch (e) {
-        if (window.console) console.warn('[角色] ' + key + ' 套用模型失败，改用' + (cs.aiHero ? ' Adventurer' : '程序化外观'), e);
+        if (window.console) console.warn('[角色] ' + key + ' 套用模型失败，改用' + (cs.aiHero ? '原来的模型' : '程序化外观'), e);
       }
-      // AI 主角套用失败：退回 Adventurer，再不行才用程序化外观
+      // AI 模型套用失败：退回原来的模型（主角 Adventurer，敌人 Quaternius），再不行才用程序化外观
       const c2 = cs.aiHero ? cSpec(key, true) : null;
       if (c2) {
         try {
@@ -14732,6 +14737,8 @@
   // 各家骨骼名 → 标准名
   const STD_MIXAMO_SIDE = { Shoulder: 'clavicle', Arm: 'upperarm', ForeArm: 'lowerarm', Hand: 'hand', UpLeg: 'thigh', Leg: 'calf', Foot: 'foot', ToeBase: 'ball', Toe_End: 'ball_leaf' };
   const STD_ALIAS = {
+    // 已经是标准名（AI 生成的模型，art/ai/hero_fit.py 的 rig_bones）
+    std: () => null,
     // Mixamo 骨骼名（Animated Zombie）
     mixamo: (n) => {
       const M = { Hips: 'pelvis', Spine: 'spine_01', Spine1: 'spine_02', Spine2: 'spine_03', Neck: 'neck_01', Head: 'Head', HeadTop_End: 'head_leaf' };
@@ -14846,7 +14853,9 @@
     return true;
   }
   // 调试 / 冒烟测试用：标准骨架的对照表和动作包
-  W.std = { JOINT: STD_JOINT, PIVOT: STD_PIVOT, MASK: STD_MASK, joint: stdJoint, mask: stdMask, drive: stdDrive, chord: (rig) => stdChord(rig, stdDrive(rig)), pack: () => cModel('ual') };
+  W.std = { JOINT: STD_JOINT, PIVOT: STD_PIVOT, MASK: STD_MASK, joint: stdJoint, mask: stdMask, drive: stdDrive, chord: (rig) => stdChord(rig, stdDrive(rig)), pack: () => cModel('ual'),
+    // 退路的配置（AI 模型缺了 / 套用出错时用的 Quaternius 模型，cSpec(key, true)）：冒烟测试拿它查 STD_ALIAS 的改名
+    old: (key) => { const cs = cSpec(key, true); return cs && { model: cs.model, std: cs.md.std, names: cs.md.names.slice() }; } };
 
   const CSPEC = {
     player: {
@@ -15077,6 +15086,50 @@
       },
       // Head 骨骼在身体中部：嘴（weapon / hand）挪到眼睛前下方的口器处，head 挪到眼睛上方
       sock: { weapon: ['head', 0, -0.02, 0.4], hand: ['head', 0, -0.02, 0.4], head: ['head', 0, 0.14, 0.22], chest: ['root', 0, 0.2, 0.05] },
+    },
+  };
+  // AI 生成的游魂 / 烬骸仆从（ai3d-enemies，art/ai/hero_rig.py 按 art/ai/enemy/*.json 生成）：盖在 CSPEC.husk / thrall 上，只改模型相关的几项。
+  // 骨骼已经是标准名（alias 'std' 不改名，只按 STD_PIVOT 取枢轴），骨骼集合和父子关系与现网的 Zombie（41 根）/ Skeleton（12 根）一致；
+  // 颜色用模型自己的逐顶点色（生成时已调过色），眼窝的元素火 / 魂火按这个模型的眼睛位置放
+  const AI_EYE = { husk: [0.05, 0.154, 0.121], thrall: [0.042, 0.109, 0.067] }; // 相对 Head 骨骼（米，已按身高缩放）：左眼，右眼 x 取反
+  const aiColor = (h, k) => (mat, prim, base, vc, y, out) => {
+    const c = vc || base;
+    out[0] = c[0]; out[1] = c[1]; out[2] = c[2];
+    return cShade(out, out, y, h, k);
+  };
+  const AI_ENEMY = {
+    husk: {
+      alias: 'std', yaw: 0,
+      color: aiColor(2.15, 0.18),
+      vglow: null,
+      extra: (b, pos) => {
+        const h = pos('Head'), e = (window.CA_AI_EYES && window.CA_AI_EYES.husk) || AI_EYE.husk;
+        b.at('head');
+        for (const s of [1, -1]) b.g(gOct(0.026), 1.25, h[0] + s * e[0], h[1] + e[1], h[2] + e[2], 0, 0, 0, 1, 0.7, 0.6);
+      },
+    },
+    thrall: {
+      alias: 'std',
+      scale: null, stretch: null,
+      // 没有手骨 / 脚骨（和现网 Skeleton 一样）：手腕在前臂延长线上（小臂 / 大臂 = 0.79，hero_fit 量的），脚踝离地 0.081 米
+      pivot: {
+        hL: (pos) => thSeg(pos, 'upperarm_l', 'lowerarm_l', 0.79), hR: (pos) => thSeg(pos, 'upperarm_r', 'lowerarm_r', 0.79),
+        ftL: (pos) => { const k = pos('calf_l'); return [k[0], 0.081, k[2]]; }, ftR: (pos) => { const k = pos('calf_r'); return [k[0], 0.081, k[2]]; },
+      },
+      split: (n, pos) => {
+        if (n === 'lowerarm_l') return thSplit(pos, 'upperarm_l', 'lowerarm_l', 'hL', 0.79);
+        if (n === 'lowerarm_r') return thSplit(pos, 'upperarm_r', 'lowerarm_r', 'hR', 0.79);
+        if (n === 'calf_l') return thSplit(pos, 'thigh_l', 'calf_l', 'ftL', 0.82, 0.081);
+        if (n === 'calf_r') return thSplit(pos, 'thigh_r', 'calf_r', 'ftR', 0.82, 0.081);
+        return null;
+      },
+      color: aiColor(1.62, 0.3),
+      extra: (b, pos) => {
+        const t = pos('spine_03'), n = pos('neck_01'), h = pos('Head'), e = (window.CA_AI_EYES && window.CA_AI_EYES.thrall) || AI_EYE.thrall;
+        b.at('chest').g(gSph(0.075, 7, 5), 1.4, t[0], t[1] + (n[1] - t[1]) * 0.55, t[2] + 0.01, 0, 0, 0, 1, 1.4, 0.9);
+        b.at('head');
+        for (const s of [1, -1]) b.g(gSph(0.026, 6, 4), 1.7, h[0] + s * e[0], h[1] + e[1], h[2] + e[2], 0, 0, 0, 1.1, 0.9, 0.6);
+      },
     },
   };
 
@@ -21512,6 +21565,33 @@
   function thrallBowRig() {
     return thrallMake(true);
   }
+  // AI 生成的剑和盾（ai3d-enemies，kit-aithrall 包，index.html 同步引入）：几何体都在包里才用，缺一件就照旧建脚本件。
+  // 武器坐标（长轴 +y、刃宽 / 盾面横向 +x、厚度 / 盾面朝向 +z，原点在握把 / 盾心）换算到仆从骨架的绑定坐标：
+  //   剑：手（hR），和脚本件一样握把沿 +z、刃面竖着（刃宽沿 +y）；盾：前臂外侧（faL），盾面朝 +x
+  let athSt = 0;
+  const ATH_KEYS = ['ca/aithrall_sword', 'ca/aithrall_sword_lo', 'ca/aithrall_shield', 'ca/aithrall_shield_lo'];
+  function athOn() {
+    if (!athSt) {
+      athSt = 2;
+      if (!window.CA_OLD_ENEMY && G.assets && G.assets.known && G.assets.known('kit-aithrall')) {
+        G.assets.need(['kit-aithrall']);
+        if (ATH_KEYS.every((k) => G.assets.geo(k))) athSt = 1;
+      }
+    }
+    return athSt === 1;
+  }
+  W.athState = () => (athSt === 1 ? 'on' : athSt === 2 ? 'fallback' : 'unused');
+  function athGear(b, WX, WY, WZ) {
+    const lo = qualId === 'low' ? '_lo' : '';
+    const sw = aiwSplit('ca/aithrall_sword' + lo, (x, y, z, o) => { o[0] = WX + z; o[1] = WY + x; o[2] = WZ + 0.02 + y; }, true);
+    b.at('hR');
+    for (const nm of ['metal', 'gold', 'leather']) if (sw[nm]) b.surf(SURF[nm], true).p(sw[nm], null, 0, 0, 0);
+    if (sw.glow) b.x(sw.glow, 1, 0, 0, 0); // 刃上那道光随元素变色（W.minionElem），和脚本件血槽里的光一样
+    const sh = aiwSplit('ca/aithrall_shield' + lo, (x, y, z, o) => { o[0] = 0.375 + z; o[1] = 1.03 + y; o[2] = -x; }, true);
+    b.at('faL');
+    for (const nm of ['metal', 'gold', 'leather']) if (sh[nm]) b.surf(SURF[nm], true).p(sh[nm], null, 0, 0, 0);
+    if (sh.glow) b.g(sh.glow, 1.3, 0, 0, 0); // 盾心：魂火誓印
+  }
   function thrallMake(bow) {
     return rigOf(bow ? 'thrallBow' : 'thrall', () => cTry('thrall', (cs) => {
       const BONE = 0xece3cc, BONE_D = 0xa69c86, IRON = 0x7a828e, IRON_D = 0x3d434d, BRONZE = 0xbb8e4c, BRONZE_D = 0x6f5329;
@@ -21598,7 +21678,9 @@
       b.surf(SURF.leather).p(gCyl(0.038, 0.04, 0.04, 8), LEATHER_D, -0.3, 1.075, -0.02);
 
       b.tag('gear'); // 剑和盾 / 弓和箭袋：换成 C 模型时留下
-      if (!bow) {
+      if (!bow && athOn()) {
+        athGear(b, -0.31, 0.85, 0.03);
+      } else if (!bow) {
         // --- 豁口剑：握把沿 +z，刃面竖着；血槽里一道光（随元素变色，见 W.minionElem） ---
         const WX = -0.31, WY = 0.85, WZ = 0.03;
         b.at('hR').surf(SURF.leather).p(gCyl(0.021, 0.023, 0.2, 6), LEATHER_D, WX, WY, WZ + 0.02, HALF_PI);
