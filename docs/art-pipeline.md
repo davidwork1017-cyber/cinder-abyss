@@ -177,6 +177,21 @@ npm run build:art && git status --short assets/ca js/assets   # 没有输出 = �
 
 开发和测试导入器不用真模型：拿 `assets/` 里的 CC0 GLB 细分到二三十万面、倾斜一下就能当输入，这份测试输入不提交。
 
+## AI 生成的小怪外观（ai3d-spitter 起）
+
+喷吐者（chars 包的 `spider`）的网格从 ai3d-spitter 起换成 AI 生成的 enemy-spitter-03，骨架、绑定姿态和 5 段动作不变，都取自 `assets/quaternius-easy-enemy/Spider.glb`（`tools/convert-chars.mjs` 生成的那份）。来源记录 `assets/ai/spitter/provenance.json`。
+
+| 路径 | 内容 |
+| --- | --- |
+| `art/ai/char_fit.py` | 对骨架（纯 numpy）：读骨架 GLB 的骨骼位置，量源网格每条腿的髋 / 膝 / 跗 / 脚尖，按脚尖的前后配给骨架的腿，身体按髋部重心等比缩放、平移 |
+| `art/ai/char_rig.py` | 无头 Blender：减面 → 身体按 z 分三段刚性绑 Head / Thorax / Abdomen，每条腿三段各自转 + 沿轴拉伸到骨架的 髋→膝→跗→脚（关节两边一小段渐变）→ 每角在源网格上取色（调亮带肩部；甲壳按色相换成冷橄榄绿，囊、眼、关节环留着暖色）→ 写 GLB：骨骼、蒙皮、绑定姿态和动作原样拷过来，网格换成身体（`Material`，带 `COLOR_0`）和囊（`Material.001`，游戏端按元素色发光）两块 |
+| `art/ai/char/spitter_a03.json` | 候选的参数：骨架 GLB、身高、腿的配对、身体分段、要删的粘连部分、发光规则、提亮，源 GLB 的 sha256 |
+| `assets/ai/spitter/spitter.glb` | 生成物：2674 个三角形，所有画质同一份 |
+
+- **构建**：不走 `npm run build:art`（角色模型本来就是单独的工具转的）。重新生成：`blender -b --factory-startup --python-exit-code 1 --python art/ai/char_rig.py -- --spec art/ai/char/spitter_a03.json --out assets/ai/spitter/spitter.glb`，再 `node tools/pack-assets.mjs`。
+- **不带动作**：`--anims 0` 只写骨架、蒙皮、绑定姿态和网格。动作换成我们自己的以后用它重新生成，再去掉 Quaternius 的包。
+- **游戏端**：`js/world.js` 的 `CSPEC.spitter` 按顶点色上色（不再是程序化的苔绿渐变），身高 0.9 让骨架的缩放和原来一样，囊的发光 1.5，原来程序化的余烬囊去掉，嘴的挂点往前挪到口器。
+
 ## AI 生成的首领外观（ai3d-golem 起）
 
 熔渣巨像（`ca/boss_golem`）从 2026-11-26 起用 AI 生成的模型（用户批准），清单里的 `gen` 是 `golem_ai`；原来的脚本巨像 `art/ca/boss/golem.py` 不再打包，骨架 `BONES` 和动作表 `golem_clips.py` 还是从那里来。来源、许可证见 `assets/README.md` 的「AI 生成」和 `assets/ca/boss/golem.provenance.json`。

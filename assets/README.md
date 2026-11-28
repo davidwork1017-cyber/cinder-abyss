@@ -1,4 +1,4 @@
-# 外部素材（CC0，另有 AI 生成的件：一件布景、三只首领的外观、主角和两种小怪的外观、一批技能件和绊雷、武器和装备掉落）
+# 外部素材（CC0，另有 AI 生成的件：一件布景、三只首领的外观、主角和三种小怪的外观、一批技能件和绊雷、武器和装备掉落）
 
 地面和岩石的贴图从 2026-11-27（tex-rest）起全由我们自己的脚本生成，仓库里没有第三方贴图了。
 
@@ -14,7 +14,7 @@
 | `quaternius-modular-men/` | Quaternius Ultimate Modular Men（Adventurer），https://quaternius.com/packs/ultimatemodularcharacters.html | CC0（`License_ModularMen.txt`） |
 | `quaternius-animated-zombie/` | Quaternius Animated Zombie（Zombie），https://quaternius.com/packs/animatedzombie.html | CC0（包里没有许可证文件，按包页面的 CC0 记在 `License_AnimatedZombie.txt`） |
 | `quaternius-animated-monster/` | Quaternius Animated Monster（Skeleton），https://quaternius.com/packs/animatedmonster.html | CC0（`License_AnimatedMonster.txt`） |
-| `quaternius-easy-enemy/` | Quaternius Easy Enemy（Spider），https://quaternius.com/packs/easyenemy.html | CC0（`License_EasyEnemy.txt`） |
+| `quaternius-easy-enemy/` | Quaternius Easy Enemy（Spider），https://quaternius.com/packs/easyenemy.html；ai3d-spitter 起喷吐者的网格换成 AI 生成的（见下面「AI 生成」），骨架、绑定姿态和动作还从这里的 `Spider.glb` 取 | CC0（`License_EasyEnemy.txt`） |
 | `ual/` | Quaternius Universal Animation Library [Standard]（https://opengameart.org/content/universal-animation-library ，`universal_animation_librarystandard.zip`）和 Universal Animation Library 2 [Standard]（https://opengameart.org/content/universal-animation-library-2 ，`universal_animation_library_2standard.zip`），作者本人在 OpenGameArt 的上传；sha256 记在 `tools/asset-sources.json` 的 `sources.ual` | CC0（下载包里的许可证文件原样复制：`License_UAL1.txt`、`License_UAL2.txt`） |
 
 - 贴图的格式：每套三张 JPEG，`albedo.jpg`、`normal.jpg`（OpenGL 法线）、`arh.jpg`（R 遮蔽 / G 粗糙度 / B 高度）。清单在 `tools/asset-sources.json`。原来下载照片贴图的 `tools/prep-textures.mjs` 已经用不上，tex-rest 时删掉了，要看的话在 git 历史里。
@@ -33,11 +33,12 @@
 
 ## AI 生成
 
-2026-11-26 起用 AI 生成模型（用户批准）：先是一件静态布景（试点），之后熔渣巨像、雷霆监察者、衔星巨兽的外观也换成 AI 生成的模型，骨架、动作和招式都没动，只换了网格和贴图。2026-11-27 起技能放出来的实心小件（冰系、雷桩、熔光炮台）和绊雷也换成 AI 生成的模型，判定和数值都没动；主角的外观也换成 AI 生成的模型，程序化骨架、动作、挂点和模拟都没动，Adventurer 留作退路。2026-11-26 用户还要求武器也试一试：先试点剑、长杖、战锤、机炮四种，通过审核以后所有武器种类和七种装备掉落都换上了（手里拿的和掉在地上的），处理见下面。游魂和烬骸仆从的外观随后也换了，骨骼集合和现网的 Zombie / Skeleton 一样，原来的模型留作退路。
+2026-11-26 起用 AI 生成模型（用户批准）：先是一件静态布景（试点），之后熔渣巨像、雷霆监察者、衔星巨兽的外观也换成 AI 生成的模型，骨架、动作和招式都没动，只换了网格和贴图。2026-11-27 起技能放出来的实心小件（冰系、雷桩、熔光炮台）和绊雷也换成 AI 生成的模型，判定和数值都没动；主角的外观也换成 AI 生成的模型，程序化骨架、动作、挂点和模拟都没动，Adventurer 留作退路。2026-11-26 用户还要求武器也试一试：先试点剑、长杖、战锤、机炮四种，通过审核以后所有武器种类和七种装备掉落都换上了（手里拿的和掉在地上的），处理见下面。游魂和烬骸仆从的外观随后也换了，骨骼集合和现网的 Zombie / Skeleton 一样，原来的模型留作退路。喷吐者的网格也换成 AI 生成的，贴在原来 Spider 的骨架上，骨架和动作没动。
 
 | 件 | 用在哪 | 来源记录 |
 | --- | --- | --- |
 | `ca/frost_waystone`（路标石：风化的石柱立在碎石和积雪的基座上） | 霜骨沼泽岸边，每区 3–6 块，低画质不显示 | `ai/frost_waystone/provenance.json` |
+| `ai/spitter/spitter.glb`（喷吐者：八条腿的蜘蛛形小怪，冷橄榄绿的甲壳，腹背上四个发光囊） | 喷吐者的网格（`js/assets/chars.js` 的 spider），所有画质同一份 | `ai/spitter/provenance.json` |
 | `ca/boss_golem`（熔渣巨像：玄武岩块拼成的巨像，胸口是拱形铁栅炉膛，肩上两根短烟囱）、`ca/boss_golem_lo`（低画质的减面版） | 第 0 区首领，`js/assets/boss-golem.js`；低画质用减面版 | `ca/boss/golem.provenance.json` |
 | `ca/boss_warden`（雷霆监察者：悬浮的石柱，青铜领环上一只眼，两只石护手，三块护盾板绕着转）、`ca/boss_warden_lo`（低画质的减面版） | 雷鸣遗迹首领，`js/assets/boss-warden.js`；低画质用减面版 | `ca/boss/warden.provenance.json` |
 | `ca/boss_behemoth`（衔星巨兽：石墨灰的四足巨兽，背上一排岩甲，两只青色晶角，嘴里含着一颗星）、`ca/boss_behemoth_lo`（低画质的减面版） | 坠星裂谷首领，`js/assets/boss-behemoth.js`；低画质用减面版 | `ca/boss/behemoth.provenance.json` |
@@ -61,7 +62,8 @@
   - 主角：`art/ai/hero_rig.py`（拟合在 `art/ai/hero_fit.py`）把 A 字站姿的源模型对到 53 根的标准人形骨架（UE / UAL 骨骼名），先做几处脚本修形（头放大 1.15、护膝压平），权重用 UniRig 算的再按区域改（头和头发、手掌、四指三节、拇指、护腕、后摆各有固定的规则），拳头烘进绑定姿态，减面到 `art/budgets.json` 的 `hero` 以内（高 10032、低 7632，低画质不比 Adventurer 的 8450 重）。颜色按角从反照率里取，再按定点改色把头发、围巾、衬衣、长裤调回游戏里主角的配色；脸上的暗条改回肤色，另贴两只小眼睛和细眉。导出时同色的角并成一个顶点，颜色存 8 位，没有贴图。`--ship` 把选定的一份复制到 `ai/hero/`。
   - 游魂、烬骸仆从：同一套 `hero_rig.py`，配置在 `art/ai/enemy/`（`g01.json`、`t06.json`）。骨骼集合换成现网模型的那一组（游魂 41 根、仆从 12 根，标准名，父子关系也一样），所以程序化关节和动作照旧；权重用 UniRig 的，手和锁骨按区域改；仆从的头缩到 0.88；游魂整体去饱和、往冷紫调，和米白的仆从分开。高画质 2400 个三角形，低画质不比原来的模型重（游魂 2100 对 Zombie 2116，仆从 1800 对 Skeleton 1810）。
   - 武器：`art/ai/weapon.py`（`gen='ai'`、外观 `fc`）逐面取色、发光区拆成单独的一层壳（按稀有度着色），不带贴图，见 `docs/art-pipeline.md`「AI 生成的武器」。烬骸仆从的剑和盾走同一条流程（`zone='aithrall'`），源模型上没有发光的部分，刃中线和盾心按位置补一层发光壳；低画质不比原来的脚本件重（剑 164、盾 339 个三角形，原来约 220 和 470）。
-  - 布景件、巨像、监察者、巨兽和武器由 `npm run build:art` 调用，主角和两种小怪用 `hero_rig.py` 单独生成；源文件不在的机器上保留已提交的生成物。
+  - 喷吐者：`art/ai/char_rig.py` 把源模型贴到 Spider 原来的骨架上（骨架、绑定姿态、动作都不变）：身体按段刚性绑定，每条腿三段各自转过去、沿骨骼拉伸，后腿用中后腿的拷贝；颜色烘进每角的顶点色（甲壳换成冷橄榄绿，和原来的苔绿一样在暖色地面上靠色相分得开），腹背上的囊单独一块按元素色发光。这一件不走 `npm run build:art`，命令写在 `ai/spitter/provenance.json` 里。
+  - 布景件、巨像、监察者、巨兽和武器由 `npm run build:art` 调用，主角和两种小怪用 `hero_rig.py`、喷吐者用 `char_rig.py` 单独生成；源文件不在的机器上保留已提交的生成物。
 - **许可证**：生成时用到的每个组件都读过许可证原文：
   - ComfyUI：GPL-3.0，只是工具，输出不受约束；
   - Z-Image Turbo、Qwen3-4B 文本编码器、VAE（和 FLUX.1-schnell 的 ae 逐字节相同）：Apache-2.0；
