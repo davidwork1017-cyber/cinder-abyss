@@ -546,7 +546,7 @@
     [/点击物品看详情，悬停与身上的对比。/g, '点一下物品看详情和与身上的比较，点两下直接穿上。'],
     [/悬停背包格子或/g, '点背包格子或'],
     [/悬停词缀查看阶级/g, '点词缀查看阶级'],
-    [/悬停或按住 ?Alt ?展开/g, '点顶栏的「名牌」展开'],
+    [/悬停或按住 ?Alt ?展开/g, '点顶栏的名牌键展开'],
     [/按住 ?Alt ?(查看|看)/g, '长按$1'],
     [/再 ?Shift\+点击一次，确认分解/g, '再点一次「分解」确认'],
     [/Shift\+点击 ?分解 · ?Ctrl\+点击 ?锁定/g, '详情里分解 / 锁定'],
@@ -557,7 +557,7 @@
     [/ · Ctrl\+点击解锁/g, ' · 点「已锁」解锁'],
     [/数字键 1–4 选择，Esc 返回/g, '点一条选择'],
     [/取消或 ?Esc ?不消耗/g, '取消不消耗'],
-    [/没有面板时 ?Esc ?暂停/g, '右上角 ≡ 暂停'],
+    [/没有面板时 ?Esc ?暂停/g, '右上角的菜单键暂停'],
     [/悬停/g, '点'],
     [/左键/g, '大按钮'],
   ];
@@ -683,15 +683,17 @@
   // ============================================================
   // DOM：摇杆区、顶栏（血条 / 法力条 / 面板入口）、F 键、竖屏遮罩、首次提示卡
   // ============================================================
+  // [键, 图标（js/icons.js 的 G.icons.ui）, 名字（读屏 / 长按说明）]；按钮上只有图标（touch-icons）
   const TOP_BTNS = [
-    ['inv', '包', '背包'],
-    ['skills', '技', '技能'],
-    ['tree', '赋', '天赋'],
-    ['map', '图', '地图'],
-    ['labels', '名牌', '展开地上的名牌'],
-    ['menu', '≡', '暂停菜单'],
-    ['rot', '⟲', '画面换个方向'], // 只在旋转横屏时显示
+    ['inv', 'bag', '背包'],
+    ['skills', 'skills', '技能'],
+    ['tree', 'tree', '天赋'],
+    ['map', 'map', '地图'],
+    ['labels', 'labels', '名牌：展开地上的名牌'],
+    ['menu', 'menu', '暂停菜单'],
+    ['rot', 'rot', '画面换个方向'], // 只在旋转横屏时显示
   ];
+  const ico = (id, cls) => G.icons.ui(id, cls || 't-ico'); // t-ico：按钮里的；ui-in：夹在文字里的（style.css）
   function build() {
     const root = document.createElement('div');
     root.id = 'touch';
@@ -700,12 +702,12 @@
       '<div id="t-stick"><i class="t-base"></i><i class="t-knob"></i></div>' +
       '<div id="t-top">' +
       '<div class="t-bars"><div class="t-bar life"><i></i><b></b></div><div class="t-bar mana"><i></i><b></b></div></div>' +
-      '<div class="t-btns">' + TOP_BTNS.map((b) => '<button type="button" tabindex="-1" data-tt="' + b[0] + '" aria-label="' + b[2] + '">' + b[1] + '</button>').join('') + '</div>' +
+      '<div class="t-btns">' + TOP_BTNS.map((b) => '<button type="button" tabindex="-1" data-tt="' + b[0] + '" aria-label="' + b[2] + '" title="' + b[2] + '">' + ico(b[1]) + '</button>').join('') + '</div>' +
       '</div>' +
-      '<div id="t-f" data-tb="F">F</div>' +
+      '<div id="t-f" data-tb="F" role="button" aria-label="互动：处决、拾取、打开" title="互动">' + ico('hand') + '</div>' +
       '<div id="t-portrait"><div><b>横过来玩</b><span>把手机横过来，或者点下面的按钮</span><button type="button" class="btn primary" tabindex="-1" data-trot="go">横屏开始</button></div></div>' +
       '<button type="button" id="t-rot-go" class="btn primary" tabindex="-1" data-trot="go">横屏开始</button>' +
-      '<button type="button" id="t-rot-flip" class="btn" tabindex="-1" data-trot="flip" aria-label="换个方向">⟲</button>' +
+      '<button type="button" id="t-rot-flip" class="btn" tabindex="-1" data-trot="flip" aria-label="换个方向" title="换个方向">' + ico('rot') + '</button>' +
       '<div id="t-hint"><div class="th-card"><div class="th-title">触屏操作</div>' +
       '<div class="th-list">' +
       '<div><b>左下拖动</b>移动</div>' +
@@ -715,6 +717,10 @@
       '</div>' +
       '<button type="button" class="btn primary" tabindex="-1" id="t-hint-ok">知道了</button></div></div>';
     document.body.appendChild(root);
+    // HUD 里写死的图标位（翻滚键的 .d-ui、首领条 / 处决提示里 F 旁边的 .t-fk）：类名早就写好了，这里画出图标、注册 .ico-ui-* 规则，它们才有图。
+    // 桌面不打开触屏模式就不画（那几个位置在桌面上 display: none，照旧显示「翻」和 F）
+    G.icons.cls('ui-roll');
+    G.icons.cls('ui-hand');
     const q = (s) => root.querySelector(s);
     dom = {
       root,
@@ -783,19 +789,20 @@
   }
 
   // 开场卡片换成触屏说法（关掉触屏模式时换回来）
-  const INTRO_TOUCH =
+  // 函数：图标用到时才画（桌面不画）
+  const INTRO_TOUCH = () =>
     '<div><span>左下</span>拖动移动</div>' +
     '<div><span>大按钮</span>按住攻击</div>' +
     '<div><span>技能键</span>轻点自动瞄准，拖出去手动瞄准</div>' +
-    '<div><span>翻</span>翻滚闪避</div>';
+    '<div><span class="t-ik">' + ico('roll', 'ui-in') + '</span>翻滚闪避</div>';
   function swapIntro(on) {
     const keys = document.querySelector('.intro-keys');
     const foot = document.querySelector('.intro-foot');
     if (!keys || !foot) return;
     if (on) {
       if (!introSaved) introSaved = { keys: keys.innerHTML, foot: foot.innerHTML };
-      keys.innerHTML = INTRO_TOUCH;
-      foot.textContent = '操作说明在右上角的 ≡ 里';
+      keys.innerHTML = INTRO_TOUCH();
+      foot.innerHTML = '操作说明在右上角的菜单 ' + ico('menu', 'ui-in') + ' 里';
     } else if (introSaved) {
       keys.innerHTML = introSaved.keys;
       foot.innerHTML = introSaved.foot;
