@@ -264,6 +264,8 @@
 <script src="js/assets/chars.js"></script>
 <!-- AI 生成的武器 / 装备模型包（ai3d-weapons）：建主角骨架之前就要到，同步引入。&aiwpn=0（或页面加载前 window.CA_AIWPN = 0）关掉，照旧用脚本件，A/B 用 -->
 <script>if (window.CA_AIWPN !== 0 && !/[?&]aiwpn=0\b/.test(location.search)) { window.CA_AIWPN = 1; document.write('<script src="js/assets/kit-aiwpn.js"><\/script>'); } else window.CA_AIWPN = 0;</script>
+<!-- AI 生成的烬骸仆从剑和盾（ai3d-enemies）：仆从骨架第一次建的时候就要，同步引入；页面加载前 window.CA_OLD_ENEMY = true 时不引入（照旧用 Quaternius 的模型和脚本件，A/B 用） -->
+<script>if (window.CA_OLD_ENEMY !== true) document.write('<script src="js/assets/kit-aithrall.js"><\/script>');</script>
 <!-- 特效贴图库（tools/gen-vfx-textures.mjs 程序化生成，打成 base64）：同步引入，js/vfx.js 解码成纹理、提供共用的特效着色器 -->
 <script src="js/assets/vfx.js"></script>
 <script src="js/assets.js"></script>

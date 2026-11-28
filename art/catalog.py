@@ -111,6 +111,11 @@ CATALOG = [
     # ---- AI 生成的武器（ai3d-weapons，试点 4 种）：gen='ai'、外观 fc（art/ai/weapon.py：逐面取色、发光面拆出来按稀有度着色，不带贴图），参数和来源在 assets/ai/wpn_<种>/provenance.json。
     # 坐标：长轴 +y（glTF）、刃宽 / 枪背 +x、原点在握把中心，按主角手里的尺寸；游戏端换算到手的武器关节和掉落模型（world.js 的 AIW_FIT）。
     # lod=hi 给掉落模型（高 / 中画质），lod=lo 给手里（所有画质，烘进主角骨架）和低画质的掉落，不比原来的脚本件重。机炮的枪管束（part=barrel）单独一件，挂在会转的关节上。
+    # 烬骸仆从的剑和盾（ai3d-enemies）：打进 kit-aithrall 包（index.html 同步引入，仆从骨架第一次建的时候就要）----
+    dict(id='ca/aithrall_sword', gen='ai', seed=0, cat='aiweapon', zone='aithrall', ship=True, replaces=None, args=dict(prov='assets/ai/thrall_sword/provenance.json', lod='hi', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aithrall_sword_lo', gen='ai', seed=0, cat='aiweapon', zone='aithrall', ship=True, replaces=None, args=dict(prov='assets/ai/thrall_sword/provenance.json', lod='lo', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aithrall_shield', gen='ai', seed=0, cat='aiweapon', zone='aithrall', ship=True, replaces=None, args=dict(prov='assets/ai/thrall_shield/provenance.json', lod='hi', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aithrall_shield_lo', gen='ai', seed=0, cat='aiweapon', zone='aithrall', ship=True, replaces=None, args=dict(prov='assets/ai/thrall_shield/provenance.json', lod='lo', mode='fc'), finish=dict(dust=0.0, cues=False)),
     # 打进 kit-aiwpn 包；试验开关 &aiwpn=1 时 index.html 同步引入（主角骨架开场就要建），默认不加载 ----
     dict(id='ca/aiwpn_blade', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/wpn_blade/provenance.json', lod='hi', mode='fc'), finish=dict(dust=0.0, cues=False)),
     dict(id='ca/aiwpn_blade_lo', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/wpn_blade/provenance.json', lod='lo', mode='fc'), finish=dict(dust=0.0, cues=False)),

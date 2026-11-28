@@ -1538,24 +1538,33 @@ async function mainBody() {
         pack: pk ? { names: pk.names, clips: Object.keys(pk.clips), prims: pk.prims.length } : null,
         // 手指并到手；骨架没有手关节（游魂）就再并到小臂；没有胸口关节就并到 spine
         fingerHk: S.joint('index_02_l', hk.rig.JI), fingerTh: S.joint('thumb_01_r', th.rig.JI), clavHk: S.joint('clavicle_l', hk.rig.JI), clavTh: S.joint('clavicle_l', th.rig.JI),
-        driveHk: S.drive(hk.rig), tris: [hk.rig.tris, th.rig.tris],
+        driveHk: S.drive(hk.rig), tris: [hk.rig.tris, th.rig.tris], q: W.quality(),
+        // 退路（Quaternius 的 Zombie / Skeleton）：骨骼名照旧按 STD_ALIAS 的 Mixamo / Animated Monster 表换成标准名
+        oldHk: S.old('husk'), oldTh: S.old('thrall'),
       };
       W.removeEnt(hk);
       W.removeEnt(th);
       return out;
     });
-    assert(r.hkModel === 'zombie' && r.thModel === 'skeleton', '游魂 / 仆从没有用模型：' + r.hkModel + ' / ' + r.thModel);
-    assert(r.hkStd === 'mixamo' && r.thStd === 'monster', '骨骼名没有换成标准名：' + r.hkStd + ' / ' + r.thStd);
-    for (const n of ['pelvis', 'spine_01', 'spine_03', 'neck_01', 'Head', 'clavicle_l', 'upperarm_l', 'lowerarm_r', 'hand_l', 'thigh_l', 'calf_r', 'foot_l', 'ball_r', 'index_01_l']) assert(r.hkNames.includes(n), '游魂缺标准骨骼 ' + n);
-    assert(!r.hkNames.some((n) => /^(Hips|Spine\d?|Neck|Left|Right)/.test(n)), '游魂还留着 Mixamo 骨骼名：' + r.hkNames.filter((n) => /^(Hips|Spine|Left|Right)/.test(n)).join(' '));
-    for (const n of ['pelvis', 'spine_03', 'neck_01', 'Head', 'upperarm_l', 'lowerarm_l', 'upperarm_r', 'lowerarm_r', 'thigh_l', 'calf_l', 'thigh_r', 'calf_r']) assert(r.thNames.includes(n), '仆从缺标准骨骼 ' + n);
+    // ai3d-enemies：默认用 AI 生成的模型（chars 包的 aihusk_* / aithrall_*，按画质挑一档），骨骼已经是标准名（alias 'std'），骨骼集合和退路的模型一样
+    const lo = r.q === 'low' ? '_lo' : '_hi';
+    assert(r.hkModel === 'aihusk' + lo && r.thModel === 'aithrall' + lo, '游魂 / 仆从没有用 AI 模型：' + r.hkModel + ' / ' + r.thModel + '（画质 ' + r.q + '）');
+    assert(r.hkStd === 'std' && r.thStd === 'std', 'AI 模型的骨骼应当已是标准名（alias std）：' + r.hkStd + ' / ' + r.thStd);
+    assert(r.oldHk && r.oldHk.model === 'zombie' && r.oldTh && r.oldTh.model === 'skeleton', '退路的模型不对：' + JSON.stringify([r.oldHk && r.oldHk.model, r.oldTh && r.oldTh.model]));
+    assert(r.oldHk.std === 'mixamo' && r.oldTh.std === 'monster', '退路的骨骼名没有换成标准名：' + r.oldHk.std + ' / ' + r.oldTh.std);
+    for (const [who, names] of [['游魂', r.hkNames], ['游魂（退路）', r.oldHk.names]]) {
+      for (const n of ['pelvis', 'spine_01', 'spine_03', 'neck_01', 'Head', 'clavicle_l', 'upperarm_l', 'lowerarm_r', 'hand_l', 'thigh_l', 'calf_r', 'foot_l', 'ball_r', 'index_01_l']) assert(names.includes(n), who + '缺标准骨骼 ' + n);
+      assert(!names.some((n) => /^(Hips|Spine\d?|Neck|Left|Right)/.test(n)), who + '还留着 Mixamo 骨骼名：' + names.filter((n) => /^(Hips|Spine|Left|Right)/.test(n)).join(' '));
+    }
+    for (const [who, names] of [['仆从', r.thNames], ['仆从（退路）', r.oldTh.names]]) for (const n of ['pelvis', 'spine_03', 'neck_01', 'Head', 'upperarm_l', 'lowerarm_l', 'upperarm_r', 'lowerarm_r', 'thigh_l', 'calf_l', 'thigh_r', 'calf_r']) assert(names.includes(n), who + '缺标准骨骼 ' + n);
+    assert(r.hkNames.slice().sort().join() === r.oldHk.names.slice().sort().join() && r.thNames.slice().sort().join() === r.oldTh.names.slice().sort().join(), 'AI 模型的骨骼集合应和退路的模型一样（AI_ENEMY 沿用同一套关节和动作）');
     assert(r.pack && r.pack.names.length === 23 && r.pack.prims === 0, '动作包应是 23 根骨骼、没有网格：' + JSON.stringify(r.pack && [r.pack.names.length, r.pack.prims]));
     assert(!r.pack.names.some((n) => /^(index|middle|ring|pinky|thumb)_|_leaf/.test(n)), '动作包里还有手指 / 末端骨骼');
     assert(['Zombie_Idle', 'Zombie_Walk', 'Hit_Chest', 'Death01', 'Sprint'].every((c) => r.pack.clips.includes(c)) && r.pack.clips.length === 5, '动作包的动作不对：' + r.pack.clips);
     assert(r.fingerHk === 'faL' && r.fingerTh === 'hR', '手指没有并到手 / 小臂：' + r.fingerHk + ' / ' + r.fingerTh);
     assert(r.clavHk === 'spine' && r.clavTh === 'chest', '锁骨的关节不对：' + r.clavHk + ' / ' + r.clavTh);
     assert(r.driveHk.spine === 'spine_03' && r.driveHk.head === 'Head' && r.driveHk.thL === 'thigh_l', '游魂的带动骨骼不对：' + JSON.stringify(r.driveHk));
-    // 面数预算（模型没换，两档同一份网格）：游魂是成群的杂兵（低画质 ≤ 2500），仆从按精英一档（≤ 4000，带剑和盾）
+    // 面数预算（这一步跑在测试默认的低画质：AI 模型的低档）：游魂是成群的杂兵（≤ 2500），仆从按精英一档（≤ 4000，带剑和盾）
     assert(r.tris[0] <= 2500 && r.tris[1] <= 4000, '面数超预算：' + r.tris);
     return '游魂 ' + r.hkNames.length + ' 根、仆从 ' + r.thNames.length + ' 根骨骼；三角形 ' + r.tris.join(' / ');
   });

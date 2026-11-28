@@ -33,7 +33,7 @@
     }
   },
   "packs": {
-    "chars": { "chars": { "aihero_hi": "ai/hero/hero.glb", "aihero_lo": "ai/hero/hero_lo.glb", "adventurer": "quaternius-modular-men/Adventurer.glb", "zombie": "quaternius-animated-zombie/Zombie.glb", "skeleton": "quaternius-animated-monster/Skeleton.glb", "spider": "quaternius-easy-enemy/Spider.glb", "ual": "ual/ual-clips.glb" } },
+    "chars": { "chars": { "aihero_hi": "ai/hero/hero.glb", "aihero_lo": "ai/hero/hero_lo.glb", "aihusk_hi": "ai/enemy/husk.glb", "aihusk_lo": "ai/enemy/husk_lo.glb", "aithrall_hi": "ai/enemy/thrall.glb", "aithrall_lo": "ai/enemy/thrall_lo.glb", "adventurer": "quaternius-modular-men/Adventurer.glb", "zombie": "quaternius-animated-zombie/Zombie.glb", "skeleton": "quaternius-animated-monster/Skeleton.glb", "spider": "quaternius-easy-enemy/Spider.glb", "ual": "ual/ual-clips.glb" } },
     "rock-dark": { "textures": ["dark_rock"] },
     "rock-grey": { "textures": ["Rock035"] },
     "ground": { "textures": ["g_decals"] },
@@ -54,6 +54,7 @@
     "zone-abyss": { "textures": ["dark_rock_02", "g_cover_abyss"], "with": ["kit-abyss", "kit-crown"] },
     "kit-rift": { "kit": "rift" },
     "kit-gear": { "kit": "gear" },
+    "kit-aithrall": { "kit": "aithrall", "_comment": "AI 生成的烬骸仆从剑和盾（ai3d-enemies）：index.html 同步引入（仆从骨架第一次建的时候就要）" },
     "kit-aiwpn": { "kit": "aiwpn", "_comment": "AI 生成的武器（ai3d-weapons 试点）：试验开关 &aiwpn=1 时由 index.html 同步引入，默认不加载" },
     "zone-rift": { "textures": ["slate_floor", "moon_01", "g_cover_rift"], "with": ["kit-rift"] },
     "vfx": { "images": { "noiseA": "vfx/noise-a.png", "noiseB": "vfx/noise-b.png", "ramps": "vfx/ramps.png", "flipA": "vfx/flip-a.png", "flipB": "vfx/flip-b.png" } }
