@@ -717,9 +717,8 @@
       '</div>' +
       '<button type="button" class="btn primary" tabindex="-1" id="t-hint-ok">知道了</button></div></div>';
     document.body.appendChild(root);
-    // HUD 里写死的图标位（翻滚键的 .d-ui、首领条 / 处决提示里 F 旁边的 .t-fk）：类名早就写好了，这里画出图标、注册 .ico-ui-* 规则，它们才有图。
-    // 桌面不打开触屏模式就不画（那几个位置在桌面上 display: none，照旧显示「翻」和 F）
-    G.icons.cls('ui-roll');
+    // HUD 里写死的图标位（首领条 / 处决提示里 F 旁边的 .t-fk）：类名早就写好了，这里画出图标、注册 .ico-ui-hand 规则，它们才有图。
+    // 桌面不打开触屏模式就不画（那几个位置在桌面上 display: none，照旧显示 F 键）；翻滚键的图标 ui.js 启动时就画了
     G.icons.cls('ui-hand');
     const q = (s) => root.querySelector(s);
     dom = {

@@ -245,6 +245,7 @@
     hud.flaskLife = flask('life');
     hud.flaskMana = flask('mana');
     hud.dodge = { root: $('dodge'), cd: $('dodge').querySelector('.d-cd'), q: -1 };
+    G.icons.cls('ui-roll'); // 翻滚键的图标（index.html 里 .d-ui 写好了类名，这里画出来、注册规则；桌面和触屏一样，touch-icons）
     hud.xp = { fill: $('xp-fill'), lv: $('xp-lv'), pct: $('xp-pct'), level: -1, need: 1, q: -1 };
     hud.zone = { name: $('zone-name'), sub: $('zone-sub'), seal: $('seal-chips'), ref: null, tier: -1 };
     hud.boss = { box: $('boss-box'), name: $('boss-name'), fill: $('boss-fill'), trail: $('boss-trail'), num: $('boss-num'), ail: $('boss-ail'), ailSig: '', on: false, ref: null, q: -1, hp: -1, poise: $('boss-poise-fill'), pq: -1, brk: false, far: false, brkTxt: $('boss-break-txt') };

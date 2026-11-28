@@ -4450,15 +4450,16 @@ html.touch-ui #flask-mana[data-tb] { --x: 214; }
 #t-f.on { display: grid; }
 
 /* touch-icons：触屏按钮只画图标（js/icons.js 的 G.icons.ui，画法同技能 / 物品图标），名字在 aria-label / 操作说明里。
-   .t-ico 是按钮里的（顶栏 30 px、圆键约占 72%）；.ui-in 是夹在文字里的（提示卡、操作说明、开场卡片）。桌面不画这些图标，那几个位置照旧写「翻」和 F */
+   .t-ico 是按钮里的（顶栏 30 px、圆键约占 72%）；.ui-in 是夹在文字里的（提示卡、操作说明、开场卡片）。
+   翻滚键桌面也画图标（ui.js 启动时画 ui-roll，下面空格的键名照旧）；首领条 / 处决提示的 F 在桌面是真按键，照旧写 F */
 .t-ico { width: 30px; height: 30px; margin: auto; pointer-events: none; }
 #t-f .t-ico { width: 72%; height: 72%; }
 #t-rot-flip .t-ico { width: 30px; height: 30px; }
 .ui-in { display: inline-block; width: 1.5em; height: 1.5em; margin: -0.32em 0.08em -0.38em; vertical-align: baseline; }
-.d-ui, .t-fk { display: none; }
-html.touch-ui .d-icon > .d-ui { display: block; width: 76%; height: 76%; }
-html.touch-ui .d-icon > span { display: none; }
-html.touch-ui #dodge.cooling .d-ui { filter: brightness(0.6) saturate(0.45); }
+.t-fk { display: none; }
+.d-icon > .d-ui { display: block; width: 76%; height: 76%; }
+.d-icon > span { display: none; } /* 「翻」字留在 DOM 里：图标没画出来（比如 icons.js 出错）时，删掉这一条就回到字 */
+#dodge.cooling .d-ui { filter: brightness(0.6) saturate(0.45); }
 html.touch-ui .t-fk { display: inline-block; }
 html.touch-ui #boss-break kbd, html.touch-ui #execp .ep kbd { display: none; }
 #boss-break .t-fk { width: 22px; height: 22px; margin: -5px 4px -6px 8px; }
