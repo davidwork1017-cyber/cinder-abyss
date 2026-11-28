@@ -3486,39 +3486,38 @@
    "file": "assets/ca/boss/behemoth.glb",
    "ship": true,
    "replaces": null,
-   "tris": 4240,
-   "verts": 11916,
+   "tris": 7970,
+   "verts": 23906,
    "materials": 1,
    "textures": 1,
    "bounds": {
     "min": [
-     -1.53,
+     -1.8,
      0,
-     -4.244
+     -3.812
     ],
     "max": [
-     1.53,
-     5.998,
-     5.441
+     1.801,
+     5.804,
+     3.808
     ]
    },
-   "h": 5.998,
-   "r": 5.441,
+   "h": 5.804,
+   "r": 3.812,
    "y0": 0,
    "source": {
-    "script": "art/ca/boss/behemoth.py",
+    "script": "art/ai/boss_rig.py",
+    "fit": "art/ai/boss_fit.py",
+    "parts": "art/ai/boss_parts.py",
     "clips": "art/ca/boss/behemoth_clips.py",
-    "gen": "behemoth",
+    "gen": "boss_ai",
     "catalog": "art/catalog.py",
-    "seed": 207,
-    "args": {},
-    "bake": {
-     "ao": 0.6,
-     "grad": 0.8,
-     "wear": 0.4,
-     "grime": 0.25,
-     "gain": 1.32
-    }
+    "seed": 543,
+    "args": {
+     "spec": "art/ai/boss/behemoth_a02.json",
+     "texpx": 512
+    },
+    "provenance": "assets/ca/boss/behemoth.provenance.json"
    },
    "bones": 29,
    "clips": [
@@ -3538,7 +3537,68 @@
     "walk"
    ],
    "home": "rift",
-   "sha256": "03aa1f3a3f62a4c21fbd111fbb69ee4a5da9bc537d3c29fdecda8c16aeba1a86"
+   "sha256": "2d60367f4a676c0953b3ec0e64131ebe8f65f9951557fb115dca8a7bd3fe6668"
+  },
+  {
+   "id": "ca/boss_behemoth_lo",
+   "category": "boss",
+   "zone": "boss",
+   "file": "assets/ca/boss/behemoth_lo.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 4210,
+   "verts": 12628,
+   "materials": 1,
+   "textures": 1,
+   "bounds": {
+    "min": [
+     -1.801,
+     0.002,
+     -3.815
+    ],
+    "max": [
+     1.801,
+     5.805,
+     3.812
+    ]
+   },
+   "h": 5.803,
+   "r": 3.815,
+   "y0": 0.002,
+   "source": {
+    "script": "art/ai/boss_rig.py",
+    "fit": "art/ai/boss_fit.py",
+    "parts": "art/ai/boss_parts.py",
+    "clips": "art/ca/boss/behemoth_clips.py",
+    "gen": "boss_ai",
+    "catalog": "art/catalog.py",
+    "seed": 543,
+    "args": {
+     "spec": "art/ai/boss/behemoth_a02.json",
+     "texpx": 512,
+     "tris": 4240
+    },
+    "provenance": "assets/ca/boss/behemoth.provenance.json"
+   },
+   "bones": 29,
+   "clips": [
+    "broken",
+    "death",
+    "gravity",
+    "gravity_w",
+    "hit",
+    "idle",
+    "mood",
+    "slam",
+    "slam_w",
+    "starfall",
+    "starfall_w",
+    "sweep",
+    "sweep_w",
+    "walk"
+   ],
+   "home": "rift",
+   "sha256": "3954191333551b7b3852b15439964fad95203f1ed1b6afe8e7bfa1c4137640b5"
   },
   {
    "id": "ca/boss_golem",
@@ -3794,39 +3854,38 @@
    "file": "assets/ca/boss/warden.glb",
    "ship": true,
    "replaces": null,
-   "tris": 4860,
-   "verts": 12213,
+   "tris": 7971,
+   "verts": 23621,
    "materials": 1,
    "textures": 1,
    "bounds": {
     "min": [
-     -2.27,
+     -2.446,
      0,
-     -1.605
+     -1.634
     ],
     "max": [
-     2.27,
-     4.781,
-     2.323
+     2.45,
+     4.78,
+     2.77
     ]
    },
-   "h": 4.781,
-   "r": 2.323,
+   "h": 4.78,
+   "r": 2.77,
    "y0": 0,
    "source": {
-    "script": "art/ca/boss/warden.py",
+    "script": "art/ai/boss_rig.py",
+    "fit": "art/ai/boss_fit.py",
+    "parts": "art/ai/boss_parts.py",
     "clips": "art/ca/boss/warden_clips.py",
-    "gen": "warden",
+    "gen": "boss_ai",
     "catalog": "art/catalog.py",
-    "seed": 241,
-    "args": {},
-    "bake": {
-     "ao": 0.6,
-     "grad": 0.7,
-     "wear": 0.5,
-     "grime": 0.2,
-     "gain": 1.3
-    }
+    "seed": 541,
+    "args": {
+     "spec": "art/ai/boss/warden_a01.json",
+     "texpx": 512
+    },
+    "provenance": "assets/ca/boss/warden.provenance.json"
    },
    "bones": 25,
    "clips": [
@@ -3846,7 +3905,68 @@
     "walk"
    ],
    "home": "storm",
-   "sha256": "adaeaf639005cabe4c99836a6f86147b9d52f42bfc047deb1f5fe791ffbbaa69"
+   "sha256": "934238c5d8bb84126c39b4cb90d7f7edcc920b4672de170834255b3aba34f3b4"
+  },
+  {
+   "id": "ca/boss_warden_lo",
+   "category": "boss",
+   "zone": "boss",
+   "file": "assets/ca/boss/warden_lo.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 4831,
+   "verts": 14209,
+   "materials": 1,
+   "textures": 1,
+   "bounds": {
+    "min": [
+     -2.45,
+     0,
+     -1.634
+    ],
+    "max": [
+     2.45,
+     4.78,
+     2.769
+    ]
+   },
+   "h": 4.781,
+   "r": 2.769,
+   "y0": 0,
+   "source": {
+    "script": "art/ai/boss_rig.py",
+    "fit": "art/ai/boss_fit.py",
+    "parts": "art/ai/boss_parts.py",
+    "clips": "art/ca/boss/warden_clips.py",
+    "gen": "boss_ai",
+    "catalog": "art/catalog.py",
+    "seed": 541,
+    "args": {
+     "spec": "art/ai/boss/warden_a01.json",
+     "texpx": 512,
+     "tris": 4860
+    },
+    "provenance": "assets/ca/boss/warden.provenance.json"
+   },
+   "bones": 25,
+   "clips": [
+    "barrage",
+    "barrage_w",
+    "broken",
+    "charge",
+    "charge_w",
+    "cross",
+    "cross_w",
+    "death",
+    "hit",
+    "idle",
+    "mood",
+    "ring",
+    "ring_w",
+    "walk"
+   ],
+   "home": "storm",
+   "sha256": "aa14525b7e3b40b43a8e83989d22083db7f38fcbbe89c7e712016b8fd5a4b52d"
   },
   {
    "id": "ca/boss_weaver",

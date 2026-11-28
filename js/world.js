@@ -20724,11 +20724,14 @@
       pack: 'boss-behemoth',
       alias: { slam: 'slam', charge: 'slam', ring: 'starfall', spiral: 'starfall', fan: 'sweep', barrage: 'starfall', summon: 'gravity', cross: 'slam' },
       reach: 3.6, emb: [4.0, 1.0, 6],
-      sock: { weapon: ['x_jaw', 0, -0.2, 0.85], hand: ['x_fleg_l_03', 0, -0.1, 0.1], head: ['head', 0, 0.5, 0.3], chest: ['x_star', 0, 0, 0] },
+      // ai3d-bosses：AI 外观的嘴短一截，吐息的口（武器挂点）从下颌往前 0.85 改成 0.45（落在星的前面；只管特效的出处，模拟不读挂点）
+      sock: { weapon: ['x_jaw', 0, -0.1, 0.45], hand: ['x_fleg_l_03', 0, -0.1, 0.1], head: ['head', 0, 0.5, 0.3], chest: ['x_star', 0, 0, 0] },
       hitJ: ['spine_03', 'head'], feet: ['x_fleg_l_03', 'x_fleg_r_03', 'x_hleg_l_03', 'x_hleg_r_03'], core: 'x_star',
       heatW: ['starfall_w', 'gravity_w', 'sweep_w', 'slam_w'], heatS: ['starfall', 'slam'], heatP: ['gravity'], heatH: ['sweep'],
       // 裂谷的主光偏暖白（0xfff2e0）：中性的玄武岩皮甲在里面发土黄。躯体染色往冷里收一点、自发光换成很淡的中性色，进游戏是中性的石墨灰
       emis: [0x3e3a38, 0.12], tint: 0xdce4ec,
+      // ai3d-bosses：外观换成 AI 生成的巨兽（art/ai/boss_rig.py，带反照率贴图）；低画质用同一个包里的减面版 behemoth_lo（不超过原来的 4240 个三角形）
+      lo: 'behemoth_lo',
     },
     // boss-weaver：霜织者。胸口的霜结（x_core）是芯：四招蓄力时越来越亮，扇形 / 召唤 / 冰环出手那一下最亮，落冰指挥的时候一直亮着（heatH）；
     // 武器挂点 = 右手指尖（扇形甩出去的那只手），手 = 左手指尖。原来的程序化外观没有火星（bossEmbers），这里也不放（emb 不写）
@@ -20771,7 +20774,8 @@
       pack: 'boss-warden',
       alias: { cross: 'cross', barrage: 'barrage', charge: 'charge', ring: 'ring', slam: 'cross', fan: 'barrage', spiral: 'ring', summon: 'barrage' },
       reach: 3.4, emb: [4.4, 1.3, 5],
-      sock: { weapon: ['hand_r', 0, 0, 0.75], hand: ['hand_l', 0, 0, 0.75], head: ['x_eye', 0, 0, 0.1], chest: ['x_column', 0, 1.6, 0.62] },
+      // ai3d-bosses：AI 外观的护手是竖着的（拳头在护腕下面），挂点从掌心前面挪到拳头（只管特效的出处，模拟不读挂点）
+      sock: { weapon: ['hand_r', 0, -0.85, 0.15], hand: ['hand_l', 0, -0.85, 0.15], head: ['x_eye', 0, 0, 0.1], chest: ['x_column', 0, 1.6, 0.62] },
       hitJ: ['head', 'x_column'], core: 'x_eye',
       heatW: ['cross_w', 'barrage_w', 'charge_w', 'ring_w'], heatS: ['cross', 'charge', 'ring'], heatH: ['barrage'],
       rings: [['x_ring_a', 1.3], ['x_ring_b', -1.8], ['x_orbit', -0.55]],
@@ -20784,6 +20788,8 @@
       // 缺省的暖色自发光把灰白石烧成粉橙：换成很淡的中性色。T35：染色和自发光都往冷里收（柱身读成雷鸣遗迹立柱那种淡石色）；
       // 饱和的黄铜只留在领环、眼匣、两根短杆上（两道环、柱身的箍、护盾板顶、护腕和指节改成冷灰 / 暗铁，见 art/ca/boss/warden.py）
       emis: [0x383c40, 0.14], tint: 0xd8dee6,
+      // ai3d-bosses：外观换成 AI 生成的监察者（art/ai/boss_rig.py，带反照率贴图）；低画质用同一个包里的减面版 warden_lo（不超过原来的 4860 个三角形）
+      lo: 'warden_lo',
     },
   };
   // 调色板行 → 表面（粗糙度 / 金属度），行号见 art/ca/palette.py（13 板岩在首领身上只有霜织者的霜丝袍子 / 霜纱用：按布；19–21 是熄烛者的灰烬袍 / 蜡 / 熏黑的玻璃）
@@ -20970,7 +20976,8 @@
         if (ent.ringK === undefined) { ent.ringK = 1; ent.ringA = [0, 0, 0]; }
         ent.ringK += (want - ent.ringK) * Math.min(1, dt * 6);
         for (let i = 0; i < ringJ.length; i++) {
-          ent.ringA[i] += dt * sp.rings[i][1] * ent.ringK;
+          // 画面时钟被工具定住（W.debugTime，开场烘焙）时环 / 护盾板停在静止角度：转角是按帧累加的，烘焙前跑过的帧数每次不一样
+          ent.ringA[i] = debugFrozen ? 0 : ent.ringA[i] + dt * sp.rings[i][1] * ent.ringK;
           o[ringJ[i] + 1] += ent.ringA[i];
         }
         const sc = n === 'ring_w' ? 1 - 0.16 * k : n === 'ring' ? (k < c.k0 ? 0.84 + 0.41 * smooth01(k / c.k0) : 1 + 0.25 * (1 - smooth01((k - c.k0) / 0.5))) : 1;
@@ -21123,11 +21130,13 @@
     if (!ent.echo) bossLook(ent);
     if (W.onBossSwap) W.onBossSwap(ent);
   }
+  let debugFrozen = false; // W.debugTime 调过以后为真（只有工具调）
   // 工具用（tools/story 的烘焙）：把画面时钟（着色器的 uTime：发光圈的呼吸、水面、火光闪烁）定到给定值。
   // 页面刚打开、模拟还没停住之前跑过的实时帧数每次不一样，不定住的话两次烘出来的发光强度不同。游戏本身不调用
   W.debugTime = function (t) {
     wtime = t;
     uTime.value = t;
+    debugFrozen = true;
   };
   W.debugBossPack = function (on) {
     bossPackOff = !on;

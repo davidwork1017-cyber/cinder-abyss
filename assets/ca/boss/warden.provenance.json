@@ -1,0 +1,352 @@
+{
+ "_comment": "雷霆监察者的 AI 生成外观（ai3d-bosses）的来源记录。源 GLB、概念图都不进仓库，只记 sha256（存放在私有的 cinder-ai-src）；npm run build:art 按 art/catalog.py 的 boss_ai 两件、art/ai/boss/warden_a01.json 的参数，用 art/ai/boss_rig.py 生成 assets/ca/boss/warden.glb（高 / 中）和 warden_lo.glb（低画质的减面版）；没有源文件的机器上保留已提交的 GLB。",
+ "ids": [
+  "ca/boss_warden",
+  "ca/boss_warden_lo"
+ ],
+ "source": {
+  "name": "warden-a-01",
+  "file": "models/warden-a-01/model.glb",
+  "sha256": "373befaaed8eeff738f2831144515dec456e92e72d211a45fb6f7aef78f8a2a3",
+  "faces": 59996,
+  "textures": "1024 JPEG（底色 / 金属粗糙度 / 法线，只用底色）",
+  "committed": false,
+  "concept_image": {
+   "file": "models/warden-a-01/concept.png",
+   "sha256": "91e3e9817e677220199c911668d8ff7faa2561e754b5ca29d2260b57bce0db0c",
+   "committed": false,
+   "use": "只用于挑选，不进处理流程"
+  }
+ },
+ "generation": {
+  "prompt": "Stylized low-poly toon game boss, a single floating stone-and-bronze sentinel machine, original design, symmetric, front view, rest pose, plain white background, clearly separated floating parts with visible gaps. A tall tapered pillar of pale weathered limestone, wider at the top and narrowing to a blunt dark-iron point at the bottom, with a thin vertical gold glowing seam down its front and dark iron strip bands running down its sides. On top of the pillar sits a wide flat round collar of dull warm bronze with small grey rivets around its rim. Above the collar, a rounded dark iron eye housing shaped like a heavy hood, holding one large round eye: a pale gold glowing disc with a darker iris and short radial slits. Two slim dark iron rods stand straight up from the back corners of the collar, each with a small faceted bronze cap and a thin bronze band. Two thin cool slate-grey rings float horizontally around the middle of the pillar, one above the other, each with four small dark iron blocks spaced around it. Three tall pale stone shield plates hang around the pillar at equal angles, each a long pointed slab with a slate-grey top cap and a thin gold glowing seam. Two large detached gauntlet hands float at the sides, palms down, made of pale stone with dark iron knuckle guards and three thick fingers plus a thumb. Below everything, separate on the ground, a flat round dark grey-brown stone base ring with blocky teeth around its edge. Matte, clean flat colour blocks, soft simple shading, no text, no logos, no emblems, no characters, no background.",
+  "negative_prompt": null,
+  "seed": 1001,
+  "text_to_image": {
+   "model": "Z-Image Turbo",
+   "weights": [
+    "z_image_turbo_int8_convrot.safetensors",
+    "qwen_3_4b_fp8_mixed.safetensors",
+    "ae.safetensors"
+   ]
+  },
+  "image_to_3d": {
+   "model": "TRELLIS.2",
+   "weights": [
+    "birefnet.safetensors",
+    "dino_v3_L_naf_fp32.safetensors",
+    "moge_2_vitl_normal_fp16.safetensors",
+    "trellis_2_int8_convrot.safetensors",
+    "trellis_2_shape_vae_bf16.safetensors",
+    "trellis_2_texture_vae_bf16.safetensors"
+   ]
+  },
+  "target_faces": 60000,
+  "texture_size": 1024,
+  "comfyui_version": "0.43.0",
+  "generated_at": "2026-11-26T14:44:50-0800",
+  "comfyui": {
+   "repo": "https://github.com/Comfy-Org/ComfyUI",
+   "release": "v0.43.0 (windows portable, nvidia)",
+   "commit": "426f5eea52a7ece1dd599fff4cb6cd1f352ddd24",
+   "license": "GPL-3.0"
+  },
+  "nodes": "全部是 ComfyUI 内置节点（comfy_extras/nodes_trellis2.py、nodes_bg_removal.py、nodes_mesh_postprocess.py），没有自定义节点",
+  "nvdiffrast": "未安装、未使用",
+  "weight_sources": {
+   "birefnet.safetensors": {
+    "hf": "Comfy-Org/BiRefNet",
+    "rev": "884af709e9b795d89dafbf97f29c8d6a2386f5c6",
+    "base": "ZhengPeng7/BiRefNet",
+    "license": "MIT"
+   },
+   "dino_v3_L_naf_fp32.safetensors": {
+    "hf": "Comfy-Org/Pixal3D",
+    "rev": "f37641be376725d324c56626007cc477f1249a69",
+    "base": "Meta DINOv3 ViT-L（Comfy-Org 转换）",
+    "license": "DINOv3 License (https://ai.meta.com/resources/models-and-libraries/dinov3-license/)"
+   },
+   "moge_2_vitl_normal_fp16.safetensors": {
+    "hf": "Comfy-Org/MoGe",
+    "rev": "1484985258ba7ef45c314144fcf0e90924ffbf44",
+    "base": "Ruicheng MoGe-2 ViT-L（normal 版）",
+    "license": "MIT"
+   },
+   "trellis_2_int8_convrot.safetensors": {
+    "hf": "Comfy-Org/TRELLIS.2",
+    "rev": "430a9d09b2416687018c8fe8edced2ad4858a439",
+    "base": "microsoft/TRELLIS.2-4B",
+    "license": "MIT"
+   },
+   "trellis_2_shape_vae_bf16.safetensors": {
+    "hf": "Comfy-Org/Pixal3D",
+    "rev": "f37641be376725d324c56626007cc477f1249a69",
+    "base": "microsoft/TRELLIS.2-4B",
+    "license": "MIT"
+   },
+   "trellis_2_texture_vae_bf16.safetensors": {
+    "hf": "Comfy-Org/Pixal3D",
+    "rev": "f37641be376725d324c56626007cc477f1249a69",
+    "base": "microsoft/TRELLIS.2-4B",
+    "license": "MIT"
+   },
+   "z_image_turbo_int8_convrot.safetensors": {
+    "hf": "Comfy-Org/Z-Image-Turbo",
+    "rev": "6fc90a3b1b653e935a0d175e260736de25b84df5",
+    "base": "Tongyi-MAI/Z-Image-Turbo",
+    "license": "Apache-2.0"
+   },
+   "qwen_3_4b_fp8_mixed.safetensors": {
+    "hf": "Comfy-Org/Z-Image-Turbo",
+    "rev": "6fc90a3b1b653e935a0d175e260736de25b84df5",
+    "base": "Qwen3-4B (Z-Image Turbo 文本编码器)",
+    "license": "Apache-2.0"
+   },
+   "ae.safetensors": {
+    "hf": "Comfy-Org/Z-Image-Turbo",
+    "rev": "6fc90a3b1b653e935a0d175e260736de25b84df5",
+    "base": "Z-Image Turbo VAE",
+    "license": "Apache-2.0"
+   }
+  }
+ },
+ "rigging": {
+  "tool": "不用自动蒙皮：全刚性，art/ai/boss_parts.py 按连通件和区域把三角形分给 25 根骨骼（和原来的脚本外观一样没有软接缝）"
+ },
+ "licences": {
+  "audit": "编排者笔记 notes/ai3d/licence-audit.md：生成流程 CLEAR；UniRig 一节 OK（Puppeteer 因为 NVIDIA PartField 只许非商业研究用途，不用）",
+  "generation": "ComfyUI GPL-3.0（工具）、Z-Image Turbo / Qwen3-4B / VAE Apache-2.0、TRELLIS.2 / BiRefNet / MoGe-2 MIT、DINOv3 License（NAF Apache-2.0）：都不限制输出、不禁止商用、不要求在输出上署名",
+  "rigging": "不涉及（没用自动蒙皮）",
+  "credit": "Built with DINOv3（自愿致谢）",
+  "re_review": "换生成流程 / 权重或者商业发行之前重新审一遍"
+ },
+ "processing": {
+  "script": "art/ai/boss_rig.py（+ art/ai/boss_fit.py、art/ai/boss_parts.py；读 / 减面 / 取色 / 烘贴图的底层步骤调 art/ai/golem_rig.py）",
+  "spec": "art/ai/boss/warden_a01.json",
+  "blender": "5.2.4 LTS",
+  "fit": {
+   "height": 4.78,
+   "offset": [
+    7.2e-05,
+    2.390557,
+    -9.7e-05
+   ],
+   "post": [
+    1.1,
+    1.0,
+    1.1
+   ],
+   "scale": [
+    4.774651,
+    4.774651,
+    4.774651
+   ],
+   "src": {
+    "hand_l": [
+     1.749,
+     2.4,
+     0.0
+    ],
+    "hand_r": [
+     -1.749,
+     2.4,
+     0.0
+    ],
+    "head": [
+     0.0,
+     3.25,
+     0.0
+    ],
+    "pelvis": [
+     0.0,
+     2.3,
+     0.0
+    ],
+    "x_base": [
+     0.0,
+     0.1,
+     0.0
+    ],
+    "x_column": [
+     0.0,
+     0.9,
+     0.0
+    ],
+    "x_eye": [
+     0.0,
+     4.08,
+     0.42724
+    ],
+    "x_finger_l_01": [
+     1.782,
+     1.73,
+     0.0
+    ],
+    "x_finger_l_02": [
+     1.815,
+     1.58,
+     0.0
+    ],
+    "x_finger_l_03": [
+     1.815,
+     1.44,
+     0.0
+    ],
+    "x_finger_r_01": [
+     -1.782,
+     1.73,
+     0.0
+    ],
+    "x_finger_r_02": [
+     -1.815,
+     1.58,
+     0.0
+    ],
+    "x_finger_r_03": [
+     -1.815,
+     1.44,
+     0.0
+    ],
+    "x_lid_b": [
+     0.0,
+     4.08,
+     0.0
+    ],
+    "x_lid_t": [
+     0.0,
+     4.08,
+     0.0
+    ],
+    "x_orbit": [
+     0.0,
+     1.95,
+     0.0
+    ],
+    "x_plate_01": [
+     0.0,
+     1.95,
+     2.45003
+    ],
+    "x_plate_02": [
+     2.12179,
+     1.95,
+     -1.22496
+    ],
+    "x_plate_03": [
+     -2.12179,
+     1.95,
+     -1.22507
+    ],
+    "x_ring_a": [
+     0.0,
+     3.1,
+     0.0
+    ],
+    "x_ring_b": [
+     0.0,
+     2.6,
+     0.0
+    ],
+    "x_rod_l": [
+     0.902,
+     3.8,
+     0.0
+    ],
+    "x_rod_r": [
+     -0.902,
+     3.8,
+     0.0
+    ],
+    "x_thumb_l": [
+     1.43,
+     1.8,
+     0.0
+    ],
+    "x_thumb_r": [
+     -1.43,
+     1.8,
+     0.0
+    ]
+   },
+   "yaw": -90
+  },
+  "tris": {
+   "ca/boss_warden": 7971,
+   "ca/boss_warden_lo": 4831
+  },
+  "texture": "512 JPEG（新展的 UV，在源网格上取色烘过来；DECODE_VIDEO_TEXTURE 的约定，不标 SRGBColorSpace）",
+  "grade": {
+   "lift": 1.5,
+   "sat": 0.85,
+   "knee": [
+    0.58,
+    0.35
+   ]
+  },
+  "regions": [
+   {
+    "box": [
+     0,
+     1.1,
+     3.28,
+     4.9,
+     -1.1,
+     1.1
+    ],
+    "hue": [
+     0,
+     36
+    ],
+    "sat": 0.35,
+    "hue_to": 38,
+    "sat_mul": 1.8
+   },
+   {
+    "box": [
+     0,
+     1.3,
+     0,
+     0.45,
+     -1.3,
+     1.3
+    ],
+    "gain": 1.35
+   }
+  ],
+  "glow": {
+   "force": [
+    "x_eye"
+   ],
+   "bones": [
+    "x_column",
+    "x_plate_01",
+    "x_plate_02",
+    "x_plate_03"
+   ],
+   "rules": [
+    {
+     "hue": [
+      15,
+      50
+     ],
+     "sat": 0.45,
+     "val": 0.55
+    }
+   ]
+  },
+  "parts": "护手 4 只留左右两只（前后两只删掉）；连着柱身的两块护盾板切下来（细撑杆删掉），水平放大 1.6 倍、挪到环绕半径上按 0 / 120 / 240° 摆三块（第三块是第一块的拷贝）；浮环 = 源网格那一道（水平放大 1.4 倍）+ 往下 0.5 米、缩到 0.85 的拷贝；眼匣按高度往后错切（正面朝上仰约 30°，游戏镜头看得进去），背面那只眼当普通面；眼皮是程序化的两片薄壳；最后整体水平放大 1.1 倍（占地和原来的差不多）"
+ },
+ "outputs": {
+  "assets/ca/boss/warden.glb": "934238c5d8bb84126c39b4cb90d7f7edcc920b4672de170834255b3aba34f3b4",
+  "assets/ca/boss/warden_lo.glb": "aa14525b7e3b40b43a8e83989d22083db7f38fcbbe89c7e712016b8fd5a4b52d"
+ },
+ "review": {
+  "resemblance": "通用的悬浮石柱哨兵：淡石灰岩柱身、青铜领环、暗铁眼罩里一只眼、两只石护手、三块尖头护盾板、贴地的底座环。提示词没有提任何游戏或作品；没有和已知游戏素材或 IP 的造型、配色、标志对得上的地方。",
+  "value": "游戏镜头灰度（遮罩法，boss-value 口径）高 42.7 / 低 46.9（首领的范围 38–45 / 40–47），p95 72.4 / 73.3；身子比地面亮 16.9 / 20.7（现网 20.3 / 23.8，要求不低于 80%），正上方 31.0 / 32.2；提亮 1.5 加肩部（sRGB 0.58 以上按 0.35 压）、饱和度 0.85，底座环 ×1.35",
+  "glow": "眼和柱身 / 护盾板的金缝发光（发光网格 1534 像素，现网 1204）；蓄力最亮时发光里 ≥85% 的像素 高 1360 / 低 1261（现网 425 / 607）；待机时眼的亮度跟着时钟起伏，低画质在最亮那一下进 85–100% 的带；躯体受光面 p75 / p90 = 55.5 / 65.2（高）",
+  "hits": "十字 / 齐射 / 冲锋 / 雷环出手时刻不变（0.883 / 0.833 / 0.733 / 0.45 s）；武器、手挂点挪到拳头，十字离中线 2.33 米（现网 3.27，半宽 1.4），冲锋 1.61 / 1.59（现网 1.55 / 1.55，半宽 1.7）",
+  "footprint": "俯视占地半径 1.56（碰撞半径 1.7、原来 1.70，−8%）；身高 4.78 不变",
+  "eye": "AI 的眼平着朝前，游戏镜头（50° 俯角）被眼罩挡住：眼匣按高度往后错切（z −= 0.577·(y − 3.8)），底边不动，正面朝上仰约 30°",
+  "hue": "领环、顶杆的帽子（AI 源模型偏粉的青铜，色相 0–36°）按位置 + 色相改成金色（色相 38°、饱和度 ×1.8），和现网的金色领环一样读成雷霆的金黄；眼仍是黄色"
+ }
+}
