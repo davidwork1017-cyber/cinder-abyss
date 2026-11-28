@@ -1398,6 +1398,7 @@
     qual = QUALITY[id];
     qualId = id;
     if (G.vfx) G.vfx.U.uLo.value = id === 'low' ? 1 : 0; // vf-vfx：特效着色器里低画质收一点大面积的噪声纹理
+    if (W.pieceLod) W.pieceLod(); // ai3d-skills：AI 技能件换档
     // tex-t2：低档的贴图变体（lo / 不解码）：档位跨过低档就换当前区纹理的图像
     if (G.assets && G.assets.setLow && G.assets.setLow(id === 'low') && renderer) retierZone();
     if (!renderer) return id;
@@ -12223,9 +12224,11 @@
                 }
               }
             }
-            // 顶点色：纯色或竖向渐变，再按位置做一点明暗抖动，免得大色块发平
-            const grad = Array.isArray(p.c);
+            // 顶点色：纯色或竖向渐变，再按位置做一点明暗抖动，免得大色块发平。
+            // c = null：用几何体自己的顶点色（线性，AI 武器的逐面颜色，见 aiwSplit）
+            const grad = Array.isArray(p.c), vc = !isGlow && p.c === null ? s.attributes.color : null;
             if (isGlow) cA.setScalar(p.k);
+            else if (vc) cA.setScalar(1);
             else if (grad) {
               cA.set(p.c[0]).convertSRGBToLinear();
               cB.set(p.c[1]).convertSRGBToLinear();
@@ -12234,6 +12237,9 @@
             for (let k = v0; k < v; k++) {
               const px = pos[k * 3], py = pos[k * 3 + 1], pz = pos[k * 3 + 2];
               let r = cA.r, g = cA.g, bl = cA.b;
+              if (vc) {
+                r = vc.getX(k - v0); g = vc.getY(k - v0); bl = vc.getZ(k - v0);
+              }
               if (grad && !isGlow) {
                 const t = (py - y0) / span;
                 r += (cB.r - r) * t; g += (cB.g - g) * t; bl += (cB.b - bl) * t;
@@ -12498,9 +12504,20 @@
     return (CM[key] = m);
   }
   // 这副骨架要不要换成 C 模型：有配置、模型解析成功、没有被关掉（window.CA_PROCEDURAL_CHARS = true 时全部用程序化外观）
-  function cSpec(key) {
-    const sp = CSPEC[key];
+  function cSpec(key, noAi) {
+    let sp = CSPEC[key];
     if (!sp || window.CA_PROCEDURAL_CHARS) return null;
+    // 主角默认用 AI 生成的模型（ai3d-hero，chars 包里的 aihero_hi / aihero_lo，低画质用低档）；包里没有、解析失败、
+    // 或者套用时出错（见 cTry），退回 Adventurer。window.CA_OLD_HERO = true 时直接用 Adventurer（对比用）
+    if (key === 'player' && !noAi && !window.CA_OLD_HERO) {
+      const mk = qualId === 'low' ? 'aihero_lo' : 'aihero_hi';
+      if (cModel(mk)) sp = Object.assign({}, CSPEC.playerAI, { model: mk, aiHero: true });
+    } else if (AI_ENEMY[key] && !noAi && !window.CA_OLD_ENEMY) {
+      // 游魂 / 烬骸仆从同样默认用 AI 生成的模型（ai3d-enemies：chars 包里的 aihusk_* / aithrall_*，低画质用低档）；
+      // 骨骼集合和现网模型一样（见 AI_ENEMY），程序化关节、动作照旧。包里没有或套用出错（cTry）退回 Quaternius 的模型
+      const mk = 'ai' + key + (qualId === 'low' ? '_lo' : '_hi');
+      if (cModel(mk)) sp = Object.assign({}, CSPEC[key], AI_ENEMY[key], { model: mk, aiHero: true });
+    }
     const md = cModel(sp.model);
     if (!md) return null;
     const cs = Object.assign({ key, md }, sp);
@@ -12520,7 +12537,16 @@
       try {
         return make(cs);
       } catch (e) {
-        if (window.console) console.warn('[角色] ' + key + ' 套用模型失败，改用程序化外观', e);
+        if (window.console) console.warn('[角色] ' + key + ' 套用模型失败，改用' + (cs.aiHero ? '原来的模型' : '程序化外观'), e);
+      }
+      // AI 模型套用失败：退回原来的模型（主角 Adventurer，敌人 Quaternius），再不行才用程序化外观
+      const c2 = cs.aiHero ? cSpec(key, true) : null;
+      if (c2) {
+        try {
+          return make(c2);
+        } catch (e) {
+          if (window.console) console.warn('[角色] ' + key + ' 套用模型失败，改用程序化外观', e);
+        }
       }
     }
     return make(null);
@@ -14021,6 +14047,231 @@
   // 卡通：手持武器整体缩小一点（近镜头下原尺寸的武器比人还抢眼）。按握点缩放武器关节（playerPost），
   // 挂点（刀光、光晕、枪口）都经关节矩阵换算，跟着一起缩；双手武器的左手握点、弓弦在 playerIK 里按这个比例换算
   const GEAR_K = 0.88;
+  // ---------- AI 生成的武器 / 装备（ai3d-weapons，默认开；&aiwpn=0 关掉，照旧用脚本件）----------
+  // 剑 / 长杖 / 战锤 / 机炮四种换成 AI 生成、脚本处理过的模型（art/ai/weapon.py，kit-aiwpn 包）。只换外观，不碰数值和存档。
+  // 手里：lo 档烘进主角骨架，挂在和原来同一个武器关节上（脚本件不再建），draw 和三角形都不比原来多；
+  // 掉在地上：高 / 中画质 hi 档、低画质 lo 档，同样是本体 + 发光两份几何体（按稀有度着色），启动时预热。
+  // 包要在建主角骨架之前就到：index.html 看到 &aiwpn=1 时同步引入 js/assets/kit-aiwpn.js；没到（或解码失败）就照旧用脚本件。
+  const AIW = !!window.CA_AIWPN;
+  // 有 AI 模型的种类（LOOT_MODEL 的名字）：前面是武器（手里 + 掉落），后面是装备（只有掉落）。包里缺了哪一种，那一种照旧用脚本件
+  const AIW_TYPES = ['blade', 'staff', 'hammer', 'gatling', 'wand', 'katana', 'revolver', 'flamer', 'huntbow', 'runebow', 'emberbow', 'eagle', 'daggers', 'lantern', 'banner', 'helm', 'body', 'gloves', 'boots', 'belt', 'ring', 'amulet'];
+  // 摆放。武器坐标（包里）：x = 刃宽 / 枪背方向，y = 长轴（刃尖 / 枪口），z = 厚度，原点在握把中心，尺寸按手里的。
+  // hand：手里，武器关节的绑定坐标里握把中心 = (WX + dx, WY + dy, dz)，武器坐标 (x, y, z) → 关节 (z, x, y)（和脚本件一样：握把沿 +z、刃宽 / 枪背沿 +y）；
+  // loot：掉落模型，缩放 s、握把中心放到 y（脚本件掉落模型的握把高度），gun = 枪背朝 +z（和脚本件机炮的掉落模型一样）；
+  // grip2h：双手武器左手能握的范围（同 GRIP_2H，AI 战锤的握把比脚本件低）；fore：机炮左手托的位置 [z, y 偏移]（AI 机炮没有前握把，托在机匣下面）
+  const AIW_FIT = {
+    blade: { hand: [0, 0, 0.03], loot: { s: 0.63, y: -0.24 } },
+    staff: { hand: [0, 0, 0], loot: { s: 0.5, y: -0.25 } },
+    hammer: { hand: [0, 0, 0.03], loot: { s: 0.73, y: -0.405 }, grip2h: [-0.2, 0.62, 0.15] },
+    gatling: { hand: [0, -0.01, 0.035], loot: { s: 0.75, y: -0.05, gun: true }, fore: [0.3, 0.06] },
+    wand: { hand: [0, 0, 0], loot: { s: 0.9, y: -0.29 } },
+    katana: { hand: [0, 0, -0.04], loot: { s: 0.74, y: -0.25 } },
+    revolver: { hand: [0, -0.015, 0.0], loot: { s: 0.8, y: -0.1, gun: true } },
+    flamer: { hand: [0, -0.01, 0.035], loot: { s: 0.75, y: -0.1, gun: true }, fore: [0.22, 0.06] },
+    // 弓：手里按弓梢对到弦的挂点（aiwBowMap），掉落按脚本件的弓（弓梢 ±0.54、弦在 +z）
+    huntbow: { bow: true, loot: { s: 0.76, y: 0, gun: true } },
+    runebow: { bow: true, loot: { s: 0.76, y: 0, gun: true } },
+    emberbow: { bow: true, glowG: true, loot: { s: 0.76, y: 0, gun: true } }, // 冰弓的冰裂纹是固定的冰蓝（VAR_GLOW），不随稀有度
+    eagle: { bow: true, loot: { s: 0.76, y: 0, gun: true } },
+    // 只做掉落模型的武器：手里照旧是脚本件（双匕要两手各一把、包里是交叉熔在一起的一对；提灯手里是 kit-gear 的自产件；魂幡的幡布要随关节摆）。
+    // loScripted：lo 档减到脚本件的面数时形状散掉，低画质掉落照旧用脚本件
+    daggers: { loot: { s: 0.9, y: -0.03 } },
+    lantern: { loot: { s: 0.85, y: -0.26 }, loScripted: true },
+    banner: { loot: { s: 0.55, y: -0.32 } },
+    // 装备：只有掉落，包里已经是掉落模型的尺寸和摆法（原点在中心）
+    helm: { loot: { s: 1, y: 0 } },
+    body: { loot: { s: 1, y: 0 } },
+    gloves: { loot: { s: 1, y: 0 } },
+    boots: { loot: { s: 1, y: 0 } },
+    belt: { loot: { s: 1, y: 0 }, loScripted: true }, // 体素重建后的 lo 档读不出是一圈腰带，低画质照旧用脚本件
+    ring: { loot: { s: 1, y: 0 } },
+    amulet: { loot: { s: 1.5, y: 0 } }, // 去掉链子和挂环以后只剩坠子，放大到原来护身符在地上的大小
+  };
+  let aiwSt = 0; // 0 还没看 / 1 可以用 / 2 不用（开关关着、包没引入或解码失败）
+  function aiwOn(type) {
+    if (!aiwSt) {
+      aiwSt = 2;
+      if (AIW && G.assets && G.assets.known && G.assets.known('kit-aiwpn')) {
+        // 包已经由 index.html 同步引入：need 里解码几何体那一段是同步跑完的（assets.js 的 decodePack 在第一个 await 之前），这里马上就能取到
+        G.assets.need(['kit-aiwpn']);
+        for (const t of AIW_TYPES) if (G.assets.geo('ca/aiwpn_' + t) && G.assets.geo('ca/aiwpn_' + t + '_lo')) aiwHas[t] = true;
+        if (aiwHas.gatling && !G.assets.geo('ca/aiwpn_gatling_barrel_lo')) aiwHas.gatling = false;
+        if (Object.keys(aiwHas).length) aiwSt = 1;
+      }
+    }
+    return aiwSt === 1 && (!type || !!aiwHas[type]);
+  }
+  const aiwHas = Object.create(null);
+  W.aiwState = () => (aiwSt === 1 ? 'on' : AIW ? 'fallback' : 'off');
+  // 面色 → 骨架上的表面（粗糙度 / 金属感）：金 / 黄铜、木头 / 皮革、其余当金属
+  function aiwSurf(r, g, b) {
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b), sat = mx > 1e-4 ? (mx - mn) / mx : 0;
+    if (sat < 0.35 || mx < 0.012) return 'metal';
+    const h = mx === r ? (((g - b) / (mx - mn)) % 6) * 60 : mx === g ? ((b - r) / (mx - mn) + 2) * 60 : ((r - g) / (mx - mn) + 4) * 60;
+    const hh = h < 0 ? h + 360 : h;
+    return hh >= 34 && hh <= 70 && sat > 0.5 ? 'gold' : hh < 40 || hh > 330 ? 'leather' : 'metal';
+  }
+  // 包里的一件 → { metal / gold / leather / glow: 几何体 }（不带索引，法线按面算）。map(x, y, z, out) 把武器坐标换算过去（旋转 + 平移 + 均匀缩放，不能镜像）。
+  // surf = false：本体不按表面分（掉落模型只要本体一份）
+  const _aw = [0, 0, 0];
+  function aiwSplit(key, map, surf) {
+    const src = G.assets.geo(key);
+    const P = src.attributes.position.array, C = src.attributes.color.array, GA = src.attributes.aGlow ? src.attributes.aGlow.array : null;
+    const out = Object.create(null);
+    for (let v0 = 0; v0 + 2 < P.length / 3; v0 += 3) {
+      const nm = GA && GA[v0] > 0.5 ? 'glow' : surf ? aiwSurf(C[v0 * 3], C[v0 * 3 + 1], C[v0 * 3 + 2]) : 'body';
+      const o = out[nm] || (out[nm] = { P: [], C: [] });
+      for (let v = v0; v < v0 + 3; v++) {
+        map(P[v * 3], P[v * 3 + 1], P[v * 3 + 2], _aw);
+        o.P.push(_aw[0], _aw[1], _aw[2]);
+        o.C.push(C[v * 3], C[v * 3 + 1], C[v * 3 + 2]);
+      }
+    }
+    const res = Object.create(null);
+    for (const nm in out) {
+      const g = new T.BufferGeometry();
+      g.setAttribute('position', new T.Float32BufferAttribute(out[nm].P, 3));
+      g.setAttribute('color', new T.Float32BufferAttribute(out[nm].C, 3));
+      g.computeVertexNormals();
+      res[nm] = g;
+    }
+    return res;
+  }
+  // 手里那件的换算（武器关节的绑定坐标）
+  const aiwHandMap = (t) => {
+    if (AIW_FIT[t].bow) return aiwBowMap(t);
+    const h = AIW_FIT[t].hand;
+    return (x, y, z, o) => {
+      o[0] = -0.39 + z + h[0];
+      o[1] = 0.84 + x + h[1];
+      o[2] = h[2] + y;
+    };
+  };
+  // 弓：左手的 wBo，握把在 (0.39, 0.84, BOW_GZ)，弓臂沿 ±z、弦在 +y 一侧。包里的弓（长轴 y、弦在 +x）按两个弓梢对到弦的挂点 BOW_TIP：
+  // 长轴的跨度缩放到两个挂点之间，弓梢的横向位置放到挂点的 y；挂点比握把往 -x 偏一点（tx），按离握把的距离平方慢慢偏过去
+  function aiwBowMap(t) {
+    const P = G.assets.geo('ca/aiwpn_' + t + '_lo').attributes.position.array;
+    let y0 = 1e9, y1 = -1e9;
+    for (let i = 1; i < P.length; i += 3) {
+      if (P[i] < y0) y0 = P[i];
+      if (P[i] > y1) y1 = P[i];
+    }
+    let xs = 0, n = 0;
+    for (let i = 0; i < P.length; i += 3) if (P[i + 1] > y1 - 0.03 * (y1 - y0)) { xs += P[i]; n++; }
+    const xt = n ? xs / n : 0, yc = (y0 + y1) / 2, half = (y1 - y0) / 2;
+    const LX = 0.39, tz = BOW_TIP[2] - BOW_GZ, k = tz / half, tx = BOW_TIP[0] - LX;
+    return (x, y, z, o) => {
+      const u = (y - yc) / half;
+      o[0] = LX + z * k + tx * u * u;
+      o[1] = BOW_TIP[1] + (x - xt) * k;
+      o[2] = BOW_GZ + (y - yc) * k;
+    };
+  }
+  // 把一件烘进骨架当前关节：本体按表面分组（顶点色用件自己的，c = null），发光件进稀有度着色的那一份（b.x）；glowG：进固定颜色的那一份（b.g，冰弓）
+  function aiwRig(b, key, t) {
+    const parts = aiwSplit(key, aiwHandMap(t), true);
+    for (const nm of ['metal', 'gold', 'leather']) if (parts[nm]) b.surf(SURF[nm], true).p(parts[nm], null, 0, 0, 0);
+    if (parts.glow) {
+      if (AIW_FIT[t].glowG) b.g(parts.glow, 1, 0, 0, 0);
+      else b.x(parts.glow, 1, 0, 0, 0);
+    }
+  }
+  // 枪口（武器关节绑定坐标里的 [x, y, z]）：包里这件最前端 8% 的顶点的横向平均，换算到手里
+  function aiwMuzzle(t, key) {
+    const P = G.assets.geo(key || 'ca/aiwpn_' + t + '_lo').attributes.position.array, h = AIW_FIT[t].hand;
+    let y1 = -1e9, y0 = 1e9;
+    for (let i = 1; i < P.length; i += 3) {
+      if (P[i] > y1) y1 = P[i];
+      if (P[i] < y0) y0 = P[i];
+    }
+    let xs = 0, zs = 0, n = 0;
+    for (let i = 0; i < P.length; i += 3) if (P[i + 1] > y1 - 0.08 * (y1 - y0)) { xs += P[i]; zs += P[i + 2]; n++; }
+    return [-0.39 + (n ? zs / n : 0) + h[0], 0.84 + (n ? xs / n : 0) + h[1], h[2] + y1];
+  }
+  // 机炮枪管束的转轴（武器关节的绑定坐标里的 x, y）和枪口（z）：按包里枪管那一件的包围盒
+  function aiwBarrel() {
+    const g = G.assets.geo('ca/aiwpn_gatling_barrel_lo'), bb = g.boundingBox, h = AIW_FIT.gatling.hand;
+    return { x: -0.39 + (bb.min.z + bb.max.z) / 2 + h[0], y: 0.84 + (bb.min.x + bb.max.x) / 2 + h[1], muz: h[2] + bb.max.y };
+  }
+  // 换成 AI 模型以后跟着改的挂点：机炮枪口（GEAR_TIP，只给枪口火光 / 弹道特效用，不进模拟）、左手托在哪（GRIP_2H 第 4 项是 y 偏移），战锤左手的范围
+  function aiwGear() {
+    if (aiwOn('gatling')) {
+      const gb = aiwBarrel(), F = AIW_FIT.gatling.fore;
+      GEAR_TIP[G_GAT] = [gb.x + 0.39, gb.y - 0.84, gb.muz - 0.05];
+      GRIP_2H[G_GAT] = [F[0], F[0], 0.1, F[1]];
+    }
+    if (aiwOn('hammer')) GRIP_2H[G_HAM] = AIW_FIT.hammer.grip2h;
+    if (aiwOn('revolver')) {
+      const m = aiwMuzzle('revolver');
+      GEAR_TIP[G_REV] = [m[0] + 0.39, m[1] - 0.84, m[2] - 0.05];
+    }
+    if (aiwOn('flamer')) {
+      const m = aiwMuzzle('flamer'), F = AIW_FIT.flamer.fore;
+      GEAR_TIP[G_FLM] = [m[0] + 0.39, m[1] - 0.84, m[2] - 0.05];
+      GRIP_2H[G_FLM] = [F[0], F[0], 0.1, F[1]];
+    }
+  }
+  // 主角骨架（手里的 lo 档）和两档掉落模型都建好以后，包里解码出来的源几何体就用不着了（约 0.4 MB）：放掉。之后不再读它们
+  function aiwRelease() {
+    if (!G.assets.dropGeo) return;
+    for (const t of AIW_TYPES) if (aiwHas[t]) for (const sfx of ['', '_lo']) G.assets.dropGeo('ca/aiwpn_' + t + sfx);
+    for (const sfx of ['', '_lo']) G.assets.dropGeo('ca/aiwpn_gatling_barrel' + sfx);
+  }
+  // 掉落的弓补一根弦：两个弓梢（长轴两端 3% 里的顶点的平均位置）之间一根细方棍，米白色，和脚本件的弦一样
+  function aiwBowString(g) {
+    const P = g.attributes.position.array;
+    let y0 = 1e9, y1 = -1e9;
+    for (let i = 1; i < P.length; i += 3) {
+      if (P[i] < y0) y0 = P[i];
+      if (P[i] > y1) y1 = P[i];
+    }
+    const tip = (top) => {
+      let x = 0, z = 0, n = 0;
+      for (let i = 0; i < P.length; i += 3) if (top ? P[i + 1] > y1 - 0.03 * (y1 - y0) : P[i + 1] < y0 + 0.03 * (y1 - y0)) { x += P[i]; z += P[i + 2]; n++; }
+      return new T.Vector3(x / n, top ? y1 : y0, z / n);
+    };
+    const a = tip(false), b = tip(true), d = b.clone().sub(a), len = d.length();
+    const s = new T.BoxGeometry(0.008, len, 0.008).toNonIndexed();
+    s.applyMatrix4(new T.Matrix4().compose(a.clone().add(b).multiplyScalar(0.5), new T.Quaternion().setFromUnitVectors(new T.Vector3(0, 1, 0), d.normalize()), new T.Vector3(1, 1, 1)));
+    s.deleteAttribute('uv');
+    const c = new T.Color(0xe8e0c8).convertSRGBToLinear(), n = s.attributes.position.count, C = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) { C[i * 3] = c.r; C[i * 3 + 1] = c.g; C[i * 3 + 2] = c.b; }
+    s.setAttribute('color', new T.BufferAttribute(C, 3));
+    return s;
+  }
+  // 掉落模型（LOOT_MODEL 的格式：[本体, 发光]）
+  function aiwLoot(t, lo) {
+    const F = AIW_FIT[t].loot, sfx = lo ? '_lo' : '';
+    const map = F.gun
+      ? (x, y, z, o) => { o[0] = -z * F.s; o[1] = y * F.s + F.y; o[2] = x * F.s; }
+      : (x, y, z, o) => { o[0] = x * F.s; o[1] = y * F.s + F.y; o[2] = z * F.s; };
+    const keys = ['ca/aiwpn_' + t + sfx].concat(t === 'gatling' ? ['ca/aiwpn_gatling_barrel' + sfx] : []);
+    const bodies = [], glows = [];
+    for (const k of keys) {
+      const p = aiwSplit(k, map, false);
+      if (p.body) bodies.push(p.body);
+      if (p.glow) glows.push(p.glow);
+    }
+    const cat = (list) => {
+      if (list.length === 1) return list[0];
+      const n = list.reduce((a, g) => a + g.attributes.position.count, 0), P = new Float32Array(n * 3), C = new Float32Array(n * 3), N = new Float32Array(n * 3);
+      let o = 0;
+      for (const g of list) {
+        P.set(g.attributes.position.array, o);
+        C.set(g.attributes.color.array, o);
+        N.set(g.attributes.normal.array, o);
+        o += g.attributes.position.array.length;
+      }
+      const g = new T.BufferGeometry();
+      g.setAttribute('position', new T.BufferAttribute(P, 3));
+      g.setAttribute('normal', new T.BufferAttribute(N, 3));
+      g.setAttribute('color', new T.BufferAttribute(C, 3));
+      return g;
+    };
+    if (AIW_FIT[t].bow) bodies.push(aiwBowString(cat(bodies))); // 弓：弦在导入时删掉了（手里另有弦的关节），掉落模型补一根
+    return [cat(bodies), cat(glows)];
+  }
+
   // 武器底材的 type → 序号；弓类都算长弓（旧的 'bow' 即鹰眼长弓）
   const BOW_TYPES = ['huntbow', 'eagle', 'runebow', 'emberbow'];
   const GUN_TYPES = ['gatling', 'flamer', 'revolver'];
@@ -14132,76 +14383,88 @@
   function rangedGuns(b, WX, WY, GOLD, STEEL, STEEL_D) {
     const AY = WY + GUN_AX, GUNM = 0x2b2d33, GUNM2 = 0x4a4d57, OIL = 0x1c1a1d, BRASS = 0xc8963c, COPPER = 0xb0643a;
     // --- 转膛机炮：后握把 + 方正的机匣（顶上一排散热槽）+ 左侧弹鼓 + 六根枪管（挂 wGb，开火时绕轴转）+ 机匣前下方的前握把 ---
-    b.variant('gatling').at('wF').surf(SURF.leather);
-    b.p(gRBox(0.055, 0.15, 0.07, 0.018), OIL, WX, WY - 0.01, 0.035, -0.25);
-    b.surf(SURF.metal, true).p(gRBox(0.15, 0.15, 0.36, 0.03), [GUNM, GUNM2], WX, AY + 0.01, 0.12);
-    b.p(gRBox(0.11, 0.05, 0.3, 0.015), STEEL_D, WX, AY + 0.1, 0.12);
-    b.p(gBox(0.03, 0.06, 0.08), GUNM, WX, WY + 0.05, -0.02); // 扳机护圈
-    b.surf(SURF.gold).p(gCyl(0.085, 0.085, 0.03, 10), BRASS, WX, AY, 0.31, HALF_PI);
-    // 弹鼓 + 一截弹链
-    b.surf(SURF.metal).p(gCyl(0.085, 0.085, 0.09, 10), [STEEL_D, STEEL], WX + 0.12, AY - 0.02, 0.1, 0, 0, HALF_PI);
-    b.surf(SURF.gold).p(gTorus(0.085, 0.01, 4, 12), BRASS, WX + 0.165, AY - 0.02, 0.1, 0, HALF_PI, 0);
-    b.p(gSweep('pl/gatbelt', [[0.12, -0.08, 0.1], [0.07, -0.07, 0.17], [0.03, -0.02, 0.2]], [0.022, 0.02, 0.02], 4), BRASS, WX, AY, 0);
-    // 前握把：竖直的一截，挂在机匣前端下面，左手握着、和右手同一高度
-    const FG = GUN_FORE.gatling;
-    b.surf(SURF.leather).p(gCyl(0.026, 0.03, 0.17, 6), OIL, WX, WY + 0.02, FG).p(gRBox(0.07, 0.04, 0.09, 0.012), GUNM, WX, AY - 0.06, FG);
-    b.surf(SURF.metal).p(gCyl(0.06, 0.06, 0.05, 8), GUNM2, WX, AY, 0.35, HALF_PI); // 枪管箍：留在原处（前握把挪走了）
-    // 稀有度光：机匣顶上三道散热槽 + 弹鼓中心
-    for (const zz of [0.04, 0.12, 0.2]) b.x(gBox(0.09, 0.012, 0.018), 1, WX, AY + 0.127, zz);
-    b.x(gOct(0.026), 1, WX + 0.17, AY - 0.02, 0.1);
-    // 枪管束（wGb：枢轴在轴线上 z = 0.3）
-    b.at('wGb').surf(SURF.metal);
-    for (let k = 0; k < 6; k++) {
-      const a = (k / 6) * TAU, cx = Math.cos(a) * 0.046, cy = Math.sin(a) * 0.046;
-      b.p(gCyl(0.017, 0.017, 0.64, 6), [STEEL_D, STEEL], WX + cx, AY + cy, 0.64, HALF_PI);
+    // &aiwpn=1：换成 AI 生成的机炮（本体挂 wF、枪管束挂 wGb，转轴在 playerRig 里按 AI 模型挪过）
+    if (aiwOn('gatling')) {
+      aiwRig(b.variant('gatling').at('wF'), 'ca/aiwpn_gatling_lo', 'gatling');
+      aiwRig(b.at('wGb'), 'ca/aiwpn_gatling_barrel_lo', 'gatling');
+    } else {
+      b.variant('gatling').at('wF').surf(SURF.leather);
+      b.p(gRBox(0.055, 0.15, 0.07, 0.018), OIL, WX, WY - 0.01, 0.035, -0.25);
+      b.surf(SURF.metal, true).p(gRBox(0.15, 0.15, 0.36, 0.03), [GUNM, GUNM2], WX, AY + 0.01, 0.12);
+      b.p(gRBox(0.11, 0.05, 0.3, 0.015), STEEL_D, WX, AY + 0.1, 0.12);
+      b.p(gBox(0.03, 0.06, 0.08), GUNM, WX, WY + 0.05, -0.02); // 扳机护圈
+      b.surf(SURF.gold).p(gCyl(0.085, 0.085, 0.03, 10), BRASS, WX, AY, 0.31, HALF_PI);
+      // 弹鼓 + 一截弹链
+      b.surf(SURF.metal).p(gCyl(0.085, 0.085, 0.09, 10), [STEEL_D, STEEL], WX + 0.12, AY - 0.02, 0.1, 0, 0, HALF_PI);
+      b.surf(SURF.gold).p(gTorus(0.085, 0.01, 4, 12), BRASS, WX + 0.165, AY - 0.02, 0.1, 0, HALF_PI, 0);
+      b.p(gSweep('pl/gatbelt', [[0.12, -0.08, 0.1], [0.07, -0.07, 0.17], [0.03, -0.02, 0.2]], [0.022, 0.02, 0.02], 4), BRASS, WX, AY, 0);
+      // 前握把：竖直的一截，挂在机匣前端下面，左手握着、和右手同一高度
+      const FG = GUN_FORE.gatling;
+      b.surf(SURF.leather).p(gCyl(0.026, 0.03, 0.17, 6), OIL, WX, WY + 0.02, FG).p(gRBox(0.07, 0.04, 0.09, 0.012), GUNM, WX, AY - 0.06, FG);
+      b.surf(SURF.metal).p(gCyl(0.06, 0.06, 0.05, 8), GUNM2, WX, AY, 0.35, HALF_PI); // 枪管箍：留在原处（前握把挪走了）
+      // 稀有度光：机匣顶上三道散热槽 + 弹鼓中心
+      for (const zz of [0.04, 0.12, 0.2]) b.x(gBox(0.09, 0.012, 0.018), 1, WX, AY + 0.127, zz);
+      b.x(gOct(0.026), 1, WX + 0.17, AY - 0.02, 0.1);
+      // 枪管束（wGb：枢轴在轴线上 z = 0.3）
+      b.at('wGb').surf(SURF.metal);
+      for (let k = 0; k < 6; k++) {
+        const a = (k / 6) * TAU, cx = Math.cos(a) * 0.046, cy = Math.sin(a) * 0.046;
+        b.p(gCyl(0.017, 0.017, 0.64, 6), [STEEL_D, STEEL], WX + cx, AY + cy, 0.64, HALF_PI);
+      }
+      b.p(gCyl(0.024, 0.024, 0.66, 6), OIL, WX, AY, 0.62, HALF_PI);
+      b.surf(SURF.gold).p(gTorus(0.066, 0.014, 4, 12), BRASS, WX, AY, 0.58).p(gTorus(0.066, 0.016, 4, 12), BRASS, WX, AY, 0.93);
+      b.surf(SURF.metal).p(gCyl(0.07, 0.07, 0.04, 8), GUNM, WX, AY, 0.76, HALF_PI);
+      b.x(gTorus(0.07, 0.006, 3, 12), 1, WX, AY, 0.955);
     }
-    b.p(gCyl(0.024, 0.024, 0.66, 6), OIL, WX, AY, 0.62, HALF_PI);
-    b.surf(SURF.gold).p(gTorus(0.066, 0.014, 4, 12), BRASS, WX, AY, 0.58).p(gTorus(0.066, 0.016, 4, 12), BRASS, WX, AY, 0.93);
-    b.surf(SURF.metal).p(gCyl(0.07, 0.07, 0.04, 8), GUNM, WX, AY, 0.76, HALF_PI);
-    b.x(gTorus(0.07, 0.006, 3, 12), 1, WX, AY, 0.955);
 
     // --- 焚炉喷枪：后握把，一根粗输焰管通到前端的喇叭喷嘴，管上骑着一只铜燃料罐（压力表），喷嘴下一点常燃的引火 ---
-    b.variant('flamer').at('wF').surf(SURF.leather);
-    b.p(gRBox(0.055, 0.15, 0.07, 0.018), OIL, WX, WY - 0.01, 0.035, -0.25);
-    b.surf(SURF.metal).p(gRBox(0.11, 0.11, 0.26, 0.025), [GUNM, GUNM2], WX, AY - 0.01, 0.1);
-    b.p(gCyl(0.036, 0.04, 0.6, 8), [STEEL_D, STEEL], WX, AY, 0.52, HALF_PI);
-    for (const zz of [0.36, 0.52, 0.68]) b.surf(SURF.gold).p(gTorus(0.043, 0.01, 4, 10), BRASS, WX, AY, zz);
-    // 喷嘴：外翻的喇叭口 + 里面一圈暗色的焰口
-    b.surf(SURF.metal).p(gCyl(0.075, 0.042, 0.13, 10), STEEL_D, WX, AY, 0.86, HALF_PI);
-    b.surf(SURF.gold).p(gTorus(0.074, 0.012, 4, 12), COPPER, WX, AY, 0.925);
-    b.p(gCyl(0.008, 0.008, 0.14, 4), COPPER, WX, AY - 0.06, 0.84, HALF_PI);
-    // 燃料罐：横骑在机身上方，两道铜箍、前端一只压力表
-    b.surf(SURF.gold).p(gCyl(0.07, 0.07, 0.34, 10), [0x7a3e20, COPPER], WX, AY + 0.11, 0.2, HALF_PI);
-    b.p(gDome(0.07, 10, 4), COPPER, WX, AY + 0.11, 0.37, HALF_PI).p(gDome(0.07, 10, 4), 0x7a3e20, WX, AY + 0.11, 0.03, -HALF_PI);
-    b.surf(SURF.metal).p(gTorus(0.072, 0.012, 4, 12), STEEL_D, WX, AY + 0.11, 0.1).p(gTorus(0.072, 0.012, 4, 12), STEEL_D, WX, AY + 0.11, 0.3);
-    b.p(gCyl(0.03, 0.03, 0.02, 8), STEEL, WX - 0.05, AY + 0.17, 0.31, 0, 0, 0.6);
-    b.p(gSweep('pl/flmhose', [[0, 0.06, 0.37], [0, 0.03, 0.44], [0, 0.0, 0.48]], [0.014, 0.014, 0.014], 4), OIL, WX, AY, 0);
-    // 前握把
-    b.surf(SURF.leather).p(gCyl(0.026, 0.03, 0.16, 6), OIL, WX, WY + 0.03, GUN_FORE.flamer).p(gRBox(0.06, 0.04, 0.08, 0.012), GUNM, WX, AY - 0.055, GUN_FORE.flamer);
-    // 发光：压力表盘（稀有度色）、引火（元素色，常燃）、管上一道烧红的焰纹
-    b.x(gCyl(0.022, 0.022, 0.024, 8), 1, WX - 0.054, AY + 0.175, 0.31, 0, 0, 0.6);
-    b.x(gBox(0.012, 0.012, 0.3), 1, WX, AY + 0.038, 0.55);
-    b.g(gOct(0.024), 1, WX, AY - 0.06, 0.93, 0, 0, 0, 1, 1, 1.6);
+    if (aiwOn('flamer')) aiwRig(b.variant('flamer').at('wF'), 'ca/aiwpn_flamer_lo', 'flamer'); // &aiwpn：AI 生成的焚炉喷枪
+    else {
+      b.variant('flamer').at('wF').surf(SURF.leather);
+      b.p(gRBox(0.055, 0.15, 0.07, 0.018), OIL, WX, WY - 0.01, 0.035, -0.25);
+      b.surf(SURF.metal).p(gRBox(0.11, 0.11, 0.26, 0.025), [GUNM, GUNM2], WX, AY - 0.01, 0.1);
+      b.p(gCyl(0.036, 0.04, 0.6, 8), [STEEL_D, STEEL], WX, AY, 0.52, HALF_PI);
+      for (const zz of [0.36, 0.52, 0.68]) b.surf(SURF.gold).p(gTorus(0.043, 0.01, 4, 10), BRASS, WX, AY, zz);
+      // 喷嘴：外翻的喇叭口 + 里面一圈暗色的焰口
+      b.surf(SURF.metal).p(gCyl(0.075, 0.042, 0.13, 10), STEEL_D, WX, AY, 0.86, HALF_PI);
+      b.surf(SURF.gold).p(gTorus(0.074, 0.012, 4, 12), COPPER, WX, AY, 0.925);
+      b.p(gCyl(0.008, 0.008, 0.14, 4), COPPER, WX, AY - 0.06, 0.84, HALF_PI);
+      // 燃料罐：横骑在机身上方，两道铜箍、前端一只压力表
+      b.surf(SURF.gold).p(gCyl(0.07, 0.07, 0.34, 10), [0x7a3e20, COPPER], WX, AY + 0.11, 0.2, HALF_PI);
+      b.p(gDome(0.07, 10, 4), COPPER, WX, AY + 0.11, 0.37, HALF_PI).p(gDome(0.07, 10, 4), 0x7a3e20, WX, AY + 0.11, 0.03, -HALF_PI);
+      b.surf(SURF.metal).p(gTorus(0.072, 0.012, 4, 12), STEEL_D, WX, AY + 0.11, 0.1).p(gTorus(0.072, 0.012, 4, 12), STEEL_D, WX, AY + 0.11, 0.3);
+      b.p(gCyl(0.03, 0.03, 0.02, 8), STEEL, WX - 0.05, AY + 0.17, 0.31, 0, 0, 0.6);
+      b.p(gSweep('pl/flmhose', [[0, 0.06, 0.37], [0, 0.03, 0.44], [0, 0.0, 0.48]], [0.014, 0.014, 0.014], 4), OIL, WX, AY, 0);
+      // 前握把
+      b.surf(SURF.leather).p(gCyl(0.026, 0.03, 0.16, 6), OIL, WX, WY + 0.03, GUN_FORE.flamer).p(gRBox(0.06, 0.04, 0.08, 0.012), GUNM, WX, AY - 0.055, GUN_FORE.flamer);
+      // 发光：压力表盘（稀有度色）、引火（元素色，常燃）、管上一道烧红的焰纹
+      b.x(gCyl(0.022, 0.022, 0.024, 8), 1, WX - 0.054, AY + 0.175, 0.31, 0, 0, 0.6);
+      b.x(gBox(0.012, 0.012, 0.3), 1, WX, AY + 0.038, 0.55);
+      b.g(gOct(0.024), 1, WX, AY - 0.06, 0.93, 0, 0, 0, 1, 1, 1.6);
+    }
 
     // --- 烬铸左轮：发黑的长管左轮，八棱枪管、粗转轮，枪身上烧着余烬的裂纹，握把是焦黑的骨木；转轮挂在 wGb 上（不转，只是位置） ---
     const BLK = 0x221c1c, BLK2 = 0x3a2e2a, EMBG = 0xd09048;
-    b.variant('revolver').at('wF').surf(SURF.bone);
-    b.p(gRBox(0.05, 0.16, 0.075, 0.02), [0x2a1a14, 0x5a3426], WX, WY - 0.015, 0.0, -0.32);
-    b.surf(SURF.gold).p(gBox(0.054, 0.02, 0.08), EMBG, WX, WY - 0.09, -0.02, -0.32);
-    b.surf(SURF.metal, true).p(gRBox(0.06, 0.1, 0.17, 0.016), [BLK, BLK2], WX, AY - 0.03, 0.06);
-    b.p(gBox(0.022, 0.05, 0.05), BLK, WX, AY + 0.03, -0.035, 0.5); // 击锤
-    b.p(gTorus(0.03, 0.007, 4, 8), BLK2, WX, WY + 0.06, 0.06, 0, HALF_PI, 0); // 扳机护圈
-    b.p(gCyl(0.026, 0.026, 0.36, 8), [BLK, BLK2], WX, AY, 0.33, HALF_PI, Math.PI / 8, 0);
-    b.p(gBox(0.03, 0.03, 0.3), BLK, WX, AY - 0.032, 0.3);
-    b.surf(SURF.gold).p(gTorus(0.027, 0.008, 4, 8), EMBG, WX, AY, 0.505).p(gBox(0.01, 0.022, 0.03), EMBG, WX, AY + 0.03, 0.48);
-    b.p(gTorus(0.027, 0.006, 4, 8), EMBG, WX, AY, 0.17);
-    // 余烬裂纹（稀有度色：烬铸是余烬橙）
-    b.x(gBox(0.006, 0.008, 0.26), 1, WX + 0.027, AY + 0.004, 0.33, 0, 0.06, 0).x(gBox(0.006, 0.008, 0.2), 1, WX - 0.027, AY - 0.004, 0.36, 0, -0.08, 0);
-    b.x(gBox(0.062, 0.008, 0.008), 1, WX, AY - 0.03, 0.1, 0, 0, 0.3);
-    b.at('wGb').surf(SURF.metal, true).p(gCyl(0.05, 0.05, 0.1, 8), [BLK, BLK2], WX, AY - 0.005, 0.1, HALF_PI);
-    for (let k = 0; k < 6; k++) {
-      const a = (k / 6) * TAU + 0.5;
-      b.x(gOct(0.011), 1, WX + Math.cos(a) * 0.033, AY - 0.005 + Math.sin(a) * 0.033, 0.152);
+    if (aiwOn('revolver')) aiwRig(b.variant('revolver').at('wF'), 'ca/aiwpn_revolver_lo', 'revolver'); // &aiwpn：AI 生成的左轮（整把挂 wF，转轮本来就不转）
+    else {
+      b.variant('revolver').at('wF').surf(SURF.bone);
+      b.p(gRBox(0.05, 0.16, 0.075, 0.02), [0x2a1a14, 0x5a3426], WX, WY - 0.015, 0.0, -0.32);
+      b.surf(SURF.gold).p(gBox(0.054, 0.02, 0.08), EMBG, WX, WY - 0.09, -0.02, -0.32);
+      b.surf(SURF.metal, true).p(gRBox(0.06, 0.1, 0.17, 0.016), [BLK, BLK2], WX, AY - 0.03, 0.06);
+      b.p(gBox(0.022, 0.05, 0.05), BLK, WX, AY + 0.03, -0.035, 0.5); // 击锤
+      b.p(gTorus(0.03, 0.007, 4, 8), BLK2, WX, WY + 0.06, 0.06, 0, HALF_PI, 0); // 扳机护圈
+      b.p(gCyl(0.026, 0.026, 0.36, 8), [BLK, BLK2], WX, AY, 0.33, HALF_PI, Math.PI / 8, 0);
+      b.p(gBox(0.03, 0.03, 0.3), BLK, WX, AY - 0.032, 0.3);
+      b.surf(SURF.gold).p(gTorus(0.027, 0.008, 4, 8), EMBG, WX, AY, 0.505).p(gBox(0.01, 0.022, 0.03), EMBG, WX, AY + 0.03, 0.48);
+      b.p(gTorus(0.027, 0.006, 4, 8), EMBG, WX, AY, 0.17);
+      // 余烬裂纹（稀有度色：烬铸是余烬橙）
+      b.x(gBox(0.006, 0.008, 0.26), 1, WX + 0.027, AY + 0.004, 0.33, 0, 0.06, 0).x(gBox(0.006, 0.008, 0.2), 1, WX - 0.027, AY - 0.004, 0.36, 0, -0.08, 0);
+      b.x(gBox(0.062, 0.008, 0.008), 1, WX, AY - 0.03, 0.1, 0, 0, 0.3);
+      b.at('wGb').surf(SURF.metal, true).p(gCyl(0.05, 0.05, 0.1, 8), [BLK, BLK2], WX, AY - 0.005, 0.1, HALF_PI);
+      for (let k = 0; k < 6; k++) {
+        const a = (k / 6) * TAU + 0.5;
+        b.x(gOct(0.011), 1, WX + Math.cos(a) * 0.033, AY - 0.005 + Math.sin(a) * 0.033, 0.152);
+      }
     }
   }
   // 四种弓：弓臂从握把（LX, WY, GZ）弯到弓梢（相对握把 tx, ty, ±tz），弓梢位置一样（弓弦挂在本体的 bsU / bsL 上）
@@ -14210,67 +14473,76 @@
     // --- 追猎弓：短而狠的反曲猎弓，乌木弓臂，梢头骨质外卷，握把缠青绿猎绳，弓背一枚「猎眼」---
     {
       const limb = (s) => [[0, 0, s * 0.08], [tx * 0.05, -0.05, s * 0.25], [tx * 0.3, -0.065, s * 0.45], [tx * 0.62, -0.01, s * 0.6], [tx * 0.86, ty * 0.6, s * 0.67], [tx, ty, s * tz]];
-      b.variant('huntbow').at('wBo').surf(SURF.leather);
-      b.p(gSweep('pl/hbU', limb(1), [0.032, 0.028, 0.022, 0.016, 0.012, 0.009], 6), [0x1f1a17, 0x4d3c2e], LX, WY, GZ);
-      b.p(gSweep('pl/hbL', limb(-1), [0.032, 0.028, 0.022, 0.016, 0.012, 0.009], 6), [0x1f1a17, 0x4d3c2e], LX, WY, GZ);
-      b.p(gCyl(0.037, 0.037, 0.17, 7), 0x23443e, LX, WY, GZ, HALF_PI);
-      for (const zz of [-0.05, 0, 0.05]) b.p(gTorus(0.038, 0.007, 3, 8), 0x3d8a78, LX, WY, GZ + zz);
-      b.surf(SURF.bone);
-      for (const s of [1, -1]) {
-        const t = tipE(s);
-        b.p(gSweep('pl/hbtip' + s, [[0, 0, 0], [0, -0.015, s * 0.045], [0, -0.06, s * 0.07], [0, -0.09, s * 0.06]], [0.012, 0.011, 0.009, 0.004], 4), 0xd9cfb6, t[0], t[1], t[2]);
+      if (aiwOn('huntbow')) aiwRig(b.variant('huntbow').at('wBo'), 'ca/aiwpn_huntbow_lo', 'huntbow'); // &aiwpn：AI 生成的弓
+      else {
+        b.variant('huntbow').at('wBo').surf(SURF.leather);
+        b.p(gSweep('pl/hbU', limb(1), [0.032, 0.028, 0.022, 0.016, 0.012, 0.009], 6), [0x1f1a17, 0x4d3c2e], LX, WY, GZ);
+        b.p(gSweep('pl/hbL', limb(-1), [0.032, 0.028, 0.022, 0.016, 0.012, 0.009], 6), [0x1f1a17, 0x4d3c2e], LX, WY, GZ);
+        b.p(gCyl(0.037, 0.037, 0.17, 7), 0x23443e, LX, WY, GZ, HALF_PI);
+        for (const zz of [-0.05, 0, 0.05]) b.p(gTorus(0.038, 0.007, 3, 8), 0x3d8a78, LX, WY, GZ + zz);
+        b.surf(SURF.bone);
+        for (const s of [1, -1]) {
+          const t = tipE(s);
+          b.p(gSweep('pl/hbtip' + s, [[0, 0, 0], [0, -0.015, s * 0.045], [0, -0.06, s * 0.07], [0, -0.09, s * 0.06]], [0.012, 0.011, 0.009, 0.004], 4), 0xd9cfb6, t[0], t[1], t[2]);
+        }
+        b.p(gCone(0.02, 0.07, 4), 0xd9cfb6, LX, WY - 0.06, GZ + 0.12, -0.5).p(gCone(0.02, 0.07, 4), 0xd9cfb6, LX, WY - 0.06, GZ - 0.12, Math.PI + 0.5);
+        b.x(gOct(0.022), 1, LX, WY - 0.05, GZ, 0, 0, 0, 1, 0.6, 1.4);
+        b.x(gBox(0.014, 0.014, 0.12), 1, LX + tx * 0.3, WY - 0.08, GZ + 0.42, -0.1).x(gBox(0.014, 0.014, 0.12), 1, LX + tx * 0.3, WY - 0.08, GZ - 0.42, 0.1);
       }
-      b.p(gCone(0.02, 0.07, 4), 0xd9cfb6, LX, WY - 0.06, GZ + 0.12, -0.5).p(gCone(0.02, 0.07, 4), 0xd9cfb6, LX, WY - 0.06, GZ - 0.12, Math.PI + 0.5);
-      b.x(gOct(0.022), 1, LX, WY - 0.05, GZ, 0, 0, 0, 1, 0.6, 1.4);
-      b.x(gBox(0.014, 0.014, 0.12), 1, LX + tx * 0.3, WY - 0.08, GZ + 0.42, -0.1).x(gBox(0.014, 0.014, 0.12), 1, LX + tx * 0.3, WY - 0.08, GZ - 0.42, 0.1);
     }
     // --- 符文弓：灰蓝的石纹弓臂，银色包角，握把外一圈符环，弓臂上各三道发光的符刻 ---
     {
       const limb = (s) => [[0, 0, s * 0.08], [tx * 0.1, -0.05, s * 0.28], [tx * 0.4, -0.035, s * 0.48], [tx * 0.74, ty * 0.38, s * 0.62], [tx, ty, s * tz]];
-      b.variant('runebow').at('wBo').surf(SURF.stone);
-      b.p(gSweep('pl/rbU', limb(1), [0.036, 0.032, 0.026, 0.018, 0.011], 6), [0x262c3a, 0x56637e], LX, WY, GZ);
-      b.p(gSweep('pl/rbL', limb(-1), [0.036, 0.032, 0.026, 0.018, 0.011], 6), [0x262c3a, 0x56637e], LX, WY, GZ);
-      b.surf(SURF.leather).p(gCyl(0.038, 0.038, 0.17, 7), 0x2a2232, LX, WY, GZ, HALF_PI);
-      b.surf(SURF.metal).p(gTorus(0.085, 0.012, 4, 14), 0xb8c4d6, LX, WY - 0.02, GZ, 0, HALF_PI, 0);
-      for (const s of [1, -1]) {
-        const t = tipE(s);
-        b.p(gCone(0.022, 0.08, 5), 0xb8c4d6, t[0], t[1] - 0.01, t[2] - s * 0.02, s > 0 ? HALF_PI : -HALF_PI);
-        b.p(gCyl(0.041, 0.041, 0.024, 7), 0xb8c4d6, LX, WY, GZ + s * 0.095, HALF_PI);
+      if (aiwOn('runebow')) aiwRig(b.variant('runebow').at('wBo'), 'ca/aiwpn_runebow_lo', 'runebow'); // &aiwpn：AI 生成的弓
+      else {
+        b.variant('runebow').at('wBo').surf(SURF.stone);
+        b.p(gSweep('pl/rbU', limb(1), [0.036, 0.032, 0.026, 0.018, 0.011], 6), [0x262c3a, 0x56637e], LX, WY, GZ);
+        b.p(gSweep('pl/rbL', limb(-1), [0.036, 0.032, 0.026, 0.018, 0.011], 6), [0x262c3a, 0x56637e], LX, WY, GZ);
+        b.surf(SURF.leather).p(gCyl(0.038, 0.038, 0.17, 7), 0x2a2232, LX, WY, GZ, HALF_PI);
+        b.surf(SURF.metal).p(gTorus(0.085, 0.012, 4, 14), 0xb8c4d6, LX, WY - 0.02, GZ, 0, HALF_PI, 0);
+        for (const s of [1, -1]) {
+          const t = tipE(s);
+          b.p(gCone(0.022, 0.08, 5), 0xb8c4d6, t[0], t[1] - 0.01, t[2] - s * 0.02, s > 0 ? HALF_PI : -HALF_PI);
+          b.p(gCyl(0.041, 0.041, 0.024, 7), 0xb8c4d6, LX, WY, GZ + s * 0.095, HALF_PI);
+        }
+        b.x(gTorus(0.085, 0.006, 3, 14), 1, LX - 0.01, WY - 0.02, GZ, 0, HALF_PI, 0);
+        for (const s of [1, -1]) for (const f of [0.22, 0.34, 0.46]) b.x(gBox(0.03, 0.01, 0.022), 1, LX + tx * f, WY - 0.06 + f * 0.04, GZ + s * f * 1.15, 0, 0, s * 0.3);
       }
-      b.x(gTorus(0.085, 0.006, 3, 14), 1, LX - 0.01, WY - 0.02, GZ, 0, HALF_PI, 0);
-      for (const s of [1, -1]) for (const f of [0.22, 0.34, 0.46]) b.x(gBox(0.03, 0.01, 0.022), 1, LX + tx * f, WY - 0.06 + f * 0.04, GZ + s * f * 1.15, 0, 0, s * 0.3);
     }
     // --- 冰弓（凛羽）：霜钢弓臂棱角分明（握把处发暗、往梢头渐渐结霜发白），弓背伸出几枚淡蓝的冰晶尖刺，
     // 弓臂上一路冷蓝的冰裂纹，握把前托着一颗发冷光的冰核。裂纹和冰核走这把弓自己的冰蓝自发光（见 VAR_GLOW），
     // 不吃玩家的元素色；握把两头的细环是稀有度色（凛羽的烬铸档在 applyGear 里换成冰蓝，见 GEAR_GLOW_VAR）---
     {
       const limb = (s) => [[0, 0, s * 0.08], [tx * 0.1, -0.06, s * 0.24], [tx * 0.3, -0.075, s * 0.42], [tx * 0.56, -0.035, s * 0.56], [tx * 0.82, ty * 0.5, s * 0.66], [tx, ty, s * tz]];
-      const ICE_LO = 0x3d86c4, ICE_HI = 0xc8ecff, FROST = 0xa9c6de;
-      // 弓臂用低金属度的面：高金属度在俯视镜头下只反射出暗色的天空下半截，霜色会被吃成一片黑
-      b.variant('emberbow').at('wBo').surf(SURF.bone, true);
-      b.p(gSweep('pl/ebU', limb(1), [0.04, 0.036, 0.03, 0.022, 0.015, 0.01], 5), [0x2a4460, 0x9cc4e6], LX, WY, GZ);
-      b.p(gSweep('pl/ebL', limb(-1), [0.04, 0.036, 0.03, 0.022, 0.015, 0.01], 5), [0x2a4460, 0x9cc4e6], LX, WY, GZ);
-      b.surf(SURF.leather).p(gCyl(0.04, 0.04, 0.18, 7), 0x1b2838, LX, WY, GZ, HALF_PI);
-      // 冰晶尖刺：拉长的八面体，硬朗的面
-      b.surf(SURF.ice, true);
-      for (const s of [1, -1]) {
-        b.p(gOct(1), [ICE_LO, ICE_HI], LX + tx * 0.3, WY - 0.12, GZ + s * 0.4, -HALF_PI - s * 0.5, 0, 0, 0.026, 0.085, 0.026);
-        b.p(gOct(1), [ICE_LO, ICE_HI], LX + tx * 0.6, WY - 0.06, GZ + s * 0.58, -HALF_PI - s * 0.8, 0, 0, 0.02, 0.06, 0.02);
-        const t = tipE(s);
-        b.p(gOct(1), [ICE_LO, ICE_HI], t[0], t[1] + 0.02, t[2] + s * 0.03, s > 0 ? HALF_PI - 0.4 : -HALF_PI + 0.4, 0, 0, 0.018, 0.065, 0.018);
-        // 冰核两侧各一根托住它的霜钢爪
-        b.surf(SURF.metal, true).p(gCone(0.012, 0.07, 4), FROST, LX, WY - 0.075, GZ + s * 0.035, -HALF_PI + s * 0.5).surf(SURF.ice, true);
+      if (aiwOn('emberbow')) aiwRig(b.variant('emberbow').at('wBo'), 'ca/aiwpn_emberbow_lo', 'emberbow'); // &aiwpn：AI 生成的弓
+      else {
+        const ICE_LO = 0x3d86c4, ICE_HI = 0xc8ecff, FROST = 0xa9c6de;
+        // 弓臂用低金属度的面：高金属度在俯视镜头下只反射出暗色的天空下半截，霜色会被吃成一片黑
+        b.variant('emberbow').at('wBo').surf(SURF.bone, true);
+        b.p(gSweep('pl/ebU', limb(1), [0.04, 0.036, 0.03, 0.022, 0.015, 0.01], 5), [0x2a4460, 0x9cc4e6], LX, WY, GZ);
+        b.p(gSweep('pl/ebL', limb(-1), [0.04, 0.036, 0.03, 0.022, 0.015, 0.01], 5), [0x2a4460, 0x9cc4e6], LX, WY, GZ);
+        b.surf(SURF.leather).p(gCyl(0.04, 0.04, 0.18, 7), 0x1b2838, LX, WY, GZ, HALF_PI);
+        // 冰晶尖刺：拉长的八面体，硬朗的面
+        b.surf(SURF.ice, true);
+        for (const s of [1, -1]) {
+          b.p(gOct(1), [ICE_LO, ICE_HI], LX + tx * 0.3, WY - 0.12, GZ + s * 0.4, -HALF_PI - s * 0.5, 0, 0, 0.026, 0.085, 0.026);
+          b.p(gOct(1), [ICE_LO, ICE_HI], LX + tx * 0.6, WY - 0.06, GZ + s * 0.58, -HALF_PI - s * 0.8, 0, 0, 0.02, 0.06, 0.02);
+          const t = tipE(s);
+          b.p(gOct(1), [ICE_LO, ICE_HI], t[0], t[1] + 0.02, t[2] + s * 0.03, s > 0 ? HALF_PI - 0.4 : -HALF_PI + 0.4, 0, 0, 0.018, 0.065, 0.018);
+          // 冰核两侧各一根托住它的霜钢爪
+          b.surf(SURF.metal, true).p(gCone(0.012, 0.07, 4), FROST, LX, WY - 0.075, GZ + s * 0.035, -HALF_PI + s * 0.5).surf(SURF.ice, true);
+        }
+        b.surf(SURF.metal).p(gCyl(0.044, 0.044, 0.026, 7), FROST, LX, WY, GZ + 0.1, HALF_PI).p(gCyl(0.044, 0.044, 0.026, 7), FROST, LX, WY, GZ - 0.1, HALF_PI);
+        // 冰裂纹：顺着弓臂一路的几段（冰蓝自发光）
+        for (const s of [1, -1]) {
+          b.g(gBox(0.012, 0.012, 0.16), 1, LX + tx * 0.15, WY - 0.075, GZ + s * 0.3, s * -0.1);
+          b.g(gBox(0.012, 0.012, 0.13), 1, LX + tx * 0.45, WY - 0.065, GZ + s * 0.49, s * 0.15);
+          b.g(gBox(0.01, 0.01, 0.1), 1, LX + tx * 0.75, WY + ty * 0.25, GZ + s * 0.62, s * 0.6);
+        }
+        b.g(gOct(0.038), 1.2, LX, WY - 0.075, GZ, 0, 0.6, 0, 1, 1.5, 1);
+        // 稀有度色：握把两头的细环
+        b.x(gTorus(0.046, 0.006, 3, 10), 1, LX, WY, GZ + 0.115).x(gTorus(0.046, 0.006, 3, 10), 1, LX, WY, GZ - 0.115);
       }
-      b.surf(SURF.metal).p(gCyl(0.044, 0.044, 0.026, 7), FROST, LX, WY, GZ + 0.1, HALF_PI).p(gCyl(0.044, 0.044, 0.026, 7), FROST, LX, WY, GZ - 0.1, HALF_PI);
-      // 冰裂纹：顺着弓臂一路的几段（冰蓝自发光）
-      for (const s of [1, -1]) {
-        b.g(gBox(0.012, 0.012, 0.16), 1, LX + tx * 0.15, WY - 0.075, GZ + s * 0.3, s * -0.1);
-        b.g(gBox(0.012, 0.012, 0.13), 1, LX + tx * 0.45, WY - 0.065, GZ + s * 0.49, s * 0.15);
-        b.g(gBox(0.01, 0.01, 0.1), 1, LX + tx * 0.75, WY + ty * 0.25, GZ + s * 0.62, s * 0.6);
-      }
-      b.g(gOct(0.038), 1.2, LX, WY - 0.075, GZ, 0, 0.6, 0, 1, 1.5, 1);
-      // 稀有度色：握把两头的细环
-      b.x(gTorus(0.046, 0.006, 3, 10), 1, LX, WY, GZ + 0.115).x(gTorus(0.046, 0.006, 3, 10), 1, LX, WY, GZ - 0.115);
     }
     b.variant(null);
   }
@@ -14336,6 +14608,18 @@
   };
   // 上臂静止时比程序化骨架多张开一点（这个模型肩窄、胸厚，垂直放下会插进躯干）
   const PL_ARM = [0.3, -1, 0.0], PL_FORE = [0.06, -1, 0.1];
+  // AI 生成的主角（ai3d-hero）：UE / UAL 骨骼名 → 程序化关节（和现网主角 PL_MAP 同一套对应：腹部并到 root，胸口两节分给 spine / chest）；
+  // 贴地压暗的强度；围巾结扣按 neck_01 算（同 plKnot）
+  const AI_MAP = {
+    pelvis: 'root', spine_01: 'root', spine_02: 'spine', spine_03: 'chest', clavicle_l: 'chest', clavicle_r: 'chest', neck_01: 'head', Head: 'head', head_leaf: 'head',
+    upperarm_l: 'uaL', lowerarm_l: 'faL', hand_l: 'hL', upperarm_r: 'uaR', lowerarm_r: 'faR', hand_r: 'hR',
+    thigh_l: 'thL', calf_l: 'shL', foot_l: 'ftL', ball_l: 'ftL', thigh_r: 'thR', calf_r: 'shR', foot_r: 'ftR', ball_r: 'ftR',
+  };
+  const AI_SHADE = 0.12;
+  const aiKnot = (side) => (pos, piv0) => {
+    const n = pos('neck_01'), o = piv0('sf' + side + '1');
+    return [n[0] + PL_KNOT[0] + (o[0] - SF.kx), n[1] + PL_KNOT[1], n[2] + PL_KNOT[2]];
+  };
   // 卡通配色（设计稿 2.3）：模型贴图调色板的几种颜色各换成游魂自己的一套——灰烬灰的冷皮肤、两种暗紫褐的破衣，
   // 贴图里的血污换成余烬裂纹（自发光，见 vglow），眼白压成深眼窝、瞳孔发光。比地面亮一档、比主角暗、饱和度低。
   // 每项：[贴图里的原色（最近的那个算数）, 下端色, 上端色]；渐变按静止姿态的高度（0.2 → 1.95）
@@ -14456,6 +14740,8 @@
   // 各家骨骼名 → 标准名
   const STD_MIXAMO_SIDE = { Shoulder: 'clavicle', Arm: 'upperarm', ForeArm: 'lowerarm', Hand: 'hand', UpLeg: 'thigh', Leg: 'calf', Foot: 'foot', ToeBase: 'ball', Toe_End: 'ball_leaf' };
   const STD_ALIAS = {
+    // 已经是标准名（AI 生成的模型，art/ai/hero_fit.py 的 rig_bones）
+    std: () => null,
     // Mixamo 骨骼名（Animated Zombie）
     mixamo: (n) => {
       const M = { Hips: 'pelvis', Spine: 'spine_01', Spine1: 'spine_02', Spine2: 'spine_03', Neck: 'neck_01', Head: 'Head', HeadTop_End: 'head_leaf' };
@@ -14570,7 +14856,9 @@
     return true;
   }
   // 调试 / 冒烟测试用：标准骨架的对照表和动作包
-  W.std = { JOINT: STD_JOINT, PIVOT: STD_PIVOT, MASK: STD_MASK, joint: stdJoint, mask: stdMask, drive: stdDrive, chord: (rig) => stdChord(rig, stdDrive(rig)), pack: () => cModel('ual') };
+  W.std = { JOINT: STD_JOINT, PIVOT: STD_PIVOT, MASK: STD_MASK, joint: stdJoint, mask: stdMask, drive: stdDrive, chord: (rig) => stdChord(rig, stdDrive(rig)), pack: () => cModel('ual'),
+    // 退路的配置（AI 模型缺了 / 套用出错时用的 Quaternius 模型，cSpec(key, true)）：冒烟测试拿它查 STD_ALIAS 的改名
+    old: (key) => { const cs = cSpec(key, true); return cs && { model: cs.model, std: cs.md.std, names: cs.md.names.slice() }; } };
 
   const CSPEC = {
     player: {
@@ -14635,6 +14923,52 @@
       },
       color: (mat, prim, base, vc, y, out, x, z) => plColor(mat, y, x, z, out),
       surf: (mat) => PL_SURF[mat] || SURF.cloth,
+      sock: { head: ['head', 0, 0.2, 0.02], chest: ['chest', 0, 0.06, 0.12] },
+      ankle: (rig) => rig.joints[rig.JI.ftL].py,
+    },
+    // AI 生成的主角（ai3d-hero）：cSpec 默认用它顶替 player（Adventurer 留作退路）。同一副程序化骨架、同样的动作 / 挂点 / 模拟，只换外观：
+    // 模型是 art/ai/hero_rig.py 出的 GLB（assets/ai/hero/，UE / UAL 骨骼名、A 字站姿、COLOR_0 一角一色），按 Adventurer 的对应关系并到程序化关节上，
+    // aim 摆成游戏的静止姿态（拳头在 GLB 里已经卷好）；模型里已经有的围巾圈、护腕、腰带扣、后摆不再加程序化的，
+    // 围巾的两条尾巴、左肩护肩、左手的余烬照旧
+    playerAI: {
+      model: 'aihero_hi', height: 1.9, yaw: 0, center: 'pelvis',
+      map: (n) => {
+        const m = STD_FINGER.exec(n);
+        return m ? 'h' + m[3].toUpperCase() : AI_MAP[n] || null;
+      },
+      pivot: {
+        root: 'pelvis', spine: 'spine_02', chest: 'spine_03', head: 'neck_01',
+        uaL: 'upperarm_l', faL: 'lowerarm_l', hL: 'hand_l', uaR: 'upperarm_r', faR: 'lowerarm_r', hR: 'hand_r',
+        thL: 'thigh_l', shL: 'calf_l', thR: 'thigh_r', shR: 'calf_r',
+        ftL: (pos) => { const k = pos('calf_l'); return [k[0], 0.1, k[2]]; },
+        ftR: (pos) => { const k = pos('calf_r'); return [k[0], 0.1, k[2]]; },
+        sfL1: aiKnot('L'), sfR1: aiKnot('R'),
+      },
+      drive: { ftL: 'foot_l', ftR: 'foot_r' },
+      aim: (n) => {
+        const sd = n.slice(-2), s = sd === '_l' ? 1 : -1, j = sd === '_l' ? 'L' : 'R';
+        if (n === 'upperarm' + sd) return ['lowerarm' + sd, [s * PL_ARM[0], PL_ARM[1], PL_ARM[2]]];
+        if (n === 'lowerarm' + sd) return ['hand' + sd, [s * PL_FORE[0], PL_FORE[1], PL_FORE[2]]];
+        if (n === 'hand' + sd) return ['middle_01' + sd, [s * PL_FORE[0], PL_FORE[1], PL_FORE[2]]];
+        if (n === 'thigh' + sd) return ['calf' + sd, ['th' + j, 'sh' + j]];
+        return null;
+      },
+      // 拳头已经烘进模型的绑定姿态（hero_rig.py 的 bake_fist：按量出来的掌心朝向卷，和现网主角同样的角度），这里不再卷
+      keep: (j) => !PL_BODY[j],
+      extra: (b, pos) => {
+        const ua = pos('upperarm_l');
+        b.at('uaL').surf(SURF.leather).p(gDome(0.1, 9, 3, 1.3), [PL_LEA[0], PL_LEA[1]], ua[0] + 0.025, ua[1] + 0.02, ua[2], 0, 0, -0.5, 1.05, 0.72, 1.12);
+        b.surf(SURF.gold).p(gTorus(0.1, 0.011, 4, 12), PL_GOLD, ua[0] + 0.025, ua[1] + 0.02, ua[2], HALF_PI, -0.5, 0, 1.05, 1.12, 1);
+        const wl = pos('hand_l'), md = pos('middle_01_l');
+        const ex = wl[0] + (md[0] - wl[0]) * 0.8, ey = wl[1] + (md[1] - wl[1]) * 0.8 - 0.05, ez = wl[2] + (md[2] - wl[2]) * 0.8 + 0.07;
+        b.at('hL').g(gOct(0.042), 1.35, ex, ey, ez, 0, 0.6, 0, 1, 1.4, 1).g(gSph(0.05, 7, 5), 0.55, ex, ey + 0.01, ez, 0, 0, 0, 1, 1.25, 1);
+      },
+      color: (mat, prim, base, vc, y, out) => {
+        const c = vc || base;
+        out[0] = c[0]; out[1] = c[1]; out[2] = c[2];
+        return cShade(out, out, y, 1.9, AI_SHADE);
+      },
+      surf: () => SURF.cloth,
       sock: { head: ['head', 0, 0.2, 0.02], chest: ['chest', 0, 0.06, 0.12] },
       ankle: (rig) => rig.joints[rig.JI.ftL].py,
     },
@@ -14757,6 +15091,50 @@
       sock: { weapon: ['head', 0, -0.02, 0.4], hand: ['head', 0, -0.02, 0.4], head: ['head', 0, 0.14, 0.22], chest: ['root', 0, 0.2, 0.05] },
     },
   };
+  // AI 生成的游魂 / 烬骸仆从（ai3d-enemies，art/ai/hero_rig.py 按 art/ai/enemy/*.json 生成）：盖在 CSPEC.husk / thrall 上，只改模型相关的几项。
+  // 骨骼已经是标准名（alias 'std' 不改名，只按 STD_PIVOT 取枢轴），骨骼集合和父子关系与现网的 Zombie（41 根）/ Skeleton（12 根）一致；
+  // 颜色用模型自己的逐顶点色（生成时已调过色），眼窝的元素火 / 魂火按这个模型的眼睛位置放
+  const AI_EYE = { husk: [0.05, 0.154, 0.121], thrall: [0.042, 0.109, 0.067] }; // 相对 Head 骨骼（米，已按身高缩放）：左眼，右眼 x 取反
+  const aiColor = (h, k) => (mat, prim, base, vc, y, out) => {
+    const c = vc || base;
+    out[0] = c[0]; out[1] = c[1]; out[2] = c[2];
+    return cShade(out, out, y, h, k);
+  };
+  const AI_ENEMY = {
+    husk: {
+      alias: 'std', yaw: 0,
+      color: aiColor(2.15, 0.18),
+      vglow: null,
+      extra: (b, pos) => {
+        const h = pos('Head'), e = (window.CA_AI_EYES && window.CA_AI_EYES.husk) || AI_EYE.husk;
+        b.at('head');
+        for (const s of [1, -1]) b.g(gOct(0.026), 1.25, h[0] + s * e[0], h[1] + e[1], h[2] + e[2], 0, 0, 0, 1, 0.7, 0.6);
+      },
+    },
+    thrall: {
+      alias: 'std',
+      scale: null, stretch: null,
+      // 没有手骨 / 脚骨（和现网 Skeleton 一样）：手腕在前臂延长线上（小臂 / 大臂 = 0.79，hero_fit 量的），脚踝离地 0.081 米
+      pivot: {
+        hL: (pos) => thSeg(pos, 'upperarm_l', 'lowerarm_l', 0.79), hR: (pos) => thSeg(pos, 'upperarm_r', 'lowerarm_r', 0.79),
+        ftL: (pos) => { const k = pos('calf_l'); return [k[0], 0.081, k[2]]; }, ftR: (pos) => { const k = pos('calf_r'); return [k[0], 0.081, k[2]]; },
+      },
+      split: (n, pos) => {
+        if (n === 'lowerarm_l') return thSplit(pos, 'upperarm_l', 'lowerarm_l', 'hL', 0.79);
+        if (n === 'lowerarm_r') return thSplit(pos, 'upperarm_r', 'lowerarm_r', 'hR', 0.79);
+        if (n === 'calf_l') return thSplit(pos, 'thigh_l', 'calf_l', 'ftL', 0.82, 0.081);
+        if (n === 'calf_r') return thSplit(pos, 'thigh_r', 'calf_r', 'ftR', 0.82, 0.081);
+        return null;
+      },
+      color: aiColor(1.62, 0.3),
+      extra: (b, pos) => {
+        const t = pos('spine_03'), n = pos('neck_01'), h = pos('Head'), e = (window.CA_AI_EYES && window.CA_AI_EYES.thrall) || AI_EYE.thrall;
+        b.at('chest').g(gSph(0.075, 7, 5), 1.4, t[0], t[1] + (n[1] - t[1]) * 0.55, t[2] + 0.01, 0, 0, 0, 1, 1.4, 0.9);
+        b.at('head');
+        for (const s of [1, -1]) b.g(gSph(0.026, 6, 4), 1.7, h[0] + s * e[0], h[1] + e[1], h[2] + e[2], 0, 0, 0, 1.1, 0.9, 0.6);
+      },
+    },
+  };
 
   function playerRig() {
     return rigOf('player', () => cTry('player', (cs) => {
@@ -14776,7 +15154,9 @@
       b.j('bnF1', 'wBn', -0.39 - BAN_X, 0.84, BAN_Z).j('bnF2', 'bnF1', -0.39 - BAN_X, 0.84, BAN_Z - BAN_L1);
       b.j('bnC1', 'wBn', -0.39 - 0.48, 0.84, BAN_Z).j('bnC2', 'wBn', -0.39 + 0.15, 0.84, BAN_Z - 0.1);
       // 火器挂右手（三把枪各是一组变体零件）；wGb 是机炮的转膛（枪管束绕自身轴转）/ 左轮的转轮
-      b.j('wF', 'hR', -0.39, 0.84, 0.05).j('wGb', 'wF', -0.39, 0.84 + GUN_AX, 0.3);
+      // AI 机炮（&aiwpn=1）：枪管束的转轴挪到 AI 模型枪管的中心（只是绕哪根轴转；左轮的转轮也挂这里，但不转）
+      const aiGb = aiwOn('gatling') ? aiwBarrel() : null;
+      b.j('wF', 'hR', -0.39, 0.84, 0.05).j('wGb', 'wF', aiGb ? aiGb.x : -0.39, aiGb ? aiGb.y : 0.84 + GUN_AX, 0.3);
       b.j('thL', 'root', 0.14, 0.97, 0).j('shL', 'thL', 0.15, 0.53, 0.01).j('ftL', 'shL', 0.15, 0.12, 0);
       b.j('thR', 'root', -0.14, 0.97, 0).j('shR', 'thR', -0.15, 0.53, 0.01).j('ftR', 'shR', -0.15, 0.12, 0);
       b.j('tab', 'root', 0, 1.0, 0.19);
@@ -14857,26 +15237,35 @@
 
       // --- 武器：三把都挂在右手上，握把沿 +z；没装备的那两把缩到 0 ---
       const WX = -0.39, WY = 0.84;
-      // 刃：宽刃，血槽发光
-      b.at('wB').surf(SURF.leather).p(gCyl(0.026, 0.028, 0.22, 6), 0x3a2a20, WX, WY, 0.03, HALF_PI);
-      b.surf(SURF.gold).p(gSph(0.04, 6, 4), GOLD, WX, WY, -0.1);
-      b.p(gPlate('pl/guard', [[-0.17, 0.03], [-0.11, -0.04], [0.11, -0.04], [0.17, 0.03], [0.08, 0.035], [-0.08, 0.035]], 0.055, 0.014), GOLD, WX, WY, 0.15, HALF_PI, HALF_PI, 0);
-      b.surf(SURF.metal).p(gPlate('pl/blade', [[-0.06, 0], [0.06, 0], [0.075, 0.7], [0, 1.0], [-0.075, 0.7]], 0.012, 0.016), [0xa3acbb, BLADE], WX, WY, 0.17, HALF_PI, HALF_PI, 0);
-      b.x(gBox(0.046, 0.02, 0.66), 1, WX, WY, 0.53);
-      // 长杖：握在下三分之一处，杖头是一弯月牙托着晶体
-      b.at('wS').surf(SURF.leather).p(gCyl(0.026, 0.032, 1.6, 6), [0x4a3222, WOOD], WX, WY, 0.35, HALF_PI);
-      b.surf(SURF.gold).p(gCyl(0.04, 0.04, 0.06, 6), GOLD, WX, WY, 1.0, HALF_PI).p(gCyl(0.036, 0.02, 0.08, 6), GOLD, WX, WY, -0.46, HALF_PI);
-      b.p(gSweep('pl/cres', [[0, -0.02, 1.12], [0, 0.13, 1.2], [0, 0.18, 1.36], [0, 0.08, 1.52]], [0.034, 0.032, 0.025, 0.004], 5), GOLD, WX, WY, 0);
-      b.p(gSweep('pl/cres2', [[0, 0.02, 1.12], [0, -0.13, 1.2], [0, -0.18, 1.36], [0, -0.08, 1.52]], [0.034, 0.032, 0.025, 0.004], 5), GOLD, WX, WY, 0);
-      b.x(gOct(0.09), 1, WX, WY, 1.36, 0, 0, 0, 0.8, 0.8, 1.5);
-      // 短杖：骨柄、三根爪托着晶体
-      b.at('wW').surf(SURF.bone).p(gCyl(0.02, 0.03, 0.52, 6), [0xa89c84, BONE], WX, WY, 0.16, HALF_PI);
-      b.p(gSph(0.036, 6, 4), BONE, WX, WY, -0.1);
-      for (let k = 0; k < 3; k++) {
-        const a = (k / 3) * TAU, cx = Math.cos(a), sy = Math.sin(a);
-        b.p(gSweep('pl/prong' + k, [[cx * 0.02, sy * 0.02, 0.4], [cx * 0.075, sy * 0.075, 0.5], [cx * 0.04, sy * 0.04, 0.64]], [0.018, 0.015, 0.003], 4), BONE, WX, WY, 0);
+      // 刃：宽刃，血槽发光（&aiwpn=1：换成 AI 生成的剑，见 AIW_FIT）
+      if (aiwOn('blade')) aiwRig(b.at('wB'), 'ca/aiwpn_blade_lo', 'blade');
+      else {
+        b.at('wB').surf(SURF.leather).p(gCyl(0.026, 0.028, 0.22, 6), 0x3a2a20, WX, WY, 0.03, HALF_PI);
+        b.surf(SURF.gold).p(gSph(0.04, 6, 4), GOLD, WX, WY, -0.1);
+        b.p(gPlate('pl/guard', [[-0.17, 0.03], [-0.11, -0.04], [0.11, -0.04], [0.17, 0.03], [0.08, 0.035], [-0.08, 0.035]], 0.055, 0.014), GOLD, WX, WY, 0.15, HALF_PI, HALF_PI, 0);
+        b.surf(SURF.metal).p(gPlate('pl/blade', [[-0.06, 0], [0.06, 0], [0.075, 0.7], [0, 1.0], [-0.075, 0.7]], 0.012, 0.016), [0xa3acbb, BLADE], WX, WY, 0.17, HALF_PI, HALF_PI, 0);
+        b.x(gBox(0.046, 0.02, 0.66), 1, WX, WY, 0.53);
       }
-      b.x(gOct(0.062), 1, WX, WY, 0.55, 0, 0, 0, 0.8, 0.8, 1.5);
+      // 长杖：握在下三分之一处，杖头是一弯月牙托着晶体（&aiwpn=1：换成 AI 生成的长杖）
+      if (aiwOn('staff')) aiwRig(b.at('wS'), 'ca/aiwpn_staff_lo', 'staff');
+      else {
+        b.at('wS').surf(SURF.leather).p(gCyl(0.026, 0.032, 1.6, 6), [0x4a3222, WOOD], WX, WY, 0.35, HALF_PI);
+        b.surf(SURF.gold).p(gCyl(0.04, 0.04, 0.06, 6), GOLD, WX, WY, 1.0, HALF_PI).p(gCyl(0.036, 0.02, 0.08, 6), GOLD, WX, WY, -0.46, HALF_PI);
+        b.p(gSweep('pl/cres', [[0, -0.02, 1.12], [0, 0.13, 1.2], [0, 0.18, 1.36], [0, 0.08, 1.52]], [0.034, 0.032, 0.025, 0.004], 5), GOLD, WX, WY, 0);
+        b.p(gSweep('pl/cres2', [[0, 0.02, 1.12], [0, -0.13, 1.2], [0, -0.18, 1.36], [0, -0.08, 1.52]], [0.034, 0.032, 0.025, 0.004], 5), GOLD, WX, WY, 0);
+        b.x(gOct(0.09), 1, WX, WY, 1.36, 0, 0, 0, 0.8, 0.8, 1.5);
+      }
+      // 短杖：骨柄、三根爪托着晶体
+      if (aiwOn('wand')) aiwRig(b.at('wW'), 'ca/aiwpn_wand_lo', 'wand'); // &aiwpn：AI 生成的短杖
+      else {
+        b.at('wW').surf(SURF.bone).p(gCyl(0.02, 0.03, 0.52, 6), [0xa89c84, BONE], WX, WY, 0.16, HALF_PI);
+        b.p(gSph(0.036, 6, 4), BONE, WX, WY, -0.1);
+        for (let k = 0; k < 3; k++) {
+          const a = (k / 3) * TAU, cx = Math.cos(a), sy = Math.sin(a);
+          b.p(gSweep('pl/prong' + k, [[cx * 0.02, sy * 0.02, 0.4], [cx * 0.075, sy * 0.075, 0.5], [cx * 0.04, sy * 0.04, 0.64]], [0.018, 0.015, 0.003], 4), BONE, WX, WY, 0);
+        }
+        b.x(gOct(0.062), 1, WX, WY, 0.55, 0, 0, 0, 0.8, 0.8, 1.5);
+      }
 
       // 双匕：短而带钩的叶形刃（单侧开刃、刃尖斜削），黑钢底色，刃脊一道光；护手只有向前弯的一侧
       const dagger = (J, X) => {
@@ -14888,54 +15277,63 @@
       };
       dagger('wD', WX);
       dagger('wDL', -WX);
-      // 战锤：长柄两段缠皮、金箍；锤头是一块厚重的方砧，两端包钢、顶上一根短刺，两侧开一道发光的符槽
-      b.at('wH').surf(SURF.leather).p(gCyl(0.03, 0.034, 1.3, 7), [0x3b2a1e, WOOD], WX, WY, 0.31, HALF_PI);
-      b.p(gCyl(0.039, 0.039, 0.2, 7), 0x2c211a, WX, WY, 0.03, HALF_PI).p(gCyl(0.039, 0.039, 0.16, 7), 0x2c211a, WX, WY, -0.22, HALF_PI);
-      b.surf(SURF.gold).p(gCyl(0.043, 0.043, 0.03, 7), GOLD, WX, WY, 0.16, HALF_PI).p(gCyl(0.043, 0.043, 0.03, 7), GOLD, WX, WY, 0.72, HALF_PI);
-      b.p(gOct(0.05), GOLD, WX, WY, -0.37, HALF_PI, 0, 0, 1, 1.3, 1);
-      b.surf(SURF.metal, true).p(gRBox(0.21, 0.4, 0.26, 0.035), [STEEL_D, STEEL], WX, WY, 0.98);
-      b.p(gCyl(0.125, 0.135, 0.07, 8), STEEL, WX, WY + 0.225, 0.98).p(gCyl(0.135, 0.125, 0.07, 8), STEEL, WX, WY - 0.225, 0.98);
-      b.p(gCone(0.055, 0.2, 5), STEEL, WX, WY, 1.2, HALF_PI);
-      b.surf(SURF.gold).p(gBox(0.225, 0.03, 0.27), GOLD, WX, WY + 0.15, 0.98).p(gBox(0.225, 0.03, 0.27), GOLD, WX, WY - 0.15, 0.98);
-      b.x(gBox(0.218, 0.2, 0.034), 1, WX, WY, 0.98);
+      // 战锤：长柄两段缠皮、金箍；锤头是一块厚重的方砧，两端包钢、顶上一根短刺，两侧开一道发光的符槽（&aiwpn=1：换成 AI 生成的战锤）
+      if (aiwOn('hammer')) aiwRig(b.at('wH'), 'ca/aiwpn_hammer_lo', 'hammer');
+      else {
+        b.at('wH').surf(SURF.leather).p(gCyl(0.03, 0.034, 1.3, 7), [0x3b2a1e, WOOD], WX, WY, 0.31, HALF_PI);
+        b.p(gCyl(0.039, 0.039, 0.2, 7), 0x2c211a, WX, WY, 0.03, HALF_PI).p(gCyl(0.039, 0.039, 0.16, 7), 0x2c211a, WX, WY, -0.22, HALF_PI);
+        b.surf(SURF.gold).p(gCyl(0.043, 0.043, 0.03, 7), GOLD, WX, WY, 0.16, HALF_PI).p(gCyl(0.043, 0.043, 0.03, 7), GOLD, WX, WY, 0.72, HALF_PI);
+        b.p(gOct(0.05), GOLD, WX, WY, -0.37, HALF_PI, 0, 0, 1, 1.3, 1);
+        b.surf(SURF.metal, true).p(gRBox(0.21, 0.4, 0.26, 0.035), [STEEL_D, STEEL], WX, WY, 0.98);
+        b.p(gCyl(0.125, 0.135, 0.07, 8), STEEL, WX, WY + 0.225, 0.98).p(gCyl(0.135, 0.125, 0.07, 8), STEEL, WX, WY - 0.225, 0.98);
+        b.p(gCone(0.055, 0.2, 5), STEEL, WX, WY, 1.2, HALF_PI);
+        b.surf(SURF.gold).p(gBox(0.225, 0.03, 0.27), GOLD, WX, WY + 0.15, 0.98).p(gBox(0.225, 0.03, 0.27), GOLD, WX, WY - 0.15, 0.98);
+        b.x(gBox(0.218, 0.2, 0.034), 1, WX, WY, 0.98);
+      }
       // 太刀：长柄缠着菱形绳结，方圆的铁镡镶金边，刃身细长、向刃背一侧微弯，刃口一道刃纹光
-      b.at('wK').surf(SURF.cloth).p(gCyl(0.026, 0.028, 0.3, 6), 0x1e1a22, WX, WY, -0.04, HALF_PI);
-      for (const zz of [-0.15, -0.08, -0.01, 0.06]) b.p(gOct(0.028), 0x7a2e24, WX, WY + 0.024, zz, 0, 0, 0, 1, 0.5, 1).p(gOct(0.028), 0x7a2e24, WX, WY - 0.024, zz, 0, 0, 0, 1, 0.5, 1);
-      b.surf(SURF.gold).p(gCyl(0.031, 0.031, 0.03, 6), GOLD, WX, WY, -0.2, HALF_PI);
-      b.surf(SURF.metal).p(gCyl(0.08, 0.08, 0.02, 8), 0x2a2a30, WX, WY, 0.12, HALF_PI, Math.PI / 8, 0);
-      b.surf(SURF.gold).p(gTorus(0.079, 0.008, 4, 8), GOLD, WX, WY, 0.12, 0, 0, Math.PI / 8).p(gBox(0.022, 0.06, 0.03), GOLD, WX, WY, 0.145);
-      {
-        const L = 0.98, K = 0.055, n = 7, pts = [], edge = [];
-        const cx = (t) => K * t * t, wd = (t) => 0.033 - 0.01 * t;
-        pts.push([-0.033, 0], [0.033, 0]);
-        for (let i = 1; i <= n; i++) {
-          const t = (i / n) * 0.9;
-          pts.push([cx(t) + wd(t), L * t]);
+      if (aiwOn('katana')) aiwRig(b.at('wK'), 'ca/aiwpn_katana_lo', 'katana'); // &aiwpn：AI 生成的太刀
+      else {
+        b.at('wK').surf(SURF.cloth).p(gCyl(0.026, 0.028, 0.3, 6), 0x1e1a22, WX, WY, -0.04, HALF_PI);
+        for (const zz of [-0.15, -0.08, -0.01, 0.06]) b.p(gOct(0.028), 0x7a2e24, WX, WY + 0.024, zz, 0, 0, 0, 1, 0.5, 1).p(gOct(0.028), 0x7a2e24, WX, WY - 0.024, zz, 0, 0, 0, 1, 0.5, 1);
+        b.surf(SURF.gold).p(gCyl(0.031, 0.031, 0.03, 6), GOLD, WX, WY, -0.2, HALF_PI);
+        b.surf(SURF.metal).p(gCyl(0.08, 0.08, 0.02, 8), 0x2a2a30, WX, WY, 0.12, HALF_PI, Math.PI / 8, 0);
+        b.surf(SURF.gold).p(gTorus(0.079, 0.008, 4, 8), GOLD, WX, WY, 0.12, 0, 0, Math.PI / 8).p(gBox(0.022, 0.06, 0.03), GOLD, WX, WY, 0.145);
+        {
+          const L = 0.98, K = 0.055, n = 7, pts = [], edge = [];
+          const cx = (t) => K * t * t, wd = (t) => 0.033 - 0.01 * t;
+          pts.push([-0.033, 0], [0.033, 0]);
+          for (let i = 1; i <= n; i++) {
+            const t = (i / n) * 0.9;
+            pts.push([cx(t) + wd(t), L * t]);
+          }
+          pts.push([cx(1) + 0.012, L]);
+          for (let i = n; i >= 1; i--) {
+            const t = (i / n) * 0.9;
+            pts.push([cx(t) - wd(t) + (t > 0.85 ? 0.01 : 0), L * t]);
+            edge.unshift([0, cx(t) - wd(t) * 0.55, 0.15 + L * t]);
+          }
+          edge.unshift([0, -0.018, 0.16]);
+          b.surf(SURF.metal).p(gPlate('pl/katana', pts, 0.012, 0.007), [0x8d96a6, 0xe6ebf2], WX, WY, 0.15, HALF_PI, HALF_PI, 0);
+          b.x(gSweep('pl/hamon', edge, [0.008, 0.009, 0.009, 0.006], 4), 1, WX, WY, 0);
         }
-        pts.push([cx(1) + 0.012, L]);
-        for (let i = n; i >= 1; i--) {
-          const t = (i / n) * 0.9;
-          pts.push([cx(t) - wd(t) + (t > 0.85 ? 0.01 : 0), L * t]);
-          edge.unshift([0, cx(t) - wd(t) * 0.55, 0.15 + L * t]);
-        }
-        edge.unshift([0, -0.018, 0.16]);
-        b.surf(SURF.metal).p(gPlate('pl/katana', pts, 0.012, 0.007), [0x8d96a6, 0xe6ebf2], WX, WY, 0.15, HALF_PI, HALF_PI, 0);
-        b.x(gSweep('pl/hamon', edge, [0.008, 0.009, 0.009, 0.006], 4), 1, WX, WY, 0);
       }
       // 长弓：两片弓臂沿 ±z 弯成一张弓，弓背朝手心外（-y），弓弦在 +y 一侧；握把缠皮、两端金箍，弓臂上各一道光纹
       {
         const LX = -WX, GZ = BOW_GZ, tx = BOW_TIP[0] - LX, ty = BOW_TIP[1] - WY, tz = BOW_TIP[2] - GZ;
         const limb = (s) => [[0, 0, s * 0.08], [tx * 0.1, -0.035, s * 0.3], [tx * 0.35, -0.012, s * 0.5], [tx * 0.7, ty * 0.45, s * 0.63], [tx, ty, s * tz]];
         // 鹰眼长弓（旧存档里的长弓都是它）：弓身是变体零件，弓弦留在本体上，四张弓共用
-        b.variant('eagle').at('wBo').surf(SURF.leather);
-        b.p(gSweep('pl/bowU', limb(1), [0.03, 0.026, 0.02, 0.014, 0.009], 6), [0x3a2618, 0x7a5236], LX, WY, GZ);
-        b.p(gSweep('pl/bowL', limb(-1), [0.03, 0.026, 0.02, 0.014, 0.009], 6), [0x3a2618, 0x7a5236], LX, WY, GZ);
-        b.p(gCyl(0.036, 0.036, 0.17, 7), 0x2c211a, LX, WY, GZ, HALF_PI);
-        b.surf(SURF.gold).p(gCyl(0.04, 0.04, 0.025, 7), GOLD, LX, WY, GZ + 0.095, HALF_PI).p(gCyl(0.04, 0.04, 0.025, 7), GOLD, LX, WY, GZ - 0.095, HALF_PI);
-        b.p(gOct(0.022), GOLD, BOW_TIP[0], BOW_TIP[1], BOW_TIP[2]).p(gOct(0.022), GOLD, BOW_TIP[0], BOW_TIP[1], 2 * GZ - BOW_TIP[2]);
-        b.x(gBox(0.018, 0.018, 0.17), 1, LX + tx * 0.2, WY - 0.05, GZ + 0.33, -0.08).x(gBox(0.018, 0.018, 0.17), 1, LX + tx * 0.2, WY - 0.05, GZ - 0.33, 0.08);
-        // 鹰眼：握把上方一根白羽饰（长弓的远射意味）
-        b.surf(SURF.cloth).p(gPlate('pl/eaglefe', [[0, 0], [0.03, 0.03], [0.028, 0.15], [0, 0.17], [-0.012, 0.08]], 0.006, 0.003), 0xe8e0cc, LX + 0.02, WY - 0.06, GZ + 0.13, HALF_PI + 0.3, 0, 0.2);
+        if (aiwOn('eagle')) aiwRig(b.variant('eagle').at('wBo'), 'ca/aiwpn_eagle_lo', 'eagle'); // &aiwpn：AI 生成的鹰眼长弓（弦照旧挂在 bsU / bsL 上）
+        else {
+          b.variant('eagle').at('wBo').surf(SURF.leather);
+          b.p(gSweep('pl/bowU', limb(1), [0.03, 0.026, 0.02, 0.014, 0.009], 6), [0x3a2618, 0x7a5236], LX, WY, GZ);
+          b.p(gSweep('pl/bowL', limb(-1), [0.03, 0.026, 0.02, 0.014, 0.009], 6), [0x3a2618, 0x7a5236], LX, WY, GZ);
+          b.p(gCyl(0.036, 0.036, 0.17, 7), 0x2c211a, LX, WY, GZ, HALF_PI);
+          b.surf(SURF.gold).p(gCyl(0.04, 0.04, 0.025, 7), GOLD, LX, WY, GZ + 0.095, HALF_PI).p(gCyl(0.04, 0.04, 0.025, 7), GOLD, LX, WY, GZ - 0.095, HALF_PI);
+          b.p(gOct(0.022), GOLD, BOW_TIP[0], BOW_TIP[1], BOW_TIP[2]).p(gOct(0.022), GOLD, BOW_TIP[0], BOW_TIP[1], 2 * GZ - BOW_TIP[2]);
+          b.x(gBox(0.018, 0.018, 0.17), 1, LX + tx * 0.2, WY - 0.05, GZ + 0.33, -0.08).x(gBox(0.018, 0.018, 0.17), 1, LX + tx * 0.2, WY - 0.05, GZ - 0.33, 0.08);
+          // 鹰眼：握把上方一根白羽饰（长弓的远射意味）
+          b.surf(SURF.cloth).p(gPlate('pl/eaglefe', [[0, 0], [0.03, 0.03], [0.028, 0.15], [0, 0.17], [-0.012, 0.08]], 0.006, 0.003), 0xe8e0cc, LX + 0.02, WY - 0.06, GZ + 0.13, HALF_PI + 0.3, 0, 0.2);
+        }
         rangedBows(b, LX, WY, GZ, tx, ty, tz, GOLD);
         b.variant(null);
         const half = BOW_TIP[2] - GZ;
@@ -15026,6 +15424,7 @@
       rig.post = playerPost;
       rig.late = playerLate;
       rig.gearJ = GEAR_JOINT.map((n) => rig.J[n]);
+      if (aiwOn()) aiwGear(); // AI 武器（&aiwpn=1）：机炮的枪口挂点、左手托的位置，战锤左手能握的范围
       // 手臂两节的绑定数据（双手武器的左手 / 动作里给定手的位置时用解析 IK 求肩肘角度）
       const pv = (n) => rig.joints[rig.JI[n]];
       const armData = (ua, fa, h, w) => {
@@ -20330,11 +20729,14 @@
       pack: 'boss-behemoth',
       alias: { slam: 'slam', charge: 'slam', ring: 'starfall', spiral: 'starfall', fan: 'sweep', barrage: 'starfall', summon: 'gravity', cross: 'slam' },
       reach: 3.6, emb: [4.0, 1.0, 6],
-      sock: { weapon: ['x_jaw', 0, -0.2, 0.85], hand: ['x_fleg_l_03', 0, -0.1, 0.1], head: ['head', 0, 0.5, 0.3], chest: ['x_star', 0, 0, 0] },
+      // ai3d-bosses：AI 外观的嘴短一截，吐息的口（武器挂点）从下颌往前 0.85 改成 0.45（落在星的前面；只管特效的出处，模拟不读挂点）
+      sock: { weapon: ['x_jaw', 0, -0.1, 0.45], hand: ['x_fleg_l_03', 0, -0.1, 0.1], head: ['head', 0, 0.5, 0.3], chest: ['x_star', 0, 0, 0] },
       hitJ: ['spine_03', 'head'], feet: ['x_fleg_l_03', 'x_fleg_r_03', 'x_hleg_l_03', 'x_hleg_r_03'], core: 'x_star',
       heatW: ['starfall_w', 'gravity_w', 'sweep_w', 'slam_w'], heatS: ['starfall', 'slam'], heatP: ['gravity'], heatH: ['sweep'],
       // 裂谷的主光偏暖白（0xfff2e0）：中性的玄武岩皮甲在里面发土黄。躯体染色往冷里收一点、自发光换成很淡的中性色，进游戏是中性的石墨灰
       emis: [0x3e3a38, 0.12], tint: 0xdce4ec,
+      // ai3d-bosses：外观换成 AI 生成的巨兽（art/ai/boss_rig.py，带反照率贴图）；低画质用同一个包里的减面版 behemoth_lo（不超过原来的 4240 个三角形）
+      lo: 'behemoth_lo',
     },
     // boss-weaver：霜织者。胸口的霜结（x_core）是芯：四招蓄力时越来越亮，扇形 / 召唤 / 冰环出手那一下最亮，落冰指挥的时候一直亮着（heatH）；
     // 武器挂点 = 右手指尖（扇形甩出去的那只手），手 = 左手指尖。原来的程序化外观没有火星（bossEmbers），这里也不放（emb 不写）
@@ -20377,7 +20779,8 @@
       pack: 'boss-warden',
       alias: { cross: 'cross', barrage: 'barrage', charge: 'charge', ring: 'ring', slam: 'cross', fan: 'barrage', spiral: 'ring', summon: 'barrage' },
       reach: 3.4, emb: [4.4, 1.3, 5],
-      sock: { weapon: ['hand_r', 0, 0, 0.75], hand: ['hand_l', 0, 0, 0.75], head: ['x_eye', 0, 0, 0.1], chest: ['x_column', 0, 1.6, 0.62] },
+      // ai3d-bosses：AI 外观的护手是竖着的（拳头在护腕下面），挂点从掌心前面挪到拳头（只管特效的出处，模拟不读挂点）
+      sock: { weapon: ['hand_r', 0, -0.85, 0.15], hand: ['hand_l', 0, -0.85, 0.15], head: ['x_eye', 0, 0, 0.1], chest: ['x_column', 0, 1.6, 0.62] },
       hitJ: ['head', 'x_column'], core: 'x_eye',
       heatW: ['cross_w', 'barrage_w', 'charge_w', 'ring_w'], heatS: ['cross', 'charge', 'ring'], heatH: ['barrage'],
       rings: [['x_ring_a', 1.3], ['x_ring_b', -1.8], ['x_orbit', -0.55]],
@@ -20390,6 +20793,8 @@
       // 缺省的暖色自发光把灰白石烧成粉橙：换成很淡的中性色。T35：染色和自发光都往冷里收（柱身读成雷鸣遗迹立柱那种淡石色）；
       // 饱和的黄铜只留在领环、眼匣、两根短杆上（两道环、柱身的箍、护盾板顶、护腕和指节改成冷灰 / 暗铁，见 art/ca/boss/warden.py）
       emis: [0x383c40, 0.14], tint: 0xd8dee6,
+      // ai3d-bosses：外观换成 AI 生成的监察者（art/ai/boss_rig.py，带反照率贴图）；低画质用同一个包里的减面版 warden_lo（不超过原来的 4860 个三角形）
+      lo: 'warden_lo',
     },
   };
   // 调色板行 → 表面（粗糙度 / 金属度），行号见 art/ca/palette.py（13 板岩在首领身上只有霜织者的霜丝袍子 / 霜纱用：按布；19–21 是熄烛者的灰烬袍 / 蜡 / 熏黑的玻璃）
@@ -20576,7 +20981,8 @@
         if (ent.ringK === undefined) { ent.ringK = 1; ent.ringA = [0, 0, 0]; }
         ent.ringK += (want - ent.ringK) * Math.min(1, dt * 6);
         for (let i = 0; i < ringJ.length; i++) {
-          ent.ringA[i] += dt * sp.rings[i][1] * ent.ringK;
+          // 画面时钟被工具定住（W.debugTime，开场烘焙）时环 / 护盾板停在静止角度：转角是按帧累加的，烘焙前跑过的帧数每次不一样
+          ent.ringA[i] = debugFrozen ? 0 : ent.ringA[i] + dt * sp.rings[i][1] * ent.ringK;
           o[ringJ[i] + 1] += ent.ringA[i];
         }
         const sc = n === 'ring_w' ? 1 - 0.16 * k : n === 'ring' ? (k < c.k0 ? 0.84 + 0.41 * smooth01(k / c.k0) : 1 + 0.25 * (1 - smooth01((k - c.k0) / 0.5))) : 1;
@@ -20729,11 +21135,13 @@
     if (!ent.echo) bossLook(ent);
     if (W.onBossSwap) W.onBossSwap(ent);
   }
+  let debugFrozen = false; // W.debugTime 调过以后为真（只有工具调）
   // 工具用（tools/story 的烘焙）：把画面时钟（着色器的 uTime：发光圈的呼吸、水面、火光闪烁）定到给定值。
   // 页面刚打开、模拟还没停住之前跑过的实时帧数每次不一样，不定住的话两次烘出来的发光强度不同。游戏本身不调用
   W.debugTime = function (t) {
     wtime = t;
     uTime.value = t;
+    debugFrozen = true;
   };
   W.debugBossPack = function (on) {
     bossPackOff = !on;
@@ -21160,6 +21568,33 @@
   function thrallBowRig() {
     return thrallMake(true);
   }
+  // AI 生成的剑和盾（ai3d-enemies，kit-aithrall 包，index.html 同步引入）：几何体都在包里才用，缺一件就照旧建脚本件。
+  // 武器坐标（长轴 +y、刃宽 / 盾面横向 +x、厚度 / 盾面朝向 +z，原点在握把 / 盾心）换算到仆从骨架的绑定坐标：
+  //   剑：手（hR），和脚本件一样握把沿 +z、刃面竖着（刃宽沿 +y）；盾：前臂外侧（faL），盾面朝 +x
+  let athSt = 0;
+  const ATH_KEYS = ['ca/aithrall_sword', 'ca/aithrall_sword_lo', 'ca/aithrall_shield', 'ca/aithrall_shield_lo'];
+  function athOn() {
+    if (!athSt) {
+      athSt = 2;
+      if (!window.CA_OLD_ENEMY && G.assets && G.assets.known && G.assets.known('kit-aithrall')) {
+        G.assets.need(['kit-aithrall']);
+        if (ATH_KEYS.every((k) => G.assets.geo(k))) athSt = 1;
+      }
+    }
+    return athSt === 1;
+  }
+  W.athState = () => (athSt === 1 ? 'on' : athSt === 2 ? 'fallback' : 'unused');
+  function athGear(b, WX, WY, WZ) {
+    const lo = qualId === 'low' ? '_lo' : '';
+    const sw = aiwSplit('ca/aithrall_sword' + lo, (x, y, z, o) => { o[0] = WX + z; o[1] = WY + x; o[2] = WZ + 0.02 + y; }, true);
+    b.at('hR');
+    for (const nm of ['metal', 'gold', 'leather']) if (sw[nm]) b.surf(SURF[nm], true).p(sw[nm], null, 0, 0, 0);
+    if (sw.glow) b.x(sw.glow, 1, 0, 0, 0); // 刃上那道光随元素变色（W.minionElem），和脚本件血槽里的光一样
+    const sh = aiwSplit('ca/aithrall_shield' + lo, (x, y, z, o) => { o[0] = 0.375 + z; o[1] = 1.03 + y; o[2] = -x; }, true);
+    b.at('faL');
+    for (const nm of ['metal', 'gold', 'leather']) if (sh[nm]) b.surf(SURF[nm], true).p(sh[nm], null, 0, 0, 0);
+    if (sh.glow) b.g(sh.glow, 1.3, 0, 0, 0); // 盾心：魂火誓印
+  }
   function thrallMake(bow) {
     return rigOf(bow ? 'thrallBow' : 'thrall', () => cTry('thrall', (cs) => {
       const BONE = 0xece3cc, BONE_D = 0xa69c86, IRON = 0x7a828e, IRON_D = 0x3d434d, BRONZE = 0xbb8e4c, BRONZE_D = 0x6f5329;
@@ -21246,7 +21681,9 @@
       b.surf(SURF.leather).p(gCyl(0.038, 0.04, 0.04, 8), LEATHER_D, -0.3, 1.075, -0.02);
 
       b.tag('gear'); // 剑和盾 / 弓和箭袋：换成 C 模型时留下
-      if (!bow) {
+      if (!bow && athOn()) {
+        athGear(b, -0.31, 0.85, 0.03);
+      } else if (!bow) {
         // --- 豁口剑：握把沿 +z，刃面竖着；血槽里一道光（随元素变色，见 W.minionElem） ---
         const WX = -0.31, WY = 0.85, WZ = 0.03;
         b.at('hR').surf(SURF.leather).p(gCyl(0.021, 0.023, 0.2, 6), LEATHER_D, WX, WY, WZ + 0.02, HALF_PI);
@@ -22054,6 +22491,21 @@
     lootWarm = true;
     for (const k of Object.keys(LOOT_MODEL)) if (!lootModels[k]) loots.push(W.makeLoot('item', 0xffffff, false, 0, 2, { slot: 'weapon', type: k }));
     lootWarm = false;
+    // AI 武器（&aiwpn=1）：另一档画质的掉落模型也先建好（换画质档以后不再新建几何体）
+    // 两档画质的掉落模型都在这一帧里画一次（都上传到显卡）：开场的画质档和之后换的不一样时（测试、玩家改设置），
+    // 第一次掉到某一种才上传的话，几何体数会按掉落顺序一圈圈往上涨（内存一步）
+    lootWarm = true; // 提灯：预热时不去要 kit-gear 包
+    if (aiwOn())
+      for (const t of AIW_TYPES)
+        if (aiwHas[t])
+          for (const lo of [false, true]) {
+            aiwLoForce = lo;
+            const gear = G.SLOTS.indexOf(t) >= 0;
+            loots.push(W.makeLoot('item', 0xffffff, false, 0, 2, gear ? t : { slot: 'weapon', type: t }));
+            aiwLoForce = null;
+          }
+    lootWarm = false;
+    if (aiwOn()) aiwRelease();
     allyFxVisible(true); // 召唤法阵 / 聚焦标记平时是隐藏的：预热这一帧让它们露个面，着色器一并编译
     warmWeaponFx(true);
     if (ghosts.length) ghosts[0].mesh.visible = true; // 残影（亮度 0）：第一次冲刺 / 一闪时不再现编译着色器
@@ -22279,6 +22731,7 @@
   }
   const lootModels = Object.create(null);
   let lootWarm = false; // warmEntities 正在预热掉落模型
+  let aiwLoForce = null; // AI 掉落模型：预热时强制用哪一档（true = 低画质的 lo），null = 按当前画质
   const WEAPON_MODEL = GEAR_KEYS; // 掉落模型的名字和武器种类同名
   let lootBody = null;
   let lootBodyU = null; // 烬铸武器掉在地上时的本体：带一点余烬自发光
@@ -22304,7 +22757,10 @@
     }
     if (!LOOT_MODEL[key]) key = 'item';
     if (key === 'lantern' && W.lanternNeed && !lootWarm) W.lanternNeed(); // 地上掉了提灯：先把手持的自产模型要过来（class-d2b1）；启动预热时不要
-    const mdl = lootModels[key] || (lootModels[key] = LOOT_MODEL[key]());
+    // AI 武器（&aiwpn=1）：高 / 中画质 hi 档、低画质 lo 档，各缓存一份（启动时两档都在 warmEntities 里建好）
+    const aiLo = aiwLoForce !== null ? aiwLoForce : W.quality() === 'low', aiT = key === 'bow' ? 'eagle' : key; // 旧的 'bow' 就是鹰眼长弓
+    const aiK = aiwOn(aiT) && !(aiLo && AIW_FIT[aiT].loScripted) ? aiT + (aiLo ? '~lo' : '~hi') : null;
+    const mdl = aiK ? lootModels[aiK] || (lootModels[aiK] = aiwLoot(aiT, aiLo)) : lootModels[key] || (lootModels[key] = LOOT_MODEL[key]());
     if (!lootBody) lootBody = new T.MeshStandardMaterial({ vertexColors: true, roughness: 0.42, metalness: 0.45, envMap: rigEnvMap(), envMapIntensity: 0.9, flatShading: true });
     const grp = new T.Group();
     grp.position.set(x, 0, z);
@@ -23779,7 +24235,7 @@
       vsEmit(x + Math.sin(a) * d, 0, z + Math.cos(a) * d, Math.sin(a) * 1e-3, 0, Math.cos(a) * 1e-3, vr(0.5, 0.65), vr(0.42, 0.52), vr(0.5, 0.68), vr(0.15, 0.4));
     }
     if (qualId !== 'low') {
-      vsBrush(VSH.chip, 3, 0, 0xcfeeff, 0xcfeeff, 0.3, 0.45);
+      vsBrush(VSH.ichip, 3, 0, 0xcfeeff, 0xcfeeff, 0.3, 0.45); // ai3d-skills：冰碴用 AI 的冰块
       for (let i = 0; i < 2; i++) {
         const a = vr(0, TAU), v = vr(0.8, 1.8);
         vsEmit(x + Math.sin(a) * r * 0.6, 0.35, z + Math.cos(a) * r * 0.6, Math.sin(a) * v, vr(1, 2.2), Math.cos(a) * v, vr(0.5, 0.7), vr(0.05, 0.08), undefined, vr(0, TAU), vr(6, 10), 16);
@@ -25201,6 +25657,53 @@
       return facetShade(g, 0.3, 1, 0.4, 0.45);
     });
   }
+  // ai3d-skills：AI 生成的技能件（js/assets/skill-pieces.js）→ 几何体：每面三个点（不共用顶点，法线就是面法线）；
+  // s（刻式件的逐面明暗）→ 属性 aS，c（投射物零件的逐面线性 RGB）→ 顶点色。件缺了返回 null（调用方用原来的几何体）。
+  // 建几何体会生成 uuid（three 里调 Math.random）：调用方放在 G.vfx.quiet 里建，不动全局的随机序列
+  function pieceGeo(key) {
+    const r = window.CA_SKILL_PIECES && window.CA_SKILL_PIECES[key];
+    if (!r || !r.p) return null;
+    const g = new T.BufferGeometry();
+    g.setAttribute('position', new T.Float32BufferAttribute(r.p, 3));
+    const n = r.p.length / 9;
+    if (r.s) {
+      const a = new Float32Array(n * 3);
+      for (let i = 0; i < n; i++) a[i * 3] = a[i * 3 + 1] = a[i * 3 + 2] = r.s[i];
+      g.setAttribute('aS', new T.BufferAttribute(a, 1));
+    }
+    if (r.c) {
+      const c = new Float32Array(n * 9);
+      for (let i = 0; i < n; i++) for (let j = 0; j < 3; j++) for (let k = 0; k < 3; k++) c[i * 9 + j * 3 + k] = r.c[i * 3 + k];
+      g.setAttribute('color', new T.BufferAttribute(c, 3));
+    }
+    g.computeVertexNormals();
+    return g;
+  }
+  // 投射物零件 shard（法杖的冰片、凛冬箭的冰棱）：高 / 中画质用 AI 的冰棱（60 面），低画质用它的减面版（36 面，和原来的拼件一样多）。
+  // 原来的拼件照旧先建（建的先后、消耗的随机数不变），AI 的在 quiet 里建；画质切换时 W.pieceLod 换几何体
+  let pfShardHi = null, pfShardLo = null;
+  function pfShardGeo() {
+    const old = shardGeo();
+    G.vfx.quiet(() => {
+      const hi = pieceGeo('shardPf'), lo = pieceGeo('shardPfLo');
+      if (hi && lo) {
+        pfShardHi = facetShade(hi, 0.3, 1, 0.4, 0.45);
+        pfShardLo = facetShade(lo, 0.3, 1, 0.4, 0.45);
+      }
+    });
+    return pfShardHi ? (qualId === 'low' ? pfShardLo : pfShardHi) : old;
+  }
+  // 画质切换：AI 技能件换档（刻式件 shard：低画质用原来的 8 面八面体；投射物零件 shard：低画质 36 面）
+  W.pieceLod = function () {
+    const lo = qualId === 'low';
+    if (pfShardHi && PF.shard) PF.shard.mesh.geometry = lo ? pfShardLo : pfShardHi;
+    const K = kvKinds.shard;
+    if (K && kvShardHi) {
+      const g = lo ? kvShardLo : kvShardHi, ig = K.mesh.geometry;
+      ig.index = g.index;
+      for (const k of ['position', 'normal', 'aS']) ig.setAttribute(k, g.getAttribute(k));
+    }
+  };
   // fx：这个零件用特效着色器（js/vfx.js），几何体复制一份挂上逐实例的 aFx（消融进度、种子、亮度、种类）
   function pfPart(name, geom, mat, cap, order, fx) {
     if (fx) geom = G.vfx.quiet(() => geom.clone());
@@ -25266,7 +25769,7 @@
     pfPart('dart', gOct(1), pfSolid, 64, 0);
     pfPart('ring', geo('projRing', () => new T.TorusGeometry(1.75, 0.2, 5, 14)), pfSolid, 200, 0);
     pfPart('blade', bladeGeo(), vc, 64, 0);
-    pfPart('shard', shardGeo(), vc, 64, 0);
+    pfPart('shard', pfShardGeo(), vc, 64, 0); // ai3d-skills：AI 的冰棱（低画质减面版）
     pfPart('blur', gQuad(), add(swooshTex(), T.DoubleSide), 64, 4);
     // vf-vfx：光晕零件换成特效贴图库的多用途材质（js/vfx.js 的 V.multi），命中的火团 / 烟 / 火花 / 冲击环 / 斩击弧 / 电弧序列帧也画在这里（W.fxFlip），不多占 draw call
     glowTex(); // 光晕贴图照旧在这里先建好（陨石的光晕精灵还用它；建的先后不变，全局随机序列和原来一致）
@@ -25309,7 +25812,7 @@
     rangedPfInit(add, vc, flameQuad, quad);
     vdInit();
     // vf-vfx2：形状批（新加的对象在 quiet 里建，不消耗全局随机数）
-    G.vfx.quiet(() => pfPart('vShape', G.vfx.shapeGeo(), G.vfx.shapeMat(), 400, 0, true));
+    G.vfx.quiet(() => pfPart('vShape', G.vfx.shapeGeo(renderer), G.vfx.shapeMat(), 400, 0, true));
 
     // vf-vfx3：掉落物的地面细环 / 光柱 / 柱顶菱形（见 W.makeLoot、lootPfDraw）。实色、不受光、不进雾；光柱的明暗用顶点色画死（下暗、中段最亮、尖上收暗）
     G.vfx.quiet(() => {
@@ -26650,6 +27153,15 @@
       _b3q.setFromEuler(_b3e);
       _pm.compose(_b3p.set(x, y, z), _b3q, _b3s.set(sx, sy, sz));
     };
+    if (G.vfx.shapeSlots) {
+      // ai3d-skills：AI 的雷桩（晶柱 + 底座两个形状，各一个实例；原来是三根晶柱 + 三块暗石 = 六个）。形状高 0.9、xz 按米，y 乘柱高：
+      // 柱尖在 0.9 × 柱高，顶上发光的小球（刻式件 orb，y = 2.35）和柱尖之间留一道缝
+      pose(h.x, 0, h.z, 0, 0.4, 0, 1, hgt, 1);
+      vsNow(VSH.pylon, _b3c.r, _b3c.g, _b3c.b, 0.12, 0.45, 0);
+      pose(h.x, 0, h.z, 0, 0.4, 0, 1, Math.min(hgt, 2.3), 1); // 底座不跟着柱子长高（收起时一起缩回地里）
+      vsNow(VSH.pylonBase, 0.07, 0.065, 0.07, 0, 0.4, 0);
+      return;
+    }
     pose(h.x, 0, h.z, 0, 0.4, 0, 0.62, hgt, 0.62);
     vsNow(VSH.crystal, _b3c.r, _b3c.g, _b3c.b, 0.12, 0.45, 0);
     if (!lo) {
@@ -27328,7 +27840,7 @@
       vsEmit(px, 0, pz, ox * 1e-3, 0, oz * 1e-3, vr(0.5, 0.62), vr(0.34, 0.44) * k, vr(0.8, 1.05) * k, vr(0.25, 0.55));
     }
     if (!lo) {
-      vsBrush(VSH.chip, 3, 0, 0xcfeeff, 0x8cc4e0, 0.2, 0.45);
+      vsBrush(VSH.ichip, 3, 0, 0xcfeeff, 0x8cc4e0, 0.2, 0.45);
       for (let j = 0; j < 2; j++) {
         const a = vr(0, TAU), v = vr(0.8, 1.6);
         vsEmit(cx + Math.sin(a) * half * 0.5, 0.5, cz + Math.cos(a) * half * 0.5, Math.sin(a) * v, vr(1.2, 2.2), Math.cos(a) * v, vr(0.55, 0.75), vr(0.05, 0.08), undefined, vr(0, TAU), vr(6, 10), 16);
@@ -27357,21 +27869,23 @@
   // 一根冰凌从 6 米高斜着落下（细长的冰晶顺着速度拉长），fall 秒到地
   W.icicleFall = function (px, pz, hr, fall) {
     const H = 6, dx = 0.9, vx = -dx / fall, vy = -H / fall;
-    vsBrush(VSH.crystal, 0, 2, 0xb8e4f8, 0x86c4e2, 0.25, 0.5, 0.7);
+    vsBrush(VSH.icicle, 0, 2, 0xb8e4f8, 0x86c4e2, 0.25, 0.5, 0.7); // ai3d-skills：AI 的冰凌（尖朝本地 +y，顺着速度往下）
     vsEmit(px + dx, H, pz, vx, vy, 0, fall, 0.24, 1.05); // 看图后加粗加长：原来在游戏镜头里几乎看不见
   };
   // 冰凌落地：一颗很小的亮芯（≤ 0.6 米、40 毫秒）+ 4 块冰碴弹开（低画质 2 块）+ 脚边一根矮冰晶；地上冻痕（低画质不铺）
   W.icicleLand = function (px, pz, hr) {
     const lo = qualId === 'low';
     tChunk(1, px, 0.35, pz, 0, 0, 0, 0.04, 0.5, 0xe8f8ff, 0xb8e4f8, 0);
-    vsBrush(VSH.chip, 3, 0, 0xcfeeff, 0x7fb4cc, 0.25, 0.45);
+    vsBrush(VSH.ichip, 3, 0, 0xcfeeff, 0x7fb4cc, 0.25, 0.45);
     for (let i = 0, n = lo ? 2 : 4; i < n; i++) {
       const a = vr(0, TAU), v = vr(1.4, 2.8);
       vsEmit(px, 0.3, pz, Math.sin(a) * v, vr(1.5, 3), Math.cos(a) * v, vr(0.45, 0.65), vr(0.05, 0.09), undefined, vr(0, TAU), vr(6, 12), 18);
     }
-    vsBrush(VSH.crystal, 6, 0, 0x8ccbea, 0x5aa6d2, 0.2, 0.55, 0.6);
+    // ai3d-skills：脚边那根矮冰晶换成 AI 的冰簇（半径是冰晶的 1.4 倍，宽度乘 0.7 保持原来的占地）；退回合并几何体时 cluster = 冰晶，宽度照旧
+    const cl = G.vfx.shapeSlots ? 0.7 : 1;
+    vsBrush(VSH.cluster, 6, 0, 0x8ccbea, 0x5aa6d2, 0.2, 0.55, 0.6);
     const a = vr(0, TAU);
-    vsEmit(px, 0, pz, Math.sin(a) * 1e-3, 0, Math.cos(a) * 1e-3, vr(0.45, 0.6), 0.3, vr(0.45, 0.6), vr(0.2, 0.45));
+    vsEmit(px, 0, pz, Math.sin(a) * 1e-3, 0, Math.cos(a) * 1e-3, vr(0.45, 0.6), 0.3 * cl, vr(0.45, 0.6), vr(0.2, 0.45));
     if (!lo) W.vDecal(VVD.frost, px, pz, hr * 0.8, 1.6, 0x7fb4cc, { a: 0.5 });
   };
   // 迸电：胸口一颗很小的亮芯（≤ 1 米、50 毫秒）；8 根折线从身上往外放射到 R（低画质 5 根），隔帧闪灭；外沿只是折线的尽头，没有圆盘；
@@ -27431,7 +27945,7 @@
   // 冰枪扎中：一颗很小的亮芯（≤ 0.45 米、40 毫秒）+ 两块冰碴（低画质 1 块）
   W.lanceTip = function (x, z, hex) {
     tChunk(1, x, 0.7, z, 0, 0, 0, 0.04, 0.45, 0xe8f8ff, 0xb8e4f8, 0);
-    vsBrush(VSH.chip, 3, 0, 0xcfeeff, 0x7fb4cc, 0.2, 0.45);
+    vsBrush(VSH.ichip, 3, 0, 0xcfeeff, 0x7fb4cc, 0.2, 0.45);
     for (let i = 0, n = qualId === 'low' ? 1 : 2; i < n; i++) {
       const a = vr(0, TAU), v = vr(1.2, 2.2);
       vsEmit(x, 0.6, z, Math.sin(a) * v, vr(1.5, 2.6), Math.cos(a) * v, vr(0.45, 0.6), vr(0.05, 0.08), undefined, vr(0, TAU), vr(6, 12), 18);
@@ -27441,7 +27955,7 @@
   W.icicleSlamFall = function (x, z, R, fall) {
     const H = 7, dx = 1.2;
     // 看图后：整根浅色冰晶压在怪身上太亮 → 中间调的冰蓝、亮芯比例压低（落下只有 0.3 秒）
-    vsBrush(VSH.crystal, 0, 2, 0x8cc4e0, 0x6aa2c4, 0.12, 0.6, 0.7);
+    vsBrush(VSH.icicle, 0, 2, 0x8cc4e0, 0x6aa2c4, 0.12, 0.6, 0.7);
     vsEmit(x + dx, H, z, -dx / fall, -H / fall, 0, fall, 0.5, 2.3);
   };
   // 重凌落地：中间一颗小亮芯（≤ 0.6 米、50 毫秒）；冰晶只沿外沿一圈朝外斜立（只画边，低画质 6 根），冰碴往外弹；
@@ -27455,7 +27969,7 @@
       const a = a0 + (i / n) * TAU, sa = Math.sin(a), ca = Math.cos(a), r = R * vr(0.75, 0.92);
       vsEmit(x + sa * r, 0, z + ca * r, sa * 1e-3, 0, ca * 1e-3, vr(0.6, 0.8), vr(0.3, 0.4), vr(0.7, 0.95), vr(0.35, 0.6));
     }
-    vsBrush(VSH.chip, 3, 0, 0xcfeeff, 0x7fb4cc, 0.2, 0.45);
+    vsBrush(VSH.ichip, 3, 0, 0xcfeeff, 0x7fb4cc, 0.2, 0.45);
     for (let i = 0, m = lo ? 4 : 8; i < m; i++) {
       const a = vr(0, TAU), v = vr(2, 4);
       vsEmit(x, 0.4, z, Math.sin(a) * v, vr(2, 3.5), Math.cos(a) * v, vr(0.5, 0.7), vr(0.06, 0.1), undefined, vr(0, TAU), vr(6, 12), 18);
@@ -28777,6 +29291,27 @@
   }
   const _tuQ = new T.Quaternion(), _tuE = new T.Euler(), _tuP = new T.Vector3(), _tuS = new T.Vector3(), _tuC = new T.Color();
   // 熔光炮台：三条短腿 + 矮六棱炮座 + 一根横着的炮管（形状批）、炮口一小团余烬光；有目标时沿炮管喷一道细射线
+  // ai3d-turret：AI 生成的炮台（形状批的 turret 炮座 + 腿、turretHead 炮头、turretBarrel 炮管，三个实例；原来的拼件是 9 个，低画质 7 个）。整座跟着 ang 转（炮管朝 +z）。
+  // 看图后（编排者）：炮管要一眼看出指向哪里 → 炮管单独一块、余烬色（和原来拼件的橙色炮管一样当方向提示），炮头两侧的凸耳和后面的长筒在导入时削掉；
+  // 身子是暗铁，靠受光的棱（亮芯量）和余烬色炮管跟地面拉开，不整体提亮。射线从炮管口起（CA_SKILL_PIECES.turretBarrel.muzzle，炮台本地坐标）；
+  // 退回合并几何体（没有槽位布局）时照旧画拼件
+  const SP_ = window.CA_SKILL_PIECES || {};
+  const TU_AI = SP_.turret && SP_.turretHead && SP_.turretBarrel && SP_.turretBarrel.muzzle ? SP_.turretBarrel.muzzle : null;
+  const TU_BK = 1.8; // 炮管沿炮管方向拉长的倍数（从炮管根部拉，根部不动）：游戏镜头 1.0× 下要读得出指向
+  function drawTurretAI(h, dt, sc, sn, cs, lo, kl) {
+    const fire = h.on && h.len > 0, B = SP_.turretBarrel, z0 = B.z0;
+    tuPose(h.x, 0, h.z, 0, h.ang, 0, sc, sc, sc);
+    _tuC.set(0x7e7064).convertSRGBToLinear(); // 铁灰（比原来那版的沙色暗，靠受光的棱和余烬色炮管跟地面拉开）
+    vsNow(VSH.turret, _tuC.r, _tuC.g, _tuC.b, 0.4, 0.45, 0); // 亮芯量给受光的棱（色阶 1 的面）
+    vsNow(VSH.turretHead, _tuC.r, _tuC.g, _tuC.b, 0.4, 0.45, 0);
+    const back = -z0 * (TU_BK - 1) * sc; // 拉长以后把根部挪回原位
+    tuPose(h.x + sn * back, 0, h.z + cs * back, 0, h.ang, 0, sc, sc, sc * TU_BK);
+    _tuC.set(0xb0561e).convertSRGBToLinear(); // 余烬色的炮管：开火时亮芯更热（射线仍是最亮的东西）
+    vsNow(VSH.turretBarrel, _tuC.r * kl, _tuC.g * kl, _tuC.b * kl, fire ? 0.38 : 0.18, 0.4, 0);
+    // 炮口：拉长后的炮管口再往前 0.04 米
+    const mz0 = ((TU_AI[2] - z0) * TU_BK + z0 + 0.04) * sc, mx0 = TU_AI[0] * sc;
+    return turretBeam(h, dt, sc, sn, cs, lo, kl, h.x + mx0 * cs + mz0 * sn, TU_AI[1] * sc, h.z - mx0 * sn + mz0 * cs);
+  }
   function tuPose(x, y, z, rx, ry, rz, sx, sy, sz) {
     _tuE.set(rx, ry, rz, 'YXZ');
     _tuQ.setFromEuler(_tuE);
@@ -28793,6 +29328,7 @@
       pose(h.x, 0.05, h.z, -HALF_PI, 0, 0, 0.62 * sc, 0.62 * sc, 1);
       vsNow(VSH.ring, 0.42 * kl, 0.14 * kl, 0.03 * kl, 0.2, 0.3, 0.75);
     }
+    if (G.vfx.shapeSlots && TU_AI) return drawTurretAI(h, dt, sc, sn, cs, lo, kl);
     // 腿：三块压扁的碎石（暗铁），往外撇
     for (let i = 0; i < 3; i++) {
       const a = (i / 3) * TAU + h.ang + 0.5;
@@ -28819,7 +29355,11 @@
       }
     }
     // 炮口：小团余烬光（开火时亮一些、一跳一跳）
-    const mx = bx + sn * bl * 0.9, mz = bz + cs * bl * 0.9;
+    return turretBeam(h, dt, sc, sn, cs, lo, kl, bx + sn * bl * 0.9, by, bz + cs * bl * 0.9);
+  }
+  // 炮口的光团 + 射线（拼件炮台和 AI 炮台共用；mx / by / mz 是炮口的世界坐标）
+  function turretBeam(h, dt, sc, sn, cs, lo, kl, mx, by, mz) {
+    const fire = h.on && h.len > 0;
     h.k += ((fire ? 1 : 0) - h.k) * Math.min(1, dt * 12);
     const fl = 0.85 + 0.15 * Math.sin(wtime * 41 + h.side * 2);
     mBill(mx, by, mz, (0.22 + 0.18 * h.k) * fl * sc);
@@ -31053,6 +31593,7 @@
   // =====================================================================
   const KV_MAX = 40;
   const kvKinds = {};
+  let kvShardHi = null, kvShardLo = null; // ai3d-skills：刻式件 shard 的两档几何体（W.pieceLod 换）
   const KV_SOLID = { spike: 1, blade: 1, orb: 1, shard: 1, rock: 1 };
   function kvGeo(kind) {
     let g;
@@ -31079,6 +31620,15 @@
     else if (kind === 'shard') {
       g = new T.OctahedronGeometry(0.5, 0);
       g.scale(0.55, 1.6, 0.55);
+      // ai3d-skills：高 / 中画质换成 AI 的冰棱（60 面，同样中心在原点、长轴 ±0.8、横向半径约 0.3，每面带明暗倍数 aS）；
+      // 低画质还是这个八面体（aS 全是 1）。AI 的在 quiet 里建（原来的照旧先建，随机序列不变）
+      const ai = G.vfx.quiet(() => pieceGeo('shardKv'));
+      if (ai) {
+        g.setAttribute('aS', new T.BufferAttribute(new Float32Array(g.getAttribute('position').count).fill(1), 1));
+        kvShardLo = g;
+        kvShardHi = ai;
+        g = qualId === 'low' ? g : ai;
+      }
     } else if (kind === 'rock') {
       g = new T.DodecahedronGeometry(0.5, 0);
       const p = g.getAttribute('position');
@@ -31096,8 +31646,14 @@
     return g;
   }
   const KV_VERT = [
-    'attribute vec3 aC; attribute float aA; attribute float aK; varying vec3 vC; varying float vA; varying float vK; varying vec3 vN; varying vec3 vV; varying vec2 vUv; varying float vY;',
-    'void main(){ vC = aC; vA = aA; vK = aK; vUv = uv; vY = position.y;',
+    'attribute vec3 aC; attribute float aA; attribute float aK; varying vec3 vC; varying float vA; varying float vK; varying vec3 vN; varying vec3 vV; varying vec2 vUv; varying float vY; varying float vS;',
+    '#ifdef KV_SHADE',
+    'attribute float aS;', // ai3d-skills：AI 件的逐面明暗倍数
+    '#endif',
+    'void main(){ vC = aC; vA = aA; vK = aK; vUv = uv; vY = position.y; vS = 1.0;',
+    '#ifdef KV_SHADE',
+    '  vS = aS;',
+    '#endif',
     '  vec4 wp = modelMatrix * instanceMatrix * vec4(position, 1.0);',
     '  vN = normalize(mat3(modelMatrix * instanceMatrix) * normal); vV = normalize(cameraPosition - wp.xyz);',
     '  gl_Position = projectionMatrix * viewMatrix * wp; }',
@@ -31105,10 +31661,10 @@
   const KV_FRAG = {
     // 实心件：两档明暗（亮面 / 暗面）+ 边光，k 往白里提
     solid: [
-      'varying vec3 vC; varying float vA; varying float vK; varying vec3 vN; varying vec3 vV;',
+      'varying vec3 vC; varying float vA; varying float vK; varying vec3 vN; varying vec3 vV; varying float vS;',
       'void main(){ vec3 n = normalize(vN); float l = dot(n, normalize(vec3(0.35, 0.85, 0.4)));',
       '  float band = l > 0.25 ? 1.0 : 0.62; float rim = 1.0 - abs(dot(n, normalize(vV))); rim = rim > 0.62 ? 0.35 : 0.0;',
-      '  vec3 c = vC * band + vec3(rim); c = mix(c, vec3(1.0), clamp(vK, 0.0, 1.0) * 0.75);',
+      '  vec3 c = vC * vS * band + vec3(rim); c = mix(c, vec3(1.0), clamp(vK, 0.0, 1.0) * 0.75);',
       '  gl_FragColor = vec4(c, 1.0); }',
     ].join('\n'),
     // 护域的罩子：菲涅尔的边 + 顶上稀疏的经线，越往下越亮（贴地的一圈最亮）
@@ -31157,14 +31713,14 @@
     const g = kvGeo(kind);
     const ig = new T.InstancedBufferGeometry();
     ig.index = g.index;
-    for (const k of ['position', 'normal', 'uv']) if (g.getAttribute(k)) ig.setAttribute(k, g.getAttribute(k));
+    for (const k of ['position', 'normal', 'uv', 'aS']) if (g.getAttribute(k)) ig.setAttribute(k, g.getAttribute(k));
     const aC = new T.InstancedBufferAttribute(new Float32Array(KV_MAX * 3), 3), aA = new T.InstancedBufferAttribute(new Float32Array(KV_MAX), 1), aK = new T.InstancedBufferAttribute(new Float32Array(KV_MAX), 1);
     ig.setAttribute('aC', aC);
     ig.setAttribute('aA', aA);
     ig.setAttribute('aK', aK);
     const solid = !!KV_SOLID[kind];
     const mat = new T.ShaderMaterial({
-      uniforms: G.vfx.uni({ uTime }), vertexShader: KV_VERT, fragmentShader: solid ? KV_FRAG.solid : KV_FRAG[kind],
+      uniforms: G.vfx.uni({ uTime }), vertexShader: KV_VERT, fragmentShader: solid ? KV_FRAG.solid : KV_FRAG[kind], defines: g.getAttribute('aS') ? { KV_SHADE: '' } : {},
       transparent: !solid, depthWrite: solid, toneMapped: false, fog: false, side: solid ? T.FrontSide : T.DoubleSide,
       blending: solid ? T.NormalBlending : T.AdditiveBlending,
     });
@@ -32645,6 +33201,16 @@
       if (G.ui && G.ui.refresh && G.ui.isOpen && G.ui.isOpen()) G.ui.refresh();
     }
   }
+  // ai3d-skills：形状批第一次画过以后查一次槽位布局的着色器（js/vfx.js 的 shapeProbe），不行就换回合并几何体（实例属性 aFx 挂到新几何体上）
+  let vshChecked = false;
+  function vshCheck() {
+    vshChecked = true;
+    const g = G.vfx.quiet(() => G.vfx.shapeProbe(renderer, PF.vShape.mesh));
+    if (g) {
+      g.setAttribute('aFx', PF.vShape.fx);
+      PF.vShape.mesh.geometry = g;
+    }
+  }
   W.render = function () {
     zoneFrames++;
     autoQualityWatch();
@@ -32652,6 +33218,7 @@
     if (post.ok && qual.post) post.composer.render();
     else if (post.fx && qual.fxaa) post.fx.render();
     else renderer.render(scene, camera);
+    if (!vshChecked && PF.vShape && PF.vShape.mesh.visible) vshCheck();
     // 画面测试开着、标题画面盖着时（t45，style.css 的 html.title-on.t-probe-on）叠加层只画色带：小地图、血条这些标题画面本来就不显示
     if (W.probe && document.documentElement.classList.contains('title-on')) {
       octx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -33196,7 +33763,7 @@
     if (model) {
       // 模型上的琥珀小灯：上膛前暗（灯窝里一点暗橙），上膛那一下闪一次，之后一直亮着一点（不闪个不停）
       const armK = m.arm > 0 ? 0 : Math.max(0, 1 - (-m.arm) / 0.25);
-      mPose(m.x, 0.155, m.z, _pqI, 0.065, 0.04, 0.065);
+      mPose(m.x, 0.21, m.z, _pqI, 0.065, 0.04, 0.065); // ai3d-skills：AI 的绊雷中间的灯钮顶在 0.218 米（原来的脚本件灯窝在 0.155）
       d2bLin(m.arm > 0 ? 0x5a2808 : 0xff9a28, (m.arm > 0 ? 0.6 : 0.9) * fade);
       vsNow(VSH.chip, _dc.r, _dc.g, _dc.b, m.arm > 0 ? 0 : 0.12 + armK * 0.6, 0, 0); // 琥珀色：平时只留一点亮芯，上膛那 0.25 秒闪亮一下
       if (m.arm <= 0) {

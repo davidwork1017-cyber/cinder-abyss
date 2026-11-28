@@ -34,15 +34,15 @@
     }
   },
   "packs": {
-    "chars": { "chars": { "adventurer": "quaternius-modular-men/Adventurer.glb", "zombie": "quaternius-animated-zombie/Zombie.glb", "skeleton": "quaternius-animated-monster/Skeleton.glb", "spider": "quaternius-easy-enemy/Spider.glb", "ual": "ual/ual-clips.glb" } },
+    "chars": { "chars": { "aihero_hi": "ai/hero/hero.glb", "aihero_lo": "ai/hero/hero_lo.glb", "aihusk_hi": "ai/enemy/husk.glb", "aihusk_lo": "ai/enemy/husk_lo.glb", "aithrall_hi": "ai/enemy/thrall.glb", "aithrall_lo": "ai/enemy/thrall_lo.glb", "adventurer": "quaternius-modular-men/Adventurer.glb", "zombie": "quaternius-animated-zombie/Zombie.glb", "skeleton": "quaternius-animated-monster/Skeleton.glb", "spider": "quaternius-easy-enemy/Spider.glb", "ual": "ual/ual-clips.glb" } },
     "ground": { "textures": ["g_decals"] },
     "kit-ash": { "kit": "ash" },
     "boss-golem": { "boss": "golem", "lo": "golem_lo" },
     "boss-lord": { "boss": "lord" },
-    "boss-behemoth": { "boss": "behemoth" },
+    "boss-behemoth": { "boss": "behemoth", "lo": "behemoth_lo" },
     "boss-weaver": { "boss": "weaver" },
     "boss-snuffer": { "boss": "snuffer" },
-    "boss-warden": { "boss": "warden" },
+    "boss-warden": { "boss": "warden", "lo": "warden_lo" },
     "zone-ash": { "textures": ["p_mud", "p_burn", "p_rock", "g_cover_ash"], "with": ["kit-ash"] },
     "kit-frost": { "kit": "frost" },
     "zone-frost": { "textures": ["p_ice", "p_snow", "p_frock", "g_cover_frost", "frost_waystone"], "with": ["kit-frost"] },
@@ -53,6 +53,8 @@
     "zone-abyss": { "textures": ["p_basalt", "p_cinder", "p_drock", "g_cover_abyss"], "with": ["kit-abyss", "kit-crown"] },
     "kit-rift": { "kit": "rift" },
     "kit-gear": { "kit": "gear" },
+    "kit-aithrall": { "kit": "aithrall", "_comment": "AI 生成的烬骸仆从剑和盾（ai3d-enemies）：index.html 同步引入（仆从骨架第一次建的时候就要）" },
+    "kit-aiwpn": { "kit": "aiwpn", "_comment": "AI 生成的武器（ai3d-weapons 试点）：试验开关 &aiwpn=1 时由 index.html 同步引入，默认不加载" },
     "zone-rift": { "textures": ["p_glass", "p_regol", "p_slate", "g_cover_rift"], "with": ["kit-rift"] },
     "vfx": { "images": { "noiseA": "vfx/noise-a.png", "noiseB": "vfx/noise-b.png", "ramps": "vfx/ramps.png", "flipA": "vfx/flip-a.png", "flipB": "vfx/flip-b.png" } }
   }

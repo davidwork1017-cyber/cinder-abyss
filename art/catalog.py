@@ -108,6 +108,64 @@ CATALOG = [
     # 顶点色只烘 AO（明暗渐变压到最小、不加磨损 / 污垢：生成的贴图里已经画了）。按面量化到调色板的 vc 外观试过（审核时对照），读成一根黑柱子，没用 ----
     dict(id='ca/frost_waystone', gen='ai', seed=1126, cat='aiprop', zone='frost', ship=True, replaces=None, args=dict(prov='assets/ai/frost_waystone/provenance.json', lod='hi', mode='albedo'),
          bake=dict(ao=0.25, grad=0.01, wear=0.0, grime=0.0, gtint=0.0), finish=dict(dust=0.0, cues=False)),
+    # ---- AI 生成的武器（ai3d-weapons，试点 4 种）：gen='ai'、外观 fc（art/ai/weapon.py：逐面取色、发光面拆出来按稀有度着色，不带贴图），参数和来源在 assets/ai/wpn_<种>/provenance.json。
+    # 坐标：长轴 +y（glTF）、刃宽 / 枪背 +x、原点在握把中心，按主角手里的尺寸；游戏端换算到手的武器关节和掉落模型（world.js 的 AIW_FIT）。
+    # lod=hi 给掉落模型（高 / 中画质），lod=lo 给手里（所有画质，烘进主角骨架）和低画质的掉落，不比原来的脚本件重。机炮的枪管束（part=barrel）单独一件，挂在会转的关节上。
+    # 烬骸仆从的剑和盾（ai3d-enemies）：打进 kit-aithrall 包（index.html 同步引入，仆从骨架第一次建的时候就要）----
+    dict(id='ca/aithrall_sword', gen='ai', seed=0, cat='aiweapon', zone='aithrall', ship=True, replaces=None, args=dict(prov='assets/ai/thrall_sword/provenance.json', lod='hi', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aithrall_sword_lo', gen='ai', seed=0, cat='aiweapon', zone='aithrall', ship=True, replaces=None, args=dict(prov='assets/ai/thrall_sword/provenance.json', lod='lo', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aithrall_shield', gen='ai', seed=0, cat='aiweapon', zone='aithrall', ship=True, replaces=None, args=dict(prov='assets/ai/thrall_shield/provenance.json', lod='hi', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aithrall_shield_lo', gen='ai', seed=0, cat='aiweapon', zone='aithrall', ship=True, replaces=None, args=dict(prov='assets/ai/thrall_shield/provenance.json', lod='lo', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    # 打进 kit-aiwpn 包；试验开关 &aiwpn=1 时 index.html 同步引入（主角骨架开场就要建），默认不加载 ----
+    dict(id='ca/aiwpn_blade', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/wpn_blade/provenance.json', lod='hi', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aiwpn_blade_lo', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/wpn_blade/provenance.json', lod='lo', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aiwpn_staff', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/wpn_staff/provenance.json', lod='hi', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aiwpn_staff_lo', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/wpn_staff/provenance.json', lod='lo', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aiwpn_hammer', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/wpn_hammer/provenance.json', lod='hi', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aiwpn_hammer_lo', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/wpn_hammer/provenance.json', lod='lo', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aiwpn_gatling', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/wpn_gatling/provenance.json', lod='hi', mode='fc', part='body'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aiwpn_gatling_lo', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/wpn_gatling/provenance.json', lod='lo', mode='fc', part='body'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aiwpn_gatling_barrel', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/wpn_gatling/provenance.json', lod='hi', mode='fc', part='barrel'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aiwpn_gatling_barrel_lo', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/wpn_gatling/provenance.json', lod='lo', mode='fc', part='barrel'), finish=dict(dust=0.0, cues=False)),
+    # ---- AI 生成的武器第二批（短杖 / 太刀 / 左轮 / 焚炉喷枪 / 四种弓）：同上；弓的弦和横穿的箭在导入时删掉（drop / drop_rod），游戏里弦照旧挂在弓梢关节上 ----
+    dict(id='ca/aiwpn_wand', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/wpn_wand/provenance.json', lod='hi', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aiwpn_wand_lo', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/wpn_wand/provenance.json', lod='lo', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aiwpn_katana', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/wpn_katana/provenance.json', lod='hi', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aiwpn_katana_lo', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/wpn_katana/provenance.json', lod='lo', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aiwpn_revolver', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/wpn_revolver/provenance.json', lod='hi', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aiwpn_revolver_lo', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/wpn_revolver/provenance.json', lod='lo', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aiwpn_flamer', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/wpn_flamer/provenance.json', lod='hi', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aiwpn_flamer_lo', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/wpn_flamer/provenance.json', lod='lo', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aiwpn_huntbow', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/wpn_huntbow/provenance.json', lod='hi', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aiwpn_huntbow_lo', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/wpn_huntbow/provenance.json', lod='lo', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aiwpn_runebow', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/wpn_runebow/provenance.json', lod='hi', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aiwpn_runebow_lo', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/wpn_runebow/provenance.json', lod='lo', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aiwpn_emberbow', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/wpn_emberbow/provenance.json', lod='hi', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aiwpn_emberbow_lo', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/wpn_emberbow/provenance.json', lod='lo', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aiwpn_eagle', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/wpn_eagle/provenance.json', lod='hi', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aiwpn_eagle_lo', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/wpn_eagle/provenance.json', lod='lo', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    # ---- AI 生成的武器第三批（双匕 / 提灯 / 魂幡）：同上 ----
+    dict(id='ca/aiwpn_daggers', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/wpn_daggers/provenance.json', lod='hi', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aiwpn_daggers_lo', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/wpn_daggers/provenance.json', lod='lo', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aiwpn_lantern', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/wpn_lantern/provenance.json', lod='hi', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aiwpn_lantern_lo', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/wpn_lantern/provenance.json', lod='lo', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aiwpn_banner', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/wpn_banner/provenance.json', lod='hi', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aiwpn_banner_lo', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/wpn_banner/provenance.json', lod='lo', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    # ---- AI 生成的装备掉落（ai3d-weapons 第二批：头盔 / 胸甲 / 手套 / 靴子 / 腰带 / 戒指 / 护身符，只做掉落模型）：同一套 fc 外观，原点在包围盒中心 ----
+    dict(id='ca/aiwpn_helm', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/gear_helm/provenance.json', lod='hi', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aiwpn_helm_lo', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/gear_helm/provenance.json', lod='lo', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aiwpn_body', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/gear_body/provenance.json', lod='hi', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aiwpn_body_lo', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/gear_body/provenance.json', lod='lo', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aiwpn_gloves', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/gear_gloves/provenance.json', lod='hi', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aiwpn_gloves_lo', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/gear_gloves/provenance.json', lod='lo', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aiwpn_boots', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/gear_boots/provenance.json', lod='hi', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aiwpn_boots_lo', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/gear_boots/provenance.json', lod='lo', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aiwpn_belt', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/gear_belt/provenance.json', lod='hi', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aiwpn_belt_lo', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/gear_belt/provenance.json', lod='lo', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aiwpn_ring', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/gear_ring/provenance.json', lod='hi', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aiwpn_ring_lo', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/gear_ring/provenance.json', lod='lo', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aiwpn_amulet', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/gear_amulet/provenance.json', lod='hi', mode='fc'), finish=dict(dust=0.0, cues=False)),
+    dict(id='ca/aiwpn_amulet_lo', gen='ai', seed=0, cat='aiweapon', zone='aiwpn', ship=True, replaces=None, args=dict(prov='assets/ai/gear_amulet/provenance.json', lod='lo', mode='fc'), finish=dict(dust=0.0, cues=False)),
     # ---- 余烛殿：4 个火盆台（玩法件），尺寸逐项照原来的程序化 crown/brazier，火苗另一个网格、碰撞不变 ----
     dict(id='ca/crown_brazier', gen='crown_brazier', seed=173, cat='prop', zone='crown', ship=True, replaces=None,
          bake=dict(ao=0.25, grad=0.4, wear=0.4), finish=dict(dust=0.0), cues=dict(second=False, val=0.2, lichen=0)),
@@ -118,8 +176,12 @@ CATALOG = [
     dict(id='ca/gear_lantern_t3', gen='hand_lantern', seed=223, cat='weapon', zone='gear', ship=True, replaces=None, args=dict(tier=2),
          bake=dict(ao=0.04, grad=0.01, wear=0.4, grime=0.25), finish=dict(dust=0.0), cues=dict(second=False, val=0.12, lichen=0)),
     # ---- 绊雷（imbue 批）：夜猎 / 炉匠埋在地上的雷。同样打进 kit-gear 包（第一次放绊雷时才要），没到之前画原来的暗色碎块 ----
-    dict(id='ca/gear_mine', gen='field_mine', seed=233, cat='prop', zone='gear', ship=True, replaces=None,
-         bake=dict(ao=0.3, grad=0.2, wear=0.45, grime=0.25), finish=dict(dust=0.0), cues=dict(second=False, val=0.14, lichen=0)),
+    # ai3d-skills：外形换成 AI 生成的爪式陷阱（deploy-mine-01，art/ai/importer.py 的 vc 外观：按面量化到调色板，不带贴图），占地和三角形数不超过原来的脚本件。
+    # 原来的脚本件（gen='field_mine'，art/ca/gen.py）要换回去就把下面注释的一行放回来、ai 这行拿掉：
+    # dict(id='ca/gear_mine', gen='field_mine', seed=233, cat='prop', zone='gear', ship=True, replaces=None,
+    #      bake=dict(ao=0.3, grad=0.2, wear=0.45, grime=0.25), finish=dict(dust=0.0), cues=dict(second=False, val=0.14, lichen=0)),
+    dict(id='ca/gear_mine', gen='ai', seed=233, cat='prop', zone='gear', ship=True, replaces=None, args=dict(prov='assets/ai/gear_mine/provenance.json', lod='hi', mode='vc'),
+         bake=dict(ao=0.1, grad=0.15, wear=0.35, grime=0.05), finish=dict(dust=0.0, cues=False)),
     # ---- 首领（boss-design）：带骨架、蒙皮和动作，assets/ca/boss/<kind>.glb；id = ca/boss_<kind>，zone 写 boss，home = 打进哪一区的首领包（js/assets/boss-<kind>.js）。
     # 生成器在 art/ca/boss/<kind>.py（造型 + 骨架 + 软接缝），动作表在 art/ca/boss/<kind>_clips.py ----
     # 熔渣巨像（ai3d-golem，用户 2026-11-26 批准）：外观换成 AI 生成的 golem-a-01（文生图 → 图生 3D，源文件不进仓库），art/ai/golem_rig.py 对到同一副骨架、
@@ -133,14 +195,28 @@ CATALOG = [
          args=dict(spec='art/ai/golem/a01.json', texpx=512, tris=4096)),
     dict(id='ca/boss_lord', gen='lord', seed=191, cat='boss', zone='boss', home='abyss', ship=True, replaces=None,
          bake=dict(ao=0.6, grad=0.7, wear=0.5, grime=0.2, gain=1.1), finish=dict(dust=0.0), cues=dict(second=False, val=0.22, lichen=0)),
-    dict(id='ca/boss_behemoth', gen='behemoth', seed=207, cat='boss', zone='boss', home='rift', ship=True, replaces=None,
-         bake=dict(ao=0.6, grad=0.8, wear=0.4, grime=0.25, gain=1.32), finish=dict(dust=0.0), cues=dict(second=False, val=0.24, lichen=0)),
+    # 衔星巨兽（ai3d-bosses）：外观换成 AI 生成的 behemoth-a-02，art/ai/boss_rig.py 对到同一副骨架（混合蒙皮：UniRig 的权重 + 按区域纠正），
+    # 反照率贴图 512；behemoth_lo = 低画质的减面版（不超过原来的 4240）。来源记录 assets/ca/boss/behemoth.provenance.json。
+    # 原来的脚本外观（gen='behemoth'，art/ca/boss/behemoth.py，动作表 behemoth_clips.py 仍从那里来）不再打包；要重新生成就把下面这行放回清单、两条 boss_ai 拿掉：
+    # dict(id='ca/boss_behemoth', gen='behemoth', seed=207, cat='boss', zone='boss', home='rift', ship=True, replaces=None,
+    #      bake=dict(ao=0.6, grad=0.8, wear=0.4, grime=0.25, gain=1.32), finish=dict(dust=0.0), cues=dict(second=False, val=0.24, lichen=0)),
+    dict(id='ca/boss_behemoth', gen='boss_ai', seed=543, cat='boss', zone='boss', home='rift', ship=True, replaces=None,
+         args=dict(spec='art/ai/boss/behemoth_a02.json', texpx=512)),
+    dict(id='ca/boss_behemoth_lo', gen='boss_ai', seed=543, cat='boss', zone='boss', home='rift', ship=True, replaces=None,
+         args=dict(spec='art/ai/boss/behemoth_a02.json', texpx=512, tris=4240)),
     dict(id='ca/boss_weaver', gen='weaver', seed=229, cat='boss', zone='boss', home='frost', ship=True, replaces=None,
          bake=dict(ao=0.6, grad=0.8, wear=0.4, grime=0.2, gain=1.25), finish=dict(dust=0.0), cues=dict(second=False, val=0.22, lichen=0)),
     dict(id='ca/boss_snuffer', gen='snuffer', seed=229, cat='boss', zone='boss', home='pin', ship=True, replaces=None,
          bake=dict(ao=0.6, grad=0.7, wear=0.35, grime=0.2, gain=1.15), finish=dict(dust=0.0), cues=dict(second=False, val=0.2, lichen=0)),
-    dict(id='ca/boss_warden', gen='warden', seed=241, cat='boss', zone='boss', home='storm', ship=True, replaces=None,
-         bake=dict(ao=0.6, grad=0.7, wear=0.5, grime=0.2, gain=1.3), finish=dict(dust=0.0), cues=dict(second=False, val=0.22, lichen=0)),
+    # 雷霆监察者（ai3d-bosses）：外观换成 AI 生成的 warden-a-01，art/ai/boss_rig.py 对到同一副骨架（全刚性：按连通件 / 区域分零件，护盾板挪到环绕半径上摆三块，
+    # 环多拷一道，眼皮程序化），反照率贴图 512；warden_lo = 低画质的减面版（不超过原来的 4860）。来源记录 assets/ca/boss/warden.provenance.json。
+    # 原来的脚本外观（gen='warden'，art/ca/boss/warden.py，动作表 warden_clips.py 仍从那里来）不再打包；要重新生成就把下面这行放回清单、两条 boss_ai 拿掉：
+    # dict(id='ca/boss_warden', gen='warden', seed=241, cat='boss', zone='boss', home='storm', ship=True, replaces=None,
+    #      bake=dict(ao=0.6, grad=0.7, wear=0.5, grime=0.2, gain=1.3), finish=dict(dust=0.0), cues=dict(second=False, val=0.22, lichen=0)),
+    dict(id='ca/boss_warden', gen='boss_ai', seed=541, cat='boss', zone='boss', home='storm', ship=True, replaces=None,
+         args=dict(spec='art/ai/boss/warden_a01.json', texpx=512)),
+    dict(id='ca/boss_warden_lo', gen='boss_ai', seed=541, cat='boss', zone='boss', home='storm', ship=True, replaces=None,
+         args=dict(spec='art/ai/boss/warden_a01.json', texpx=512, tris=4860)),
 ]
 
 # 看板（lineup）：每个生成器 × 几个种子，参数沿用清单里第一个用到它的件

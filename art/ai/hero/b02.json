@@ -1,0 +1,86 @@
+{
+ "name": "b02",
+ "source": {
+  "name": "hero-b-02",
+  "file": "model.glb",
+  "sha256": "3b9bcdd64ce9071a223902f3560c5e3827d33a92dfb822143909cdea228186d1"
+ },
+ "fit": {},
+ "tris": {
+  "hi": 10000,
+  "lo": 7600
+ },
+ "weights": {
+  "mode": "hybrid",
+  "glb": "rigtest/unirig/hero-b-02/model_rigged.glb",
+  "sha256": "b6f43a70c5bd792df3b94028066e1655351106fe53f283d361dad41a59755702"
+ },
+ "colour": {
+  "grade": {
+   "sat": 0.72,
+   "tint": [
+    0.9,
+    0.95,
+    1.08
+   ],
+   "remap": [
+    {
+     "src": [
+      222,
+      165,
+      152
+     ],
+     "dst": [
+      224,
+      182,
+      162
+     ],
+     "r": 40
+    },
+    {
+     "src": [
+      148,
+      150,
+      157
+     ],
+     "dst": [
+      160,
+      156,
+      198
+     ],
+     "r": 45
+    },
+    {
+     "src": [
+      77,
+      93,
+      95
+     ],
+     "dst": [
+      38,
+      148,
+      144
+     ],
+     "r": 38
+    },
+    {
+     "src": [
+      238,
+      238,
+      240
+     ],
+     "dst": [
+      200,
+      192,
+      182
+     ],
+     "r": 70
+    }
+   ]
+  }
+ },
+ "shape": {
+  "knee_flatten": 0.7
+ },
+ "resemblance": "a generic young adventurer: swept silver hair, teal scarf, open short-sleeve indigo-violet jacket with a long split back coattail, cream shirt, dark trousers with round knee pads, brown boots. The prompt names no game or IP; no match seen to a known game character's design, colours or emblems."
+}

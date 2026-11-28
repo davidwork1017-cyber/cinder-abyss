@@ -497,14 +497,29 @@
   //   ring 冲击环：外沿亮带 + 环身，内沿随进度往外收细（越扩越细，最后只剩一道亮线；弯月的内沿也这样收）；
   //   blade 风刃：前粗后细的细弯月；crystal 冰晶：六棱尖冰柱（立体，冷的形状：硬棱、尖朝上 / 朝外）
   // 色阶：0 暗描边（实例色 × (1 − 暗边量)）/ 0.5 主色 / 1 亮芯（往暖白混）。平面形状是三层扇形叠起来的：描边垫底、主色、亮芯在最前
-  V.SH = { tongue: 0, crescent: 1, bar: 2, chip: 3, ring: 4, blade: 5, crystal: 6 };
-  let shGeo = null, shMat = null;
-  V.shapeGeo = function () {
-    if (shGeo) return shGeo;
-    const P = [], A = [];
+  // ai3d-skills：AI 生成的冰系件和雷桩（js/assets/skill-pieces.js，art/ai/pieces.py 生成）：crystal 冰晶换成 AI 的冰晶；新加 icicle 冰凌（尖朝 +y，顺着速度落）、
+  // ichip 冰碴（冰系的碎块，和 chip 一样半径约 1）、cluster 冰簇（底在 y = 0）、pylon 雷桩的晶柱 / pylonBase 底座（底在 y = 0、高 0.9，xz 按米、y 乘柱高）。
+  // 槽位布局（ai3d-skills）：原来所有形状合在一个几何体里，每个实例都要跑完全部顶点（401 个三角形，不管它画的是哪个形状）。现在每个形状的顶点
+  // （位置 + 色阶 + 收细半径）放进一张 RGBA32F 的数据纹理（每个形状两行），几何体只有一个「槽位」那么多顶点（最大的形状，150 个三角形），
+  // 顶点着色器按 gl_VertexID 和实例的形状号取顶点（texelFetch，最近点、不过滤），用不到的尾巴扔到裁剪空间外。还是一次 draw、同样的实例化，
+  // 每个实例的三角形从 401 降到 150；原有形状的顶点一个不差（同样的三角形、同样的顺序）。
+  // 退回：没有顶点纹理单元、着色器编译 / 链接失败（V.shapeProbe），或网址带 vshape=merged 时，用原来的合并几何体（只有原来的 7 个形状，
+  // 新形状号映射回原来的形状：冰凌 / 冰簇 / 雷桩 → 冰晶，冰碴 → 碎石；雷桩按原来的三根晶柱 + 三块暗石画，V.shapeSlots = false）
+  // ai3d-turret：turret 熔光炮台的炮座 + 腿 / turretHead 炮头（暗铁）/ turretBarrel 炮管（余烬色，指着目标），底在 y = 0、高 1.25，炮管朝 +z，炮口位置在 CA_SKILL_PIECES.turretBarrel.muzzle；turretLens 留着形状号（现在不画）
+  V.SH = { tongue: 0, crescent: 1, bar: 2, chip: 3, ring: 4, blade: 5, crystal: 6, icicle: 7, ichip: 8, cluster: 9, pylon: 10, pylonBase: 11, turret: 12, turretLens: 13, turretHead: 14, turretBarrel: 15 };
+  const SH_N = 16;
+  let shGeo = null, shMat = null, shTex = null, shSlot = 0;
+  V.shapeSlots = false;
+  V.shapeInfo = () => ({ slots: V.shapeSlots, slot: shSlot, tris: shGeo ? shGeo.getAttribute('position').count / 3 : 0 });
+  // 每个形状的顶点表：L[id].P（位置，每顶点 3 个）、L[id].A（色阶、收细目标半径，每顶点 2 个）；merged：原来的冰晶（退回时用）
+  function shapeLists() {
+    const L = [];
+    for (let i = 0; i < SH_N; i++) L.push({ P: [], A: [] });
+    const old = { P: [], A: [] };
     const tri = (id, a, b, c, t, ra, rb, rc) => {
-      P.push(a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2]);
-      A.push(id, t, ra || 0, id, t, rb || 0, id, t, rc || 0);
+      const o = id === 'crystal0' ? old : L[id];
+      o.P.push(a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2]);
+      o.A.push(t, ra || 0, t, rb || 0, t, rc || 0);
     };
     // 扇形：轮廓 pts 绕中心 (cx, cy) 缩放 k，放在 z 层
     const fan = (id, pts, cx, cy, k, z, t) => {
@@ -576,38 +591,159 @@
     strip(5, bladeArc((th) => 1 + Math.min(0.035, th * 0.5)), bladeArc((th) => 1 - th - Math.min(0.035, th * 0.5)), -0.02, 0);
     strip(5, bladeArc(() => 1), bladeArc((th) => 1 - th), 0, 0.5);
     strip(5, bladeArc(() => 0.997), bladeArc((th) => 1 - th * 0.35), 0.02, 1);
-    // 6 冰晶：六棱、上头收尖的冰柱（底在 y = 0，尖在 y = 1，底半径约 0.35），朝 +x 的面亮、背面暗，硬棱
+    // 6 冰晶（原来的）：六棱、上头收尖的冰柱（底在 y = 0，尖在 y = 1，底半径约 0.35），朝 +x 的面亮、背面暗，硬棱。槽位布局下换成 AI 的冰晶，退回时用这个
     const cr = (k, rr, y) => [Math.cos((k / 6) * Math.PI * 2 + 0.3) * rr, y, Math.sin((k / 6) * Math.PI * 2 + 0.3) * rr];
     for (let k = 0; k < 6; k++) {
       const b0 = cr(k, 0.35, 0), b1 = cr(k + 1, 0.35, 0), m0 = cr(k, 0.3, 0.68), m1 = cr(k + 1, 0.3, 0.68), tip = [0, 1, 0];
       const lit = Math.cos(((k + 0.5) / 6) * Math.PI * 2 + 0.3), t = lit > 0.3 ? 1 : lit > -0.4 ? 0.5 : 0;
-      tri(6, b0, m0, b1, t);
-      tri(6, b1, m0, m1, t);
-      tri(6, m0, tip, m1, lit > -0.2 ? 1 : 0.5);
+      tri('crystal0', b0, m0, b1, t);
+      tri('crystal0', b1, m0, m1, t);
+      tri('crystal0', m0, tip, m1, lit > -0.2 ? 1 : 0.5);
+    }
+    // 6–11 AI 件：每面三个点 + 每面一个色阶（art/ai/pieces.py 烘好的：0 暗边 / 0.26–0.74 带明暗的主色 / 1 亮面）。件缺了就用原来的冰晶 / 碎石顶上
+    const PC = window.CA_SKILL_PIECES || {};
+    const ai = (id, key, fb) => {
+      const r = PC[key];
+      if (!r || !r.p || !r.t) {
+        const f = L[fb] || old;
+        L[id].P = f.P.slice();
+        L[id].A = f.A.slice();
+        return;
+      }
+      for (let i = 0, n = r.t.length; i < n; i++) {
+        const q = r.p, o = i * 9;
+        tri(id, [q[o], q[o + 1], q[o + 2]], [q[o + 3], q[o + 4], q[o + 5]], [q[o + 6], q[o + 7], q[o + 8]], r.t[i]);
+      }
+    };
+    ai(6, 'crystal', -1);
+    ai(7, 'icicle', 6);
+    ai(8, 'ichip', 3);
+    ai(9, 'cluster', 6);
+    ai(10, 'pylon', 6);
+    ai(11, 'pylonBase', 3);
+    ai(12, 'turret', 6);
+    ai(13, 'turretLens', 3);
+    ai(14, 'turretHead', 6);
+    ai(15, 'turretBarrel', 6);
+    return { L, old };
+  }
+  // 槽位布局能不能用：有顶点纹理单元、有 AI 件、网址没写 vshape=merged
+  function slotsOk(renderer) {
+    if (!window.CA_SKILL_PIECES) return false;
+    if (/[?&]vshape=merged\b/.test((window.location && window.location.search) || '')) return false;
+    const caps = renderer && renderer.capabilities;
+    return !!(caps && caps.maxVertexTextures > 0 && caps.maxTextureSize >= 512);
+  }
+  let shLog = false;
+  function mergedGeo(L, old) {
+    // 原来的合并几何体：0–5 原样、6 是原来的冰晶（新形状号在 V.SH 里映射回原来的形状，不进几何体）
+    const P = [], A = [];
+    for (let id = 0; id <= 6; id++) {
+      const o = id === 6 ? old : L[id];
+      for (let v = 0; v < o.P.length / 3; v++) {
+        P.push(o.P[v * 3], o.P[v * 3 + 1], o.P[v * 3 + 2]);
+        A.push(id, o.A[v * 2], o.A[v * 2 + 1]);
+      }
     }
     const g = new T.BufferGeometry();
     g.setAttribute('position', new T.Float32BufferAttribute(P, 3));
     g.setAttribute('aSh', new T.Float32BufferAttribute(A, 3));
     g.computeBoundingSphere();
+    return g;
+  }
+  function toMerged(why) {
+    V.shapeSlots = false;
+    Object.assign(V.SH, { icicle: 6, ichip: 3, cluster: 6, pylon: 6, pylonBase: 3, turret: 6, turretLens: 3, turretHead: 6, turretBarrel: 6 });
+    if (!shLog) {
+      shLog = true;
+      console.warn('[vfx] 形状批退回合并几何体：' + why);
+    }
+  }
+  V.shapeGeo = function (renderer) {
+    if (shGeo) return shGeo;
+    const { L, old } = shapeLists();
+    if (!slotsOk(renderer)) {
+      toMerged(window.CA_SKILL_PIECES ? '没有顶点纹理 / 按网址要求' : '没有 AI 件');
+      return (shGeo = mergedGeo(L, old));
+    }
+    let slot = 0;
+    for (const o of L) slot = Math.max(slot, o.P.length / 3);
+    shSlot = slot;
+    const D = new Float32Array(slot * SH_N * 2 * 4);
+    for (let id = 0; id < SH_N; id++) {
+      const o = L[id], r0 = id * 2 * slot * 4, r1 = (id * 2 + 1) * slot * 4;
+      for (let v = 0; v < o.P.length / 3; v++) {
+        D[r0 + v * 4] = o.P[v * 3];
+        D[r0 + v * 4 + 1] = o.P[v * 3 + 1];
+        D[r0 + v * 4 + 2] = o.P[v * 3 + 2];
+        D[r0 + v * 4 + 3] = 1;
+        D[r1 + v * 4] = o.A[v * 2];
+        D[r1 + v * 4 + 1] = o.A[v * 2 + 1];
+      }
+    }
+    shTex = new T.DataTexture(D, slot, SH_N * 2, T.RGBAFormat, T.FloatType);
+    shTex.minFilter = shTex.magFilter = T.NearestFilter;
+    shTex.generateMipmaps = false;
+    shTex.needsUpdate = true;
+    const g = new T.BufferGeometry();
+    g.setAttribute('position', new T.Float32BufferAttribute(new Float32Array(slot * 3), 3)); // 只给顶点数（位置在纹理里）
+    g.boundingSphere = new T.Sphere(new T.Vector3(), 2);
+    V.shapeSlots = true;
     return (shGeo = g);
+  };
+  // 槽位布局的着色器能不能用：形状批第一次真正画过以后查一次它的程序的链接状态（不另外编译：预编译的程序和渲染目标对不上会多编一个）；
+  // 不行就换回合并几何体（这一帧形状批没画出来，下一帧起照常）。返回新的几何体（调用方把实例属性 aFx 挂上去、换给网格），没换返回 null
+  V.shapeProbe = function (renderer, mesh) {
+    if (!V.shapeSlots || !renderer || !mesh) return null;
+    let ok = false;
+    try {
+      const pr = renderer.properties.get(mesh.material).currentProgram, gl = renderer.getContext();
+      if (gl.isContextLost()) return null; // 丢了上下文：等恢复后照常（不算失败）
+      ok = !!(pr && pr.program && gl.getProgramParameter(pr.program, gl.LINK_STATUS) && !(pr.diagnostics && pr.diagnostics.runnable === false));
+    } catch (e) {
+      ok = false;
+    }
+    if (ok) return null;
+    toMerged('着色器编译 / 链接失败');
+    const { L, old } = shapeLists();
+    const g = mergedGeo(L, old);
+    shGeo = g;
+    if (shTex) shTex.dispose();
+    delete shMat.defines.VSH_SLOT;
+    shMat.needsUpdate = true;
+    return g;
   };
   V.shapeMat = function () {
     if (shMat) return shMat;
     shMat = new T.ShaderMaterial({
-      uniforms: {},
+      uniforms: { uShTex: { value: shTex } },
+      defines: V.shapeSlots ? { VSH_SLOT: '' } : {},
       vertexShader: [
-        'attribute vec3 aSh; attribute vec4 aFx;',
+        'attribute vec4 aFx;',
+        '#ifdef VSH_SLOT',
+        'uniform highp sampler2D uShTex;',
+        '#else',
+        'attribute vec3 aSh;',
+        '#endif',
         'varying vec3 vCol; varying float vTone; varying vec2 vHD; varying float vFade; varying vec3 vLp;',
         'void main(){',
-        '  vHD = aFx.yz; vTone = aSh.y;',
         '  float sid = floor(aFx.w + 0.001); vFade = (aFx.w - sid) * 2.5;', // 形状号的小数部分 × 2.5 = 渐隐量（0 不隐，1 全隐）
+        '#ifdef VSH_SLOT',
+        // 槽位布局：这个实例的形状在纹理的第 2·sid 行（位置，w = 1 有效）和 2·sid + 1 行（色阶、收细半径）；超出这个形状顶点数的尾巴 w = 0
+        '  vec4 q0 = texelFetch(uShTex, ivec2(gl_VertexID, int(sid) * 2), 0);',
+        '  vec4 q1 = texelFetch(uShTex, ivec2(gl_VertexID, int(sid) * 2 + 1), 0);',
+        '  vec3 sh = vec3(sid, q1.x, q1.y); vec3 p = q0.xyz;',
+        '  if (q0.w < 0.5) { gl_Position = vec4(0.0, 0.0, 2.0, 1.0); return; }',
+        '#else',
+        '  vec3 sh = aSh; vec3 p = position;',
+        '  if (abs(aSh.x - sid) > 0.5) { gl_Position = vec4(0.0, 0.0, 2.0, 1.0); return; }', // 不是这个实例的形状：扔到裁剪空间外
+        '#endif',
+        '  vHD = aFx.yz; vTone = sh.y;',
         '  vCol = vec3(1.0);',
         '#ifdef USE_INSTANCING_COLOR',
         '  vCol = instanceColor;',
         '#endif',
-        '  if (abs(aSh.x - sid) > 0.5) { gl_Position = vec4(0.0, 0.0, 2.0, 1.0); return; }', // 不是这个实例的形状：扔到裁剪空间外
-        '  vec3 p = position;',
-        '  if (aSh.z > 0.0) { float r = max(length(p.xy), 1e-4); p.xy *= mix(r, aSh.z, pow(clamp(aFx.x * 1.1, 0.0, 1.0), 0.8)) / r; }', // 冲击环往外收细
+        '  if (sh.z > 0.0) { float r = max(length(p.xy), 1e-4); p.xy *= mix(r, sh.z, pow(clamp(aFx.x * 1.1, 0.0, 1.0), 0.8)) / r; }', // 冲击环往外收细
         '  vLp = p;',
         '  vec4 wp = vec4(p, 1.0);',
         '#ifdef USE_INSTANCING',
@@ -628,6 +764,7 @@
         '  vec3 c = vCol;',
         '  if (vTone > 0.75) c = mix(c, vec3(1.0, 0.96, 0.86), vHD.x);',
         '  else if (vTone < 0.25) c *= 1.0 - vHD.y;',
+        '  else if (abs(vTone - 0.5) > 0.002) c *= 1.0 + (vTone - 0.5) * 1.6;', // ai3d-skills：AI 件的主色带逐面明暗（0.26–0.74）；原有形状都是 0.5，不变
         '  gl_FragColor = linearToOutputTexel(vec4(c, 1.0));',
         '}',
       ].join('\n'),

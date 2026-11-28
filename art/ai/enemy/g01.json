@@ -1,0 +1,59 @@
+{
+ "name": "g01",
+ "source": {
+  "name": "enemy-ghoul-01",
+  "file": "model.glb",
+  "sha256": "b3df07b74e034a44030b063410d2dcaf3d90bccd9aa283ada00f440d8e037547"
+ },
+ "rig": "husk",
+ "prefix": "ghoul",
+ "mat": "AIGhoul",
+ "mesh": "ai_ghoul",
+ "lab": "cinder ai3d-enemies lab",
+ "tris": {
+  "hi": 2400,
+  "lo": 2100
+ },
+ "fit": {
+  "crotch": 0.42
+ },
+ "regions": {
+  "coat": false
+ },
+ "fist": false,
+ "pack": {
+  "weld": 8
+ },
+ "weights": {
+  "mode": "hybrid",
+  "glb": "rigtest/unirig/enemy-ghoul-01/model_rigged.glb",
+  "sha256": "e965217200255504fc892c18b05c763647b446e667405825655942df785cd011",
+  "strict": [
+   "clavicle_l",
+   "clavicle_r"
+  ]
+ },
+ "colour": {
+  "grade": {
+   "sat": 0.6,
+   "tint": [
+    0.95,
+    0.91,
+    1.08
+   ]
+  }
+ },
+ "ship": {
+  "files": {
+   "hi": "husk.glb",
+   "lo": "husk_lo.glb"
+  },
+  "ids": [
+   "chars/aihusk_hi",
+   "chars/aihusk_lo"
+  ],
+  "provenance": "provenance-husk.json",
+  "comment": "游魂的 AI 生成外观（ai3d-enemies，g01）的来源记录。源 GLB、概念图、UniRig 的权重 GLB 都不进仓库，只记 sha256（存放在私有的 cinder-ai-src）；art/ai/hero_rig.py 按 art/ai/enemy/g01.json 生成 husk.glb（高 / 中画质）和 husk_lo.glb（低画质的减面版），骨骼集合同现网 Zombie（41 根，标准名），pack-assets 打进 js/assets/chars.js（aihusk_hi / aihusk_lo）；没有源文件的机器上保留已提交的 GLB。"
+ },
+ "resemblance": "a generic gaunt undead ghoul: bald pale-grey skin, hollow eye sockets, ragged shoulder wrap and loincloth, bare feet. The prompt names no game or IP; no match seen to a known game creature design, colours or emblems."
+}

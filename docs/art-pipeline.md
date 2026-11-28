@@ -1,6 +1,6 @@
 # 自产素材流水线
 
-烬渊的 3D 素材逐步换成我们自己用脚本生成的件：不在 Blender 里手工建模，形状、配色、细节全部写在 `art/` 下的 Python 脚本里，由无头 Blender（CPU）执行。风格和预算见 [art-style.md](art-style.md)。2026-11-26 起，静态布景另外试点用 AI 生成的模型做源，见文末「AI 生成的布景件」。
+烬渊的 3D 素材逐步换成我们自己用脚本生成的件：不在 Blender 里手工建模，形状、配色、细节全部写在 `art/` 下的 Python 脚本里，由无头 Blender（CPU）执行。风格和预算见 [art-style.md](art-style.md)。2026-11-26 起，静态布景和四种武器另外试点用 AI 生成的模型做源，见文末「AI 生成的布景件」「AI 生成的武器」。
 
 游戏和 `npm test` 都不需要 Blender：生成物（`assets/ca/` 下的 GLB 和清单、`js/assets/kit-*.js` 素材包）一起提交，GitHub Pages 直接发这些文件，不需要 CI 构建。
 
@@ -192,3 +192,76 @@ npm run build:art && git status --short assets/ca js/assets   # 没有输出 = �
 - **贴图**：首领类别在 `art/budgets.json` 里允许一张自己的反照率贴图（`albedo`：JPEG，边长不超过 512，材质名 `ai_golem_albedo`）；`packBoss` 打包时每个角记 UV、贴图原样放进包里（data URL），游戏端（`rigFromGlb` / `bossMap`）按贴图上色。显存按共用贴图算（512 是 1.33 MB）。
 - **减面版**：`tools/asset-sources.json` 里 `boss-golem` 包的 `lo`：两份网格打进同一个包，游戏端低画质用 `golem_lo`（`BOSS_SPEC.golem.lo`），骨架、动作、挂点一样。
 - **单独构建 / 看图**：`npm run build:art -- --only ca/boss_golem,ca/boss_golem_lo`；直接跑 `blender -b --factory-startup --python-exit-code 1 --python art/ai/golem_rig.py -- --spec art/ai/golem/a01.json --out <目录> --modes vc,tex` 出两种外观和 `build.json`（各步的数）。上面的 `--turn` 转台图只认脚本首领。
+
+### 雷霆监察者、衔星巨兽（ai3d-bosses）
+
+雷霆监察者（`ca/boss_warden`）和衔星巨兽（`ca/boss_behemoth`）也换成 AI 生成的模型，清单里的 `gen` 是 `boss_ai`；原来的脚本外观 `art/ca/boss/warden.py`、`behemoth.py` 不再打包，动作表 `warden_clips.py`、`behemoth_clips.py` 还是从那里来，骨架（名字、父骨骼、顺序）取上线的首领包。来源记录 `assets/ca/boss/warden.provenance.json`、`behemoth.provenance.json`。
+
+| 路径 | 内容 |
+| --- | --- |
+| `art/ai/boss_fit.py` | 对骨架（纯 numpy）：可选绕竖轴转（监察者 −90°，让眼朝前），等比缩放到身高、脚底贴地；枢轴按候选参数写死（看源网格的切片量的），没写的取上线骨架的静止位置；能输出给 UniRig 的骨架文本 |
+| `art/ai/boss_parts.py` | 区域规则（纯 numpy）：监察者按连通件 + 高度 / 半径 / 颜色给三角形贴标签，再给出「摆放」（护盾板挪到环绕半径上摆三块、环拷一道、眼匣往后错切）；程序化的眼皮 |
+| `art/ai/boss_rig.py` | 无头 Blender：减面 → 监察者按标签全刚性（不动的零件之间接缝上的顶点按面积分权重，挪过去 / 拷贝的零件各自一份顶点）；巨兽用 UniRig 的权重按区域纠正（脖子沿链分段、腿根只管肩 / 胯、背甲 / 星 / 下颌 / 头和角 / 蹄 / 尾尖刚性）→ 在源网格上取色（拷贝的零件按原来的位置取；按位置 / 色相局部调色，比如压暗巨兽的角、把监察者的领环改成金色；调亮带一道肩部，暗部提起来、亮部不顶上去）→ 展 UV、烘反照率贴图 → 近白的芯另挑（跳过减面后过大的三角形）→ 最后整体缩放（`post`）→ `rig.py` 导出。读 / 减面 / 取样 / 调色的底层函数直接调 `golem_rig.py`，巨像的产物不受影响 |
+| `art/ai/boss/warden_a01.json`、`behemoth_a02.json` | 候选的参数：转向、身高、枢轴、区域、发光规则、提亮、局部压暗、芯、整体缩放，源 GLB（和巨兽的权重 GLB）的 sha256 |
+| `assets/ca/boss/warden.glb`、`warden_lo.glb`、`behemoth.glb`、`behemoth_lo.glb` | 生成物：高 / 中不超过 8000 个三角形，低画质的减面版不超过原来的 4860 / 4240，都带一张 512 的反照率贴图 |
+
+- **挂点**：监察者的护手是竖着的，`BOSS_SPEC.warden.sock` 的武器 / 手挂点挪到拳头；巨兽的嘴短，吐息的口从下颌往前 0.45。挂点只管特效的出处，模拟不读。
+- **单独构建**：`npm run build:art -- --only ca/boss_warden,ca/boss_warden_lo,ca/boss_behemoth,ca/boss_behemoth_lo`；直接跑 `blender -b --factory-startup --python-exit-code 1 --python art/ai/boss_rig.py -- --spec art/ai/boss/warden_a01.json --out <目录> [--tris 4860]` 出 GLB、`albedo.jpg` 和 `build.json`。
+
+## AI 生成的技能件（ai3d-skills 起）
+
+技能放出来的实心小件从 2026-11-27 起用 AI 生成的模型（用户要求，冰系先上）。这些件一次施放要画几十个，都是实例化的，所以不带贴图，只做成几十到一百多个三角形、一面一色的小网格。来源、许可证见 `assets/README.md` 的「AI 生成」。
+
+| 件 | 用在哪 | 坐标约定（照被顶替的旧几何体） |
+| --- | --- | --- |
+| `crystal` 冰晶 | 形状批：冰脊、坠凌的冰牙、重凌外沿、冰系命中、霜屑、掉落碎晶，所有用冰晶形状的地方 | 底在 y = 0、尖在 y = 1，横向半径约 0.32；源模型两头尖，下面 0.6 埋进地里 |
+| `icicle` 冰凌 | 形状批：坠凌 / 重凌落下的那根 | 尖在 y = 1（顺着速度朝下），底在 y = 0 |
+| `ichip` 冰碴 | 形状批：冰系的碎块 | 中心在原点，半径约 1（和碎石一样） |
+| `cluster` 冰簇 | 形状批：冰凌落地时脚边那一簇 | 底在 y = 0、高 1，横向半径 0.5 |
+| `pylon` / `pylonBase` 雷桩 | 形状批：雷桩的晶柱和底座（两个实例，各一种颜色） | 底在 y = 0、高 0.9；xz 按米，y 乘柱高 |
+| `turret` / `turretHead` / `turretBarrel` 熔光炮台 | 形状批：炮台的炮座和三条腿、炮头（铁灰）、余烬色的炮管（三个实例，整座跟着炮管朝向转；炮管是方向提示，游戏里沿炮管拉长 1.8 倍） | 底在 y = 0、高 1.25，炮管朝 +z；炮口位置和炮管根部记在 `turretBarrel.muzzle` / `z0`，射线从炮口起 |
+| `shardKv` 冰棱 | 刻式件 shard：冰棱环身、冰爆的冰刺环、标记 | 中心在原点、长轴 ±0.8、横向半径 0.3；低画质用原来的 8 面八面体 |
+| `shardPf` / `shardPfLo` 冰棱 | 投射物零件 shard：法杖的冰片、凛冬箭和霜织者的冰棱 | 长轴沿 +z，从 −0.95 到 1.55；低画质用 36 面的减面版 |
+
+绊雷（`ca/gear_mine`）走布景件那条路：`art/catalog.py` 里是 `gen='ai'`、`mode='vc'`，占地和三角形数都不超过原来的脚本件。
+
+处理：`art/ai/pieces.py`（无头 Blender）读 `art/ai/pieces.json` 列的来源记录 `assets/ai/skill-<件>/provenance.json`，按 `processing.outputs` 一件件出：
+
+1. 导入、去碎块（和布景件共用 `art/ai/importer.py`）；`drop_islands_above` 可以去掉高处整块飘着的岛（雷桩顶上的球，游戏里另画发光的球）；`rot_deg` 摆正，`pca` 把最长的方向转到 +Z、尖的那头朝上；
+2. 每个输出件按自己的 `fit` 缩放摆放（`base` / `center` / `span`），可以再转一次（`rot_deg`）；
+3. 减面：`hull` 的件取凸包，再按角度合并棱面，二分到三角形数刚好不超预算，得到平整的大棱面；不是凸的件（冰簇、雷桩）用 Decimate · Collapse；
+4. 取色：低模每个面取 4 个点，到高模上找最近点、插值 UV、读反照率，按用法烘成三种之一：
+   - `tone`：形状批的色阶，0 暗边、0.26–0.74 带明暗的主色、1 亮面；朝光的程度和反照率亮度混着算，亮面只占面积的一小块（`hot`），暗边一块（`dark`）；
+   - `shade`：刻式件每面的明暗倍数，光照还是着色器算；
+   - `color`：投射物零件每面的线性 RGB，游戏端再照原来的办法烘一遍朝向明暗；
+5. `split`：一件拆成两个（形状批里一个实例只有一种颜色），比如雷桩按高度拆成晶柱和底座；`presplit`：按颜色在高模上先拆再分别减面；`parts` 按规则（高度、前后、左右、颜色）把外表面分成几块，规则 key 为空的面删掉（炮台：炮座、炮头、余烬色炮管，炮头两侧的凸耳和后面的长筒削掉），TRELLIS 的源模型常是内外两层壳，所以先体素重建成一层外表面（`voxel`），每个面按最近的原面判颜色；减面卡住时（硬边面板件）在 Collapse 的结果上按角度合并共面的面；
+6. 全部写进 `js/assets/skill-pieces.js`（`window.CA_SKILL_PIECES`，经典脚本，`index.html` 在 `js/vfx.js` 前面同步引入）。
+
+全量的 `npm run build:art` 最后会跑它；单独跑：`CA_AI_INBOX=<源模型目录> blender -b --factory-startup --python-exit-code 1 --python art/ai/pieces.py`（devbox 上用 `cc-slot batch` 包一层）。源文件不在的机器上保留已经提交的 `skill-pieces.js`；同一个 Blender 版本重复构建逐字节相同。check-art 查每件的三角形数（`art/budgets.json` 的 `pieces`）、形状批的件不超过槽位、逐面数组和面数对得上、每件都对得上来源记录、来源记录里没有个人信息。
+
+游戏端的形状批（`js/vfx.js`）改成槽位布局：原来所有形状合在一个几何体里，每个实例都要跑完全部 401 个三角形的顶点，不管它画的是哪个形状。现在每个形状的顶点放进一张 RGBA32F 的数据纹理，几何体只有一个槽位那么多顶点（150 个三角形），顶点着色器按 `gl_VertexID` 和实例的形状号取顶点。还是一次 draw，每个实例从 401 个三角形降到 150 个；原有形状的三角形一个不差。没有顶点纹理、着色器链接失败，或者网址带 `vshape=merged` 时，退回原来的合并几何体（只有原来的 7 个形状，新形状号映射回冰晶 / 碎石，雷桩照原来的三根晶柱加三块暗石画）。
+
+## AI 生成的武器和装备掉落（ai3d-weapons）
+
+所有武器种类和七种装备掉落都换成了 AI 生成的模型，默认开（`&aiwpn=0` 关掉，照旧用脚本件）。源模型和布景件一样来自用户的文生图 → 图生 3D（TRELLIS.2，约 2 万面、1024 的 PBR 贴图），来源记录在 `assets/ai/wpn_<种>/`、`assets/ai/gear_<栏位>/` 的 `provenance.json`，许可证的规矩同上。
+
+和布景件走同一条流水线（`gen='ai'`），外观换成 `mode='fc'`，由 `art/ai/weapon.py` 处理：
+
+1. 摆正到武器自己的坐标：长轴 +y（glTF）、刃宽 / 枪背 +x、厚度 +z，按 `length` 缩放到主角手里的尺寸，原点放在握把中心（`grip` 是握把在包围盒里的归一化位置；装备掉落放在包围盒中心）。所以 `aiweapon` 类的原点不在底面，check-art 改查「原点在包围盒里」（`origin: "grip"`）。`frame` 指定长轴和「上」在源模型里的方向（太刀的源模型刀尖朝下，写 `-z`）。
+2. 删掉不要的部分：
+   - `drop`：按规则删（护身符断成几截的链子、一双靴子里多的那只）；
+   - `drop_rod`：弓握把上熔进去的箭，握把宽度按上下相邻两段自动量；弓弦用 `drop` 按位置删，游戏里弦照旧挂在弓梢关节上；
+   - `drop_small`：删完以后剩下的碎块。
+3. 逐面取色：每个面在源贴图上取 4 个点，换成线性再平均；减面后在源网格上找最近的面取色，再按件聚成几种色块（`colors.k`），`colors.grade` 按游戏里的灰度提亮 / 压暗（`grade_parts` 给分段单独调）。不带贴图、不用调色板：颜色写进 COLOR_0，UV 全是 0，材质叫 `ai_fc`。
+4. 发光：生成的贴图里，发光的那块（光槽、晶体、符带、散热槽、宝石）只是普通颜色。`glow.rules` 每条规则是颜色条件（h / s / v 的范围）加可选的几何条件（`at`：面心在包围盒里的归一化范围；`facing`：法线朝向）；只有几何条件的规则按位置判，生成时发光褪色了的件（猎弓、鹰眼长弓弓臂上的光纹、太刀的刃纹、战锤背面的符带）就这样补。`box` 再限定一段。邻接关系上去掉小碎块（`min_area`），补上被发光面包住的小洞（`fill_area`，锤头面板上的「XXX」花纹就是这样补成一整条的）。发光面往外长 `shell_grow` 圈、沿法线往外推 `shell` 米，单独减面成一层薄壳；`cut_body` 把发光区从本体里去掉，只留发光壳盖住洞口，不然几百面时减面后的本体会顶穿薄壳。游戏里发光面单独成一份几何体，按稀有度着色，所以花纹本身不会出现在游戏里。
+5. 减面：`lods` / `glow_lods` 是本体和发光壳的三角形数。`hi` 给高 / 中画质的掉落模型；`lo` 给手里（所有画质，烘进主角骨架）和低画质的掉落，不超过原来脚本件的掉落模型和手里的三角形数（页面里实测，数字记在各自的 `lods_note`）。扣眼、铆钉、指缝多的件先体素重建（`remesh`，米），不然减面降不下去。
+6. 机炮的枪管束单独成一件（`part='barrel'`），挂在开火时会转的关节上。按长轴切开（`split`）：`from` 之后的面归枪管；`dark_from` 到 `from` 之间，只有暗灰的面（伸进黄铜箍里的那截枪管）归枪管。
+7. 打包：fc 外观的件按（位置，颜色，发光）焊接成带索引的网格再量化（`tools/glb.mjs` 的 `packFc`：16 位位置、8 位 sRGB 颜色、8 位发光），不存法线。游戏端展开成不带索引的三角形，按面算法线。打进 `kit-aiwpn` 包。
+
+游戏端见 `world.js` 的 `AIW_FIT` 一节：
+- 手里：武器坐标 (x, y, z) 换算成武器关节的 (z, x, y)，和脚本件的握法一样（握把沿 +z、刃宽 / 枪背沿 +y），烘进主角骨架原来的关节，脚本件就不建了（draw 不变）。弓按两个弓梢对到弦的挂点 `BOW_TIP`；机炮的枪管转轴、左轮 / 喷枪 / 机炮的枪口挂点（只给特效用）和双手武器左手的位置按模型算；
+- 只做掉落的：双匕（包里是交叉熔在一起的一对）、提灯（手里是 kit-gear 的自产件）、魂幡（幡布要随关节摆），手里照旧是脚本件；提灯的低画质掉落也照旧用脚本件（`loScripted`）；
+- 掉落模型按脚本件掉落模型的握把高度和大小摆，两档启动时都建好；建完以后放掉包里解码出来的源几何体；
+- 包要在建主角骨架之前就到，所以 `index.html` 同步引入；包里缺哪一种，那一种照旧用脚本件。
+
+烬骸仆从的剑和盾（ai3d-enemies）也走这条流程：`ca/aithrall_sword`、`ca/aithrall_shield`（各带 `_lo`），打进单独的 `kit-aithrall` 包，不搭 `kit-aiwpn`。`world.js` 的 `athGear` 把剑烘进仆从的右手（握把沿 +z、刃面竖着，和原来的脚本件一样），盾烘进左前臂外侧（盾面朝 +x）；高 / 中画质用 hi，低画质用 lo。源模型没有发光的部分，发光壳按位置补：刃中线一道（`b.x`，随元素变色），盾心一块（`b.g`，魂火青）。四件不全或 `window.CA_OLD_ENEMY = true` 时照旧建脚本件。

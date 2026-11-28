@@ -23,6 +23,7 @@ import ca.boss.snuffer  # noqa: E402,F401
 import ca.boss.warden  # noqa: E402,F401
 from catalog import CATALOG, LINEUP_SEEDS  # noqa: E402
 from ai import golem_rig  # noqa: E402  AI 生成的首领外观（gen='golem_ai'，见 art/ai/golem_rig.py）
+from ai import boss_rig  # noqa: E402  AI 生成的首领外观（gen='boss_ai'：雷霆监察者 / 衔星巨兽，见 art/ai/boss_rig.py）
 
 
 def argv():
@@ -41,6 +42,12 @@ def make(item, seed=None, name=None):
         k.fit(**item['fit'])  # 清单里的 fit：包围盒对齐被顶替的旧件（r / top / bottom）
     k.finish(cue_args=item.get('cues'), **item.get('finish', {}))  # cues：材质线索参数（val / second / lichen，缺省见 docs/art-style.md）；finish：收尾参数（dust / dust_row）
     tris = sum(len(f.verts) - 2 for f in k.bm.faces)
+    if getattr(k, 'ai_fc', False):
+        # AI 武器（fc 外观，art/ai/weapon.py）：颜色已经逐面取好写进 COLOR_0，不再烘焙 AO / 磨损（游戏里的光照给明暗）
+        from ai import weapon
+        ob = weapon.to_object(k, name)
+        k.bm.free()
+        return ob, tris, 0.0
     ob = importer.to_object(k, name) if getattr(k, 'ai_albedo', False) else core.to_object(k, name)  # albedo 模式保留源 UV（材质 ai_albedo）
     k.bm.free()
     if DRY:
@@ -112,8 +119,8 @@ def build(o):
         core.reset_scene()
         t0 = time.perf_counter()
         extra = {}
-        if item['cat'] == 'boss' and item['gen'] == 'golem_ai':
-            # AI 生成的首领外观（art/ai/golem_rig.py）：源 GLB / 自动蒙皮的权重 GLB 不在仓库里（CA_AI_ROOT）。没有源文件的机器上保留已经提交的 GLB
+        if item['cat'] == 'boss' and item['gen'] in ('golem_ai', 'boss_ai'):
+            # AI 生成的首领外观（art/ai/golem_rig.py；雷霆监察者 / 衔星巨兽是 boss_ai，art/ai/boss_rig.py）：源 GLB / 自动蒙皮的权重 GLB 不在仓库里（CA_AI_ROOT）。没有源文件的机器上保留已经提交的 GLB
             #（全量构建照样逐字节一致）；源文件的 sha256 和参数里记的对不上就报错
             path = os.path.join(out, 'boss', item['id'].split('_', 1)[1] + '.glb')
             a = item['args']
@@ -126,6 +133,11 @@ def build(o):
                 print('CA_AI_KEEP %s（没有源文件，保留已提交的生成物）' % item['id'], flush=True)
                 info = golem_rig.glb_info(path)
                 tris, dt, extra = info['tris'], 0.0, dict(bones=info['bones'], clips=info['clips'], unused_bones=[], home=item.get('home'))
+            elif item['gen'] == 'boss_ai':
+                log = boss_rig.run(dict(spec=a['spec'], tris=a.get('tris'), texpx=a.get('texpx'), name=item['id'].replace('/', '_'),
+                                        path=path, out=os.path.join(bpy.app.tempdir or '/tmp', 'boss_ai_' + item['id'].split('_', 1)[1])))
+                ex = log['export'][os.path.basename(path)]
+                tris, dt, extra = log['tris'], 0.0, dict(bones=ex['bones'], clips=sorted(boss_rig.clips_of(log['spec']['kind'])), unused_bones=ex['unused'], home=item.get('home'))
             else:
                 log = golem_rig.run(dict(spec=a['spec'], tris=a.get('tris'), texpx=a.get('texpx'), modes='tex', name=item['id'].replace('/', '_'),
                                          path=path, out=os.path.join(bpy.app.tempdir or '/tmp', 'golem_ai_' + item['id'].split('_', 1)[1])))
@@ -143,7 +155,7 @@ def build(o):
             if item['gen'] == 'ai':
                 # AI 件：源 GLB 不在仓库里（CA_AI_INBOX）。没有源文件的机器上保留已经提交的 GLB 和贴图（全量构建照样逐字节一致）；源文件和 provenance 的 sha256 对不上就报错
                 stt = importer.source_state(item['args'])
-                extra = dict(ai=dict(prov=item['args']['prov'], lod=item['args'].get('lod', 'hi'), mode=item['args'].get('mode', 'albedo')))
+                extra = dict(ai=dict(prov=item['args']['prov'], lod=item['args'].get('lod', 'hi'), mode=item['args'].get('mode', 'albedo'), **({'part': item['args']['part']} if item['args'].get('part') else {})))
                 if stt == 'mismatch':
                     raise RuntimeError(item['id'] + '：源 GLB 的 sha256 和 provenance 里记的不一样（' + importer.source_path(item['args']) + '）')
                 if stt == 'missing':

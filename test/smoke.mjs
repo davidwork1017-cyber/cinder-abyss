@@ -1543,24 +1543,33 @@ async function mainBody() {
         pack: pk ? { names: pk.names, clips: Object.keys(pk.clips), prims: pk.prims.length } : null,
         // 手指并到手；骨架没有手关节（游魂）就再并到小臂；没有胸口关节就并到 spine
         fingerHk: S.joint('index_02_l', hk.rig.JI), fingerTh: S.joint('thumb_01_r', th.rig.JI), clavHk: S.joint('clavicle_l', hk.rig.JI), clavTh: S.joint('clavicle_l', th.rig.JI),
-        driveHk: S.drive(hk.rig), tris: [hk.rig.tris, th.rig.tris],
+        driveHk: S.drive(hk.rig), tris: [hk.rig.tris, th.rig.tris], q: W.quality(),
+        // 退路（Quaternius 的 Zombie / Skeleton）：骨骼名照旧按 STD_ALIAS 的 Mixamo / Animated Monster 表换成标准名
+        oldHk: S.old('husk'), oldTh: S.old('thrall'),
       };
       W.removeEnt(hk);
       W.removeEnt(th);
       return out;
     });
-    assert(r.hkModel === 'zombie' && r.thModel === 'skeleton', '游魂 / 仆从没有用模型：' + r.hkModel + ' / ' + r.thModel);
-    assert(r.hkStd === 'mixamo' && r.thStd === 'monster', '骨骼名没有换成标准名：' + r.hkStd + ' / ' + r.thStd);
-    for (const n of ['pelvis', 'spine_01', 'spine_03', 'neck_01', 'Head', 'clavicle_l', 'upperarm_l', 'lowerarm_r', 'hand_l', 'thigh_l', 'calf_r', 'foot_l', 'ball_r', 'index_01_l']) assert(r.hkNames.includes(n), '游魂缺标准骨骼 ' + n);
-    assert(!r.hkNames.some((n) => /^(Hips|Spine\d?|Neck|Left|Right)/.test(n)), '游魂还留着 Mixamo 骨骼名：' + r.hkNames.filter((n) => /^(Hips|Spine|Left|Right)/.test(n)).join(' '));
-    for (const n of ['pelvis', 'spine_03', 'neck_01', 'Head', 'upperarm_l', 'lowerarm_l', 'upperarm_r', 'lowerarm_r', 'thigh_l', 'calf_l', 'thigh_r', 'calf_r']) assert(r.thNames.includes(n), '仆从缺标准骨骼 ' + n);
+    // ai3d-enemies：默认用 AI 生成的模型（chars 包的 aihusk_* / aithrall_*，按画质挑一档），骨骼已经是标准名（alias 'std'），骨骼集合和退路的模型一样
+    const lo = r.q === 'low' ? '_lo' : '_hi';
+    assert(r.hkModel === 'aihusk' + lo && r.thModel === 'aithrall' + lo, '游魂 / 仆从没有用 AI 模型：' + r.hkModel + ' / ' + r.thModel + '（画质 ' + r.q + '）');
+    assert(r.hkStd === 'std' && r.thStd === 'std', 'AI 模型的骨骼应当已是标准名（alias std）：' + r.hkStd + ' / ' + r.thStd);
+    assert(r.oldHk && r.oldHk.model === 'zombie' && r.oldTh && r.oldTh.model === 'skeleton', '退路的模型不对：' + JSON.stringify([r.oldHk && r.oldHk.model, r.oldTh && r.oldTh.model]));
+    assert(r.oldHk.std === 'mixamo' && r.oldTh.std === 'monster', '退路的骨骼名没有换成标准名：' + r.oldHk.std + ' / ' + r.oldTh.std);
+    for (const [who, names] of [['游魂', r.hkNames], ['游魂（退路）', r.oldHk.names]]) {
+      for (const n of ['pelvis', 'spine_01', 'spine_03', 'neck_01', 'Head', 'clavicle_l', 'upperarm_l', 'lowerarm_r', 'hand_l', 'thigh_l', 'calf_r', 'foot_l', 'ball_r', 'index_01_l']) assert(names.includes(n), who + '缺标准骨骼 ' + n);
+      assert(!names.some((n) => /^(Hips|Spine\d?|Neck|Left|Right)/.test(n)), who + '还留着 Mixamo 骨骼名：' + names.filter((n) => /^(Hips|Spine|Left|Right)/.test(n)).join(' '));
+    }
+    for (const [who, names] of [['仆从', r.thNames], ['仆从（退路）', r.oldTh.names]]) for (const n of ['pelvis', 'spine_03', 'neck_01', 'Head', 'upperarm_l', 'lowerarm_l', 'upperarm_r', 'lowerarm_r', 'thigh_l', 'calf_l', 'thigh_r', 'calf_r']) assert(names.includes(n), who + '缺标准骨骼 ' + n);
+    assert(r.hkNames.slice().sort().join() === r.oldHk.names.slice().sort().join() && r.thNames.slice().sort().join() === r.oldTh.names.slice().sort().join(), 'AI 模型的骨骼集合应和退路的模型一样（AI_ENEMY 沿用同一套关节和动作）');
     assert(r.pack && r.pack.names.length === 23 && r.pack.prims === 0, '动作包应是 23 根骨骼、没有网格：' + JSON.stringify(r.pack && [r.pack.names.length, r.pack.prims]));
     assert(!r.pack.names.some((n) => /^(index|middle|ring|pinky|thumb)_|_leaf/.test(n)), '动作包里还有手指 / 末端骨骼');
     assert(['Zombie_Idle', 'Zombie_Walk', 'Hit_Chest', 'Death01', 'Sprint'].every((c) => r.pack.clips.includes(c)) && r.pack.clips.length === 5, '动作包的动作不对：' + r.pack.clips);
     assert(r.fingerHk === 'faL' && r.fingerTh === 'hR', '手指没有并到手 / 小臂：' + r.fingerHk + ' / ' + r.fingerTh);
     assert(r.clavHk === 'spine' && r.clavTh === 'chest', '锁骨的关节不对：' + r.clavHk + ' / ' + r.clavTh);
     assert(r.driveHk.spine === 'spine_03' && r.driveHk.head === 'Head' && r.driveHk.thL === 'thigh_l', '游魂的带动骨骼不对：' + JSON.stringify(r.driveHk));
-    // 面数预算（模型没换，两档同一份网格）：游魂是成群的杂兵（低画质 ≤ 2500），仆从按精英一档（≤ 4000，带剑和盾）
+    // 面数预算（这一步跑在测试默认的低画质：AI 模型的低档）：游魂是成群的杂兵（≤ 2500），仆从按精英一档（≤ 4000，带剑和盾）
     assert(r.tris[0] <= 2500 && r.tris[1] <= 4000, '面数超预算：' + r.tris);
     return '游魂 ' + r.hkNames.length + ' 根、仆从 ' + r.thNames.length + ' 根骨骼；三角形 ' + r.tris.join(' / ');
   });
@@ -4387,7 +4396,7 @@ async function mainBody() {
         P.gauge.heat = 0;
         RW.hold(150, tg);
         const h1 = P.gauge.heat;
-        RW.run(60 * 4);
+        RW.run(Math.round(60 * (G.RANGED.heat.hold + 2))); // gun-gauge：停火 hold 秒（4）之后才回落
         out.heat = { fire: Math.round(h1), after: Math.round(P.gauge.heat) };
         // 满了不掉
         G.debug.gauge();
@@ -4449,7 +4458,76 @@ async function mainBody() {
     return '热度 开火 ' + r.heat.fire + ' → 停火 ' + r.heat.after + ' · 专注 普通 ' + f.normal + ' / 暴击 ' + f.crit + ' / 挨打 −' + f.hurt;
   });
 
-  await step('枪械的 R：熔光炮台一按就在身体两侧落下两座炮台、右键扫射不断，自动打最近的敌人（有集火目标时先打它，转向有上限、目标死了重新挑），射线贯穿一条线、同时累积火与雷的异常值，6 秒后收起、再放顶掉旧的；焚天炎爆炸开一大圈并留下火场；乱射 3 秒自动打身边的敌人、翻滚也不断、照常走动', async () => {
+  await step('热度的节奏（gun-gauge）：停火 hold 秒以内热度一点不掉（两群怪之间走过去不丢热度），过了才回落；机炮边扫射边翻滚，枪管不停转、滚完接着按住还是原来的射速；不按右键时照常停转', async () => {
+    const r = await ev((code) => {
+      eval(code);
+      const save = G.save, P = G.player, S = G.state, out = {};
+      const keepW = save.equip.weapon;
+      const H = G.RANGED.heat;
+      try {
+        // 停火 hold − 0.5 秒：热度不变；再过 2 秒（停火 hold + 1.5 秒）：回落约 1.5 秒的 decay
+        T.lane();
+        RW.arm(8);
+        const tg = T.mob('brute', 8, 0);
+        P.gauge.heat = 0;
+        RW.hold(120, tg);
+        const h0 = P.gauge.heat;
+        RW.run(Math.round(60 * (H.hold - 0.5)));
+        const hHold = P.gauge.heat;
+        RW.run(60 * 2);
+        out.heat = { h0: +h0.toFixed(2), hold: +hHold.toFixed(2), after: +P.gauge.heat.toFixed(2), decay: H.decay };
+        // 边扫射边翻滚：转满、射速最快之后侧滚，一直按着右键
+        const roll = (keep) => {
+          T.lane();
+          RW.arm(8);
+          const t2 = T.mob('brute', 8, 0);
+          const o = {};
+          let s0 = 0, spinMin = 1;
+          for (let i = 0; i < 60 * 3.2; i++) {
+            T.aim(t2.x, t2.z);
+            G.input.mouse.b[2] = true;
+            G.tick(1 / 60);
+          }
+          o.spin0 = +P.gun.spin.toFixed(2);
+          o.ramp0 = +P.gun.ramp.toFixed(2);
+          G.input.move = { x: 0, z: 1, k: 1 };
+          o.rolled = G.dodge();
+          G.input.move = null;
+          for (let i = 0; i < 60 * 1.5; i++) {
+            T.aim(t2.x, t2.z);
+            G.input.mouse.b[2] = keep;
+            G.tick(1 / 60);
+            spinMin = Math.min(spinMin, P.gun.spin);
+            if (i === 24) s0 = S.stats.rShots || 0;
+          }
+          o.spinMin = +spinMin.toFixed(2);
+          o.spin = +P.gun.spin.toFixed(2);
+          o.shots = (S.stats.rShots || 0) - s0; // 翻滚结束之后约 1.1 秒的发数（转满、射速最快时约 13 发）
+          G.input.mouse.b[2] = false;
+          return o;
+        };
+        out.keep = roll(true);
+        out.drop = roll(false);
+        RW.run(60);
+      } finally {
+        G.input.mouse.b[2] = false;
+        G.input.move = null;
+        save.equip.weapon = keepW;
+        G.computeStats();
+        T.arena();
+      }
+      return out;
+    }, rangedSetup);
+    const h = r.heat;
+    assert(h.h0 > 15 && h.hold === h.h0, '停火 hold 秒以内热度不该掉：' + JSON.stringify(h));
+    assert(h.after < h.hold - h.decay && h.after > h.hold - h.decay * 2.2, '停火超过 hold 秒后热度应按 decay 回落：' + JSON.stringify(h));
+    const k = r.keep, d = r.drop;
+    assert(k.rolled && k.spin0 === 1 && k.spinMin === 1 && k.spin === 1 && k.shots >= 11, '边扫射边翻滚，枪管不该停转、滚完接着按住应是原来的射速：' + JSON.stringify(k));
+    assert(d.rolled && d.spin0 === 1 && d.spin < 0.2 && d.shots === 0, '翻滚后松开右键，枪管应照常停转：' + JSON.stringify(d));
+    return '热度 ' + h.h0 + ' → 停火 ' + h.hold + ' → ' + h.after + ' · 翻滚接扫射 ' + k.shots + ' 发 / 1.1 秒';
+  });
+
+  await step('枪械的 R：熔光炮台一按就在身体两侧落下两座炮台、右键扫射不断，自动打最近的敌人（有集火目标时先打它，转向有上限、目标死了重新挑），射线贯穿一条线、同时累积火与雷的异常值，3 秒后收起、再放顶掉旧的；焚天炎爆炸开一大圈并留下火场；乱射 2 秒自动打身边的敌人、翻滚也不断、照常走动', async () => {
     const r = await ev((code) => {
       eval(code);
       const save = G.save, P = G.player, S = G.state, out = {};
@@ -4481,9 +4559,10 @@ async function mainBody() {
         G.input.mouse.b[2] = false;
         const L0 = G.turretList();
         out.cast = { n: L0.length, casts: (S.stats.turretCasts || 0) - casts0, heat: +heatAt.toFixed(2), heatNow: +P.gauge.heat.toFixed(1), rangedAfter, spinMin: +spinMin.toFixed(2), side: L0.map((t) => Math.sign(+(t.z - P.z).toFixed(2))).sort().join(','), near: L0.every((t) => Math.hypot(t.x - P.x, t.z - P.z) < 2.2) };
-        // 3 秒：没有集火目标 → 打最近的（一排木桩的头一个），射线贯穿整排
+        // 0.6 秒：没有集火目标 → 打最近的（一排木桩的头一个），射线贯穿整排（gun-gauge：炮台只活 3 秒，各段缩短）
         S.focusT = 0;
-        RW.run(60 * 2.5, aimR);
+        const TD = G.SKILLS.meltray.turret.dur;
+        RW.run(60 * 0.6, aimR);
         out.line = line.map((e) => Math.round(e.maxHp - e.hp));
         out.offPre = Math.round(off.maxHp - off.hp);
         out.far = Math.round(far.maxHp - far.hp);
@@ -4496,16 +4575,16 @@ async function mainBody() {
         const t0 = L0[0], want = Math.atan2(off.x - t0.x, off.z - t0.z);
         out.turnGap = +Math.abs(Math.atan2(Math.sin(want - t0.ang), Math.cos(want - t0.ang))).toFixed(2);
         const offA = off.hp;
-        RW.run(60 * 1.0, aimR);
+        RW.run(60 * 0.8, aimR);
         out.tgtOff = L0.every((t) => t.tgt === off);
         out.offHit = Math.round(offA - off.hp);
         // 目标死了：重新挑（回到那排木桩）
         off.hp = 1;
         const l0A = line[0].hp;
-        RW.run(60 * 1.0, aimR);
+        RW.run(60 * 0.8, aimR);
         out.reTarget = { offDead: !!off.dead, line0: Math.round(l0A - line[0].hp) };
-        // 6 秒到：收起，不再出伤害
-        RW.run(60 * 1.8, aimR);
+        // 到时间（turret.dur，从放下算起）：收起，不再出伤害
+        RW.run(Math.round(60 * (TD - 2.4)), aimR);
         out.after = G.turretList().length;
         const l0B = line[0].hp;
         RW.run(60 * 0.6, aimR);
@@ -4519,7 +4598,7 @@ async function mainBody() {
         G.input.tap[4] = 0.3;
         RW.run(30, aimR);
         const L1 = G.turretList();
-        out.recast = { n: L1.length, fresh: L1.every((t) => t.t > 5.2) };
+        out.recast = { n: L1.length, fresh: L1.every((t) => t.t > TD - 0.8) };
         // 重生 / 换区域：收起
         G.respawn();
         out.reset = G.turretList().length;
@@ -4577,15 +4656,15 @@ async function mainBody() {
     assert(r.bu.fire > 0 && r.bu.light > 0, '炮台的射线应同时累积火与雷的异常值：' + JSON.stringify(r.bu));
     assert(r.turnGap > 0.5 && r.tgtOff && r.offHit > 0, '有集火目标时炮台应转过去打它（转向有上限、不瞬间对准）：' + JSON.stringify(r));
     assert(r.reTarget.offDead && r.reTarget.line0 > 0, '目标死了炮台应重新挑：' + JSON.stringify(r.reTarget));
-    assert(r.after === 0 && r.afterDmg === 0, '6 秒后炮台应收起、不再出伤害：' + JSON.stringify(r));
+    assert(r.after === 0 && r.afterDmg === 0, '到时间后炮台应收起、不再出伤害：' + JSON.stringify(r));
     assert(r.recast.n === 2 && r.recast.fresh && r.reset === 0, '再放应顶掉旧的（始终 2 座）、重生时收起：' + JSON.stringify(r));
     assert(r.nova.hit.every((v) => v > 0) && r.nova.far === 0 && r.nova.heat === 0 && r.nova.fields === 1 && r.nova.burn > 0, '焚天炎爆不对：' + JSON.stringify(r.nova));
-    assert(r.wsU === 'wildfire' && r.wild.on && r.wild.heat === 0 && r.wild.during && !r.wild.end && r.wild.moved > 3, '乱射应开启、翻滚不断、照常走动、3 秒后结束：' + JSON.stringify(r.wild));
-    assert(r.wild.hit.filter((v) => v > 0).length >= 2 && r.wild.shots >= 30 && r.wild.splash > 0 && r.wild.pair > 0, '乱射应自动打身边的敌人、弹片波及旁边的：' + JSON.stringify(r.wild));
+    assert(r.wsU === 'wildfire' && r.wild.on && r.wild.heat === 0 && r.wild.during && !r.wild.end && r.wild.moved > 3, '乱射应开启、翻滚不断、照常走动、2 秒后结束：' + JSON.stringify(r.wild));
+    assert(r.wild.hit.filter((v) => v > 0).length >= 2 && r.wild.shots >= 18 && r.wild.splash > 0 && r.wild.pair > 0, '乱射应自动打身边的敌人、弹片波及旁边的：' + JSON.stringify(r.wild));
     return '炮台 ' + r.line.join('/') + '（转向差 ' + r.turnGap + '，集火 ' + r.offHit + '）· 炎爆 ' + r.nova.hit.join('/') + ' + 火场 ' + r.nova.burn + ' · 乱射 ' + r.wild.shots + ' 发';
   });
 
-  await step('熔光炮台按机炮普攻折算：两座炮台打满 6 秒、都打在同一个木桩上，合计约等于机炮普攻扫射 basicSec 秒（不镶辅助、转满之后的秒伤），物品等级 10 和 40（带上附加伤害与攻速）都成立；技能卡上的「两座合计」和实际打出来的对得上', noRes(async () => {
+  await step('熔光炮台按机炮普攻折算：两座炮台打满 3 秒、都打在同一个木桩上，合计约等于机炮普攻扫射 basicSec 秒（不镶辅助、转满之后的秒伤），物品等级 10 和 40（带上附加伤害与攻速）都成立；技能卡上的「两座合计」和实际打出来的对得上', noRes(async () => {
     const r = await ev((code) => {
       eval(code);
       const save = G.save, P = G.player, S = G.state, out = [];
@@ -4628,14 +4707,14 @@ async function mainBody() {
           G.input.mouse.b[2] = false;
           const basic = (hp3 - d.hp) / 3;
           RW.run(60);
-          // 炮台：正前方 8 米一个木桩（两座炮台都打它），按一下 R、不开火，等两座炮台打满 6 秒收起
+          // 炮台：正前方 8 米一个木桩（两座炮台都打它），按一下 R、不开火，等两座炮台打满 turret.dur 秒收起
           T.lane();
           RW.arm(8, il);
           kit(il);
           const one = stake(8);
           G.debug.gauge();
           G.input.tap[4] = 0.3;
-          RW.run(60 * 6.6, { x: P.x + 20, z: P.z });
+          RW.run(Math.round(60 * (G.SKILLS.meltray.turret.dur + 0.6)), { x: P.x + 20, z: P.z });
           const dmg = [Math.round(1e9 - one.hp)];
           const avg = dmg[0];
           const ctx = G.skillCtx('meltray');
@@ -4653,7 +4732,7 @@ async function mainBody() {
     }, rangedSetup);
     for (const o of r) {
       assert(o.add === (o.il >= 40 ? 50 : 6), '测试设的附加伤害没保持住：' + JSON.stringify(o));
-      assert(o.n === 0 && o.beam[0] > 0, '炮台应打中木桩、6 秒后收起：' + JSON.stringify(o));
+      assert(o.n === 0 && o.beam[0] > 0, '炮台应打中木桩、到时间收起：' + JSON.stringify(o));
       assert(o.secs >= o.sec * 0.9 && o.secs <= o.sec * 1.15, '两座炮台合计应折合约 ' + o.sec + ' 秒机炮普攻（物品等级 ' + o.il + '）：' + JSON.stringify(o));
       assert(Math.abs(o.card - o.avg) <= o.avg * 0.1, '技能卡上「两座合计」应和实际打出来的对得上：' + JSON.stringify(o));
     }
@@ -4661,7 +4740,7 @@ async function mainBody() {
     return r.map((o) => '物品等级 ' + o.il + '：普攻 ' + o.basic + '/s · 炮台 ' + o.avg + '（折合 ' + o.secs + ' 秒）').join(' · ');
   }));
 
-  await step('焚天炎爆按喷枪普攻折算：火浪加 8 秒火场打在木桩上 ≥ 4.5 秒喷枪普攻（不镶辅助、含余烬的秒伤），物品等级 10 和 40（带上附加伤害与攻速）都成立；技能卡上的整招伤害对得上', noRes(async () => {
+  await step('焚天炎爆按喷枪普攻折算：火浪加 8 秒火场打在木桩上约等于 basicSec + 火场（2.7 秒）喷枪普攻（不镶辅助、含余烬的秒伤），物品等级 10 和 40（带上附加伤害与攻速）都成立；技能卡上的整招伤害对得上', noRes(async () => {
     const r = await ev((code) => {
       eval(code);
       const save = G.save, P = G.player, out = [];
@@ -4714,7 +4793,7 @@ async function mainBody() {
           RW.run(60 * 8.6);
           const dmg = 1e9 - e.hp;
           const ctx = G.skillCtx('firestorm');
-          out.push({ il, add: P.S.addFire, basic: Math.round(basic), dmg: Math.round(dmg), secs: +(dmg / basic).toFixed(2), card: Math.round(G.avgHit(ctx)), fields: G.rangedFields().length });
+          out.push({ il, add: P.S.addFire, basic: Math.round(basic), dmg: Math.round(dmg), secs: +(dmg / basic).toFixed(2), card: Math.round(G.avgHit(ctx)), fields: G.rangedFields().length, want: +(G.SKILLS.firestorm.basicSec * G.SKILLS.firestorm.useMult).toFixed(2) });
         }
       } finally {
         T.unfix();
@@ -4727,7 +4806,8 @@ async function mainBody() {
     }, rangedSetup);
     for (const o of r) {
       assert(o.add === (o.il >= 40 ? 50 : 6), '测试设的附加伤害没保持住：' + JSON.stringify(o));
-      assert(o.secs >= 4.5 && o.secs <= 7, '火浪加火场应折合 4.5–7 秒喷枪普攻（物品等级 ' + o.il + '）：' + JSON.stringify(o));
+      // gun-gauge：整招从 5.6 秒普攻调到 2.7 秒（R 来得勤了），区间跟着数据走：want × 0.8–1.25（原来 4.5–7 = 5.6 × 0.8–1.25）
+      assert(o.secs >= o.want * 0.8 && o.secs <= o.want * 1.25, '火浪加火场应折合约 ' + o.want + ' 秒喷枪普攻（物品等级 ' + o.il + '）：' + JSON.stringify(o));
       assert(Math.abs(o.card - o.dmg) <= o.dmg * 0.1, '技能卡上「整招伤害」应和实际打出来的对得上：' + JSON.stringify(o));
     }
     assert(r[1].basic > r[0].basic * 2 && Math.abs(r[1].secs - r[0].secs) <= 0.8, '武器升级后普攻和炎爆应一起涨：' + JSON.stringify(r));
@@ -27486,6 +27566,9 @@ async function titleSteps() {
     // 重进灰烬荒原：传送门没了 → 不指，追踪条第 3 行「按 M 打开地图选它」
     await ev(() => G.enterZone(0, 0));
     await frames(3);
+    // 重进区域时素材还在载入，追踪条先藏着、第 3 行要等就绪后才写上：按帧等它写上（最多 120 帧，等不到照样走下面的断言报错）。
+    // 原来固定等 3 帧，机器忙时读到空串（和 8d44dd3 的 questReady 同一类）
+    for (let i = 0; i < 120 && !(await ev(() => G.ui.quest().how)); i++) await frames(1);
     const b = await ev(() => ({ t: G.questTarget(), m: G.world.questMark().on, how: G.ui.quest().how }));
     assert(!b.t && !b.m && b.how === '按 M 打开地图选它', '传送门没了应不指、第 3 行让按 M：' + JSON.stringify(b));
     // 地图卡片角标
