@@ -1,0 +1,442 @@
+{
+ "_comment": "衔星巨兽的 AI 生成外观（ai3d-bosses）的来源记录。源 GLB、概念图、UniRig 的权重 GLB 都不进仓库，只记 sha256（存放在私有的 cinder-ai-src）；npm run build:art 按 art/catalog.py 的 boss_ai 两件、art/ai/boss/behemoth_a02.json 的参数，用 art/ai/boss_rig.py 生成 assets/ca/boss/behemoth.glb（高 / 中）和 behemoth_lo.glb（低画质的减面版）；没有源文件的机器上保留已提交的 GLB。",
+ "ids": [
+  "ca/boss_behemoth",
+  "ca/boss_behemoth_lo"
+ ],
+ "source": {
+  "name": "behemoth-a-02",
+  "file": "models/behemoth-a-02/model.glb",
+  "sha256": "512e512d2edb884b7896877dc17926d3a9b26fc9cf74792482029494296d782d",
+  "faces": 59998,
+  "textures": "1024 JPEG（底色 / 金属粗糙度 / 法线，只用底色）",
+  "committed": false,
+  "concept_image": {
+   "file": "models/behemoth-a-02/concept.png",
+   "sha256": "fb42088598220a7c12b8f5ca81a966a6c92b5946f0b28bba2aeb46ad04d13133",
+   "committed": false,
+   "use": "只用于挑选，不进处理流程"
+  }
+ },
+ "generation": {
+  "prompt": "Stylized low-poly toon game boss, a single huge four-legged beast, original design, symmetric, three-quarter front view, standing rest pose with all four legs straight and clearly apart, plain white background. Heavy bull-like body with a long low back, deep chest and short thick neck, matte graphite grey hide with soft faceted planes. Along the spine, a row of overlapping dark slate-grey rock armour plates with small brown horn spikes and thin glowing cyan cracks between them. Broad flat head with a brown leather-and-bronze brow plate across the forehead, small glowing cyan eyes, and a slightly open lower jaw holding a bright spiky white-cyan star like a captured sun. Two long smooth curved cyan crystal horns sweep up and back from the brow. Thick column legs with dark grey armour bands around the knees, and broad dark hooves with three short claw tips each. A short tapering tail ending in a small cyan crystal tip. Matte, clean flat colour blocks, soft simple shading, no text, no logos, no emblems, no rider, no saddle, no background.",
+  "negative_prompt": null,
+  "seed": 1108,
+  "text_to_image": {
+   "model": "Z-Image Turbo",
+   "weights": [
+    "z_image_turbo_int8_convrot.safetensors",
+    "qwen_3_4b_fp8_mixed.safetensors",
+    "ae.safetensors"
+   ]
+  },
+  "image_to_3d": {
+   "model": "TRELLIS.2",
+   "weights": [
+    "birefnet.safetensors",
+    "dino_v3_L_naf_fp32.safetensors",
+    "moge_2_vitl_normal_fp16.safetensors",
+    "trellis_2_int8_convrot.safetensors",
+    "trellis_2_shape_vae_bf16.safetensors",
+    "trellis_2_texture_vae_bf16.safetensors"
+   ]
+  },
+  "target_faces": 60000,
+  "texture_size": 1024,
+  "comfyui_version": "0.43.0",
+  "generated_at": "2026-11-26T14:51:11-0800",
+  "comfyui": {
+   "repo": "https://github.com/Comfy-Org/ComfyUI",
+   "release": "v0.43.0 (windows portable, nvidia)",
+   "commit": "426f5eea52a7ece1dd599fff4cb6cd1f352ddd24",
+   "license": "GPL-3.0"
+  },
+  "nodes": "全部是 ComfyUI 内置节点（comfy_extras/nodes_trellis2.py、nodes_bg_removal.py、nodes_mesh_postprocess.py），没有自定义节点",
+  "nvdiffrast": "未安装、未使用",
+  "weight_sources": {
+   "birefnet.safetensors": {
+    "hf": "Comfy-Org/BiRefNet",
+    "rev": "884af709e9b795d89dafbf97f29c8d6a2386f5c6",
+    "base": "ZhengPeng7/BiRefNet",
+    "license": "MIT"
+   },
+   "dino_v3_L_naf_fp32.safetensors": {
+    "hf": "Comfy-Org/Pixal3D",
+    "rev": "f37641be376725d324c56626007cc477f1249a69",
+    "base": "Meta DINOv3 ViT-L（Comfy-Org 转换）",
+    "license": "DINOv3 License (https://ai.meta.com/resources/models-and-libraries/dinov3-license/)"
+   },
+   "moge_2_vitl_normal_fp16.safetensors": {
+    "hf": "Comfy-Org/MoGe",
+    "rev": "1484985258ba7ef45c314144fcf0e90924ffbf44",
+    "base": "Ruicheng MoGe-2 ViT-L（normal 版）",
+    "license": "MIT"
+   },
+   "trellis_2_int8_convrot.safetensors": {
+    "hf": "Comfy-Org/TRELLIS.2",
+    "rev": "430a9d09b2416687018c8fe8edced2ad4858a439",
+    "base": "microsoft/TRELLIS.2-4B",
+    "license": "MIT"
+   },
+   "trellis_2_shape_vae_bf16.safetensors": {
+    "hf": "Comfy-Org/Pixal3D",
+    "rev": "f37641be376725d324c56626007cc477f1249a69",
+    "base": "microsoft/TRELLIS.2-4B",
+    "license": "MIT"
+   },
+   "trellis_2_texture_vae_bf16.safetensors": {
+    "hf": "Comfy-Org/Pixal3D",
+    "rev": "f37641be376725d324c56626007cc477f1249a69",
+    "base": "microsoft/TRELLIS.2-4B",
+    "license": "MIT"
+   },
+   "z_image_turbo_int8_convrot.safetensors": {
+    "hf": "Comfy-Org/Z-Image-Turbo",
+    "rev": "6fc90a3b1b653e935a0d175e260736de25b84df5",
+    "base": "Tongyi-MAI/Z-Image-Turbo",
+    "license": "Apache-2.0"
+   },
+   "qwen_3_4b_fp8_mixed.safetensors": {
+    "hf": "Comfy-Org/Z-Image-Turbo",
+    "rev": "6fc90a3b1b653e935a0d175e260736de25b84df5",
+    "base": "Qwen3-4B (Z-Image Turbo 文本编码器)",
+    "license": "Apache-2.0"
+   },
+   "ae.safetensors": {
+    "hf": "Comfy-Org/Z-Image-Turbo",
+    "rev": "6fc90a3b1b653e935a0d175e260736de25b84df5",
+    "base": "Z-Image Turbo VAE",
+    "license": "Apache-2.0"
+   }
+  }
+ },
+ "rigging": {
+  "tool": "UniRig（只做蒙皮，用我们拟合好的 29 根骨骼的巨兽骨架）",
+  "weights_glb": {
+   "file": "rigtest/unirig/behemoth-a-02/model_rigged.glb",
+   "sha256": "d8912e70362af4fe2c1e403f2e12dd09188736c86ba7f1c9c37c67aba7274cd3",
+   "committed": false
+  },
+  "unirig": {
+   "repo": "https://github.com/VAST-AI-Research/UniRig",
+   "commit": "6793c6640ff01c8fb389f3993434124bb43d2933",
+   "license": "MIT（内嵌 michelangelo 为 GPL-3.0，仅本地当工具运行）",
+   "windows_patch": "PR #70（HurtzDonutStudios，提交 bc95f6e，未合并）：flash_attn 换成 PyTorch SDPA、Windows DLL 路径、CPU 回退；全文见 scripts/unirig_pr70_windows.patch"
+  },
+  "unirig_weights": {
+   "hf": "VAST-AI/UniRig",
+   "revision": "36842e2b5947e9e60f89275b83208c8e74071c63",
+   "file": "skin/articulation-xl/model.ckpt",
+   "sha256": "9d40cf42fb9d4c10d8b373d9f4f557c6fbbc5ebacae7ae6b3dce5a0d8a18bc33",
+   "license": "MIT"
+  },
+  "environment": {
+   "os": "Windows 11",
+   "gpu": "RTX 5070 Ti 16GB (sm_120)",
+   "python": "3.11.9",
+   "torch": "2.7.1+cu128",
+   "spconv": "spconv-cu124 2.3.8",
+   "torch_scatter": "2.1.2+pt27cu128",
+   "torch_cluster": "1.6.3+pt27cu128",
+   "bpy": "4.2.0",
+   "flash_attn": "不装，用 PR #70 的 SDPA shim"
+  },
+  "params": {
+   "seed": 12345,
+   "faces_target_count": 50000,
+   "voxel_skin": {
+    "grid": 196,
+    "backend": "open3d（没装 pyrender）"
+   },
+   "precision": "bf16-mixed"
+  },
+  "postprocess": [
+   "UniRig 输出在 [-1,1] 归一化空间，按包围盒缩放回原尺寸（系数 0.4989）",
+   "网格 6 万面，UniRig 先简化到 5 万面左右；权重按 3 近邻反距离转回原网格，平均误差 0.0013，最大误差 0.015（模型长约 1）",
+   "不做任何刚性 / 区域修正（按 brief：星、下颌、头和角、背板、蹄、尾尖由 devbox 刚性处理）",
+   "每顶点最多 4 根骨头，丢弃 <0.001 的权重，再归一化",
+   "devbox 端（art/ai/boss_rig.py 的 behemoth_weights）：脖子沿链分段、前后腿根只管肩 / 胯（离膝 0.8 米以外、腿根以上渐变到躯干链）、背甲按背线刚性分三段、星 / 下颌 / 头和角 / 蹄 / 尾尖刚性；每顶点最多 4 根"
+  ]
+ },
+ "licences": {
+  "audit": "编排者笔记 notes/ai3d/licence-audit.md：生成流程 CLEAR；UniRig 一节 OK（Puppeteer 因为 NVIDIA PartField 只许非商业研究用途，不用）",
+  "generation": "ComfyUI GPL-3.0（工具）、Z-Image Turbo / Qwen3-4B / VAE Apache-2.0、TRELLIS.2 / BiRefNet / MoGe-2 MIT、DINOv3 License（NAF Apache-2.0）：都不限制输出、不禁止商用、不要求在输出上署名",
+  "rigging": "UniRig 代码 MIT（内嵌的 michelangelo 是 GPL-3.0，只在本地当工具跑）、权重 MIT；训练数据 Articulation-XL2.0 是 CC-BY-4.0，对我们的输出（自己的网格、自己的骨架上预测的权重）没有义务",
+  "credit": "Built with DINOv3（自愿致谢）",
+  "re_review": "换生成流程 / 权重或者商业发行之前重新审一遍"
+ },
+ "processing": {
+  "script": "art/ai/boss_rig.py（+ art/ai/boss_fit.py、art/ai/boss_parts.py；读 / 减面 / 取色 / 烘贴图的底层步骤调 art/ai/golem_rig.py）",
+  "spec": "art/ai/boss/behemoth_a02.json",
+  "blender": "5.2.4 LTS",
+  "fit": {
+   "height": 5.8,
+   "offset": [
+    2.2e-05,
+    2.90249,
+    -0.005393
+   ],
+   "post": [
+    1.0,
+    1.0,
+    1.15
+   ],
+   "scale": [
+    6.636525,
+    6.636525,
+    6.636525
+   ],
+   "src": {
+    "head": [
+     0.0,
+     4.0,
+     3.1625
+    ],
+    "neck_01": [
+     0.0,
+     3.35,
+     2.1275
+    ],
+    "pelvis": [
+     0.0,
+     2.6,
+     -1.6675
+    ],
+    "spine_01": [
+     0.0,
+     2.7,
+     -0.6325
+    ],
+    "spine_02": [
+     0.0,
+     2.85,
+     0.4025
+    ],
+    "spine_03": [
+     0.0,
+     3.0,
+     1.4375
+    ],
+    "x_fleg_l_01": [
+     0.98,
+     2.75,
+     2.4725
+    ],
+    "x_fleg_l_02": [
+     1.01,
+     1.45,
+     2.53
+    ],
+    "x_fleg_l_03": [
+     1.04,
+     0.42,
+     2.5875
+    ],
+    "x_fleg_r_01": [
+     -0.92,
+     2.75,
+     1.84
+    ],
+    "x_fleg_r_02": [
+     -0.94,
+     1.45,
+     1.886
+    ],
+    "x_fleg_r_03": [
+     -0.94,
+     0.42,
+     1.909
+    ],
+    "x_hleg_l_01": [
+     0.75,
+     2.55,
+     -2.07
+    ],
+    "x_hleg_l_02": [
+     0.8,
+     1.4,
+     -1.84
+    ],
+    "x_hleg_l_03": [
+     0.9,
+     0.42,
+     -1.311
+    ],
+    "x_hleg_r_01": [
+     -0.75,
+     2.55,
+     -2.4725
+    ],
+    "x_hleg_r_02": [
+     -0.78,
+     1.4,
+     -2.3
+    ],
+    "x_hleg_r_03": [
+     -0.86,
+     0.42,
+     -1.9665
+    ],
+    "x_jaw": [
+     0.0,
+     3.5,
+     3.335
+    ],
+    "x_neck_02": [
+     0.0,
+     3.65,
+     2.5875
+    ],
+    "x_neck_03": [
+     0.0,
+     3.85,
+     2.9325
+    ],
+    "x_plate_01": [
+     0.0,
+     4.3,
+     1.15
+    ],
+    "x_plate_02": [
+     0.0,
+     4.05,
+     -0.23
+    ],
+    "x_plate_03": [
+     0.0,
+     3.75,
+     -1.61
+    ],
+    "x_star": [
+     0.0,
+     3.55,
+     3.703
+    ],
+    "x_tail_01": [
+     0.0,
+     2.6,
+     -3.3925
+    ],
+    "x_tail_02": [
+     0.0,
+     2.3,
+     -3.6225
+    ],
+    "x_tail_03": [
+     0.0,
+     1.95,
+     -3.7375
+    ],
+    "x_tail_04": [
+     0.0,
+     1.6,
+     -3.772
+    ]
+   },
+   "yaw": 0.0
+  },
+  "tris": {
+   "ca/boss_behemoth": 7970,
+   "ca/boss_behemoth_lo": 4210
+  },
+  "texture": "512 JPEG（新展的 UV，在源网格上取色烘过来；DECODE_VIDEO_TEXTURE 的约定，不标 SRGBColorSpace）",
+  "grade": {
+   "lift": 1.5,
+   "knee": [
+    0.62,
+    0.4
+   ]
+  },
+  "regions": [
+   {
+    "box": [
+     0.62,
+     2.2,
+     3.8,
+     6.0,
+     1.2,
+     3.2
+    ],
+    "gain": 0.25
+   },
+   {
+    "box": [
+     0.3,
+     0.62,
+     3.8,
+     6.0,
+     1.2,
+     3.2
+    ],
+    "gain": 0.25,
+    "hue": [
+     130,
+     220
+    ],
+    "sat": 0.08
+   },
+   {
+    "box": [
+     0,
+     0.55,
+     3.1,
+     4.15,
+     2.95,
+     3.6
+    ],
+    "gain": 0.5
+   },
+   {
+    "box": [
+     0,
+     1.6,
+     3.2,
+     4.8,
+     -2.6,
+     1.2
+    ],
+    "gain": 1.5
+   }
+  ],
+  "glow": {
+   "force": [
+    "x_star"
+   ],
+   "bones": [
+    "x_plate_01",
+    "x_plate_02",
+    "x_plate_03",
+    "spine_01",
+    "spine_02",
+    "spine_03",
+    "pelvis",
+    "neck_01",
+    "x_neck_02",
+    "x_neck_03"
+   ],
+   "rules": [
+    {
+     "hue": [
+      150,
+      205
+     ],
+     "sat": 0.3,
+     "val": 0.3
+    }
+   ]
+  },
+  "parts": "整体沿身长方向（z）拉长 1.15 倍（出手那一帧头 / 嘴更接近预警的位置；贴图跟着拉长 15%，低多边形的平涂色块看不出来）"
+ },
+ "outputs": {
+  "assets/ca/boss/behemoth.glb": "2d60367f4a676c0953b3ec0e64131ebe8f65f9951557fb115dca8a7bd3fe6668",
+  "assets/ca/boss/behemoth_lo.glb": "3954191333551b7b3852b15439964fad95203f1ed1b6afe8e7bfa1c4137640b5"
+ },
+ "review": {
+  "resemblance": "通用的牛形四足巨兽：石墨灰的皮、背上一排岩甲带短角刺、额上皮革青铜甲、两只青色晶角、嘴里含着一颗星。提示词没有提任何游戏或作品；没有和已知游戏素材或 IP 的造型、配色、标志对得上的地方。",
+  "value": "游戏镜头灰度（遮罩法，boss-value 口径）高 41.4 / 低 44.0（首领的范围 38–45 / 40–47），p95 72.4 / 74.0，≥85% 的像素 293 / 293（现网 749 / 1102）；身子比地面亮 11.3 / 12.5（现网 11.0 / 12.3），正上方 10.5 / 10.2；提亮 1.5 加肩部（sRGB 0.62 以上按 0.4 压），背甲 ×1.5，青色的角按位置 + 色相压到 0.25，星压到 0.5",
+  "glow": "发光网格基本是嘴里的星（背甲的青色裂纹太细，减面后凑不成整块的发光三角形，留作贴图颜色，编排者确认）；蓄力最亮时发光里 ≥85% 的像素 高 1615 / 低 1975（现网 1640 / 1957，含裂纹）",
+  "hits": "流星 / 坍缩 / 吐息 / 砸地出手时刻不变（0.683 / 2.2 / 0.883 / 0.933 s）；沿身长拉长 1.15 倍以后砸地那一帧头离圆心 0.81 米（不拉长 1.21，现网 0.30，半径 4.6），吐息的口离中线 0.06 米（半宽 1.1）",
+  "footprint": "俯视占地半径 2.27（碰撞半径 2.0 +13.5%，原来 2.23 +1.8%）；身高 5.8（原来 6.0）",
+  "stride": "a-02 的静止姿态是迈步站（左右脚前后不齐），每条腿的枢轴按自己的腿量；待机、破防、死亡的动作帧里没有看得出的歪斜"
+ }
+}

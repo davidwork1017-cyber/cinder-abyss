@@ -23,6 +23,7 @@ import ca.boss.snuffer  # noqa: E402,F401
 import ca.boss.warden  # noqa: E402,F401
 from catalog import CATALOG, LINEUP_SEEDS  # noqa: E402
 from ai import golem_rig  # noqa: E402  AI 生成的首领外观（gen='golem_ai'，见 art/ai/golem_rig.py）
+from ai import boss_rig  # noqa: E402  AI 生成的首领外观（gen='boss_ai'：雷霆监察者 / 衔星巨兽，见 art/ai/boss_rig.py）
 
 
 def argv():
@@ -118,8 +119,8 @@ def build(o):
         core.reset_scene()
         t0 = time.perf_counter()
         extra = {}
-        if item['cat'] == 'boss' and item['gen'] == 'golem_ai':
-            # AI 生成的首领外观（art/ai/golem_rig.py）：源 GLB / 自动蒙皮的权重 GLB 不在仓库里（CA_AI_ROOT）。没有源文件的机器上保留已经提交的 GLB
+        if item['cat'] == 'boss' and item['gen'] in ('golem_ai', 'boss_ai'):
+            # AI 生成的首领外观（art/ai/golem_rig.py；雷霆监察者 / 衔星巨兽是 boss_ai，art/ai/boss_rig.py）：源 GLB / 自动蒙皮的权重 GLB 不在仓库里（CA_AI_ROOT）。没有源文件的机器上保留已经提交的 GLB
             #（全量构建照样逐字节一致）；源文件的 sha256 和参数里记的对不上就报错
             path = os.path.join(out, 'boss', item['id'].split('_', 1)[1] + '.glb')
             a = item['args']
@@ -132,6 +133,11 @@ def build(o):
                 print('CA_AI_KEEP %s（没有源文件，保留已提交的生成物）' % item['id'], flush=True)
                 info = golem_rig.glb_info(path)
                 tris, dt, extra = info['tris'], 0.0, dict(bones=info['bones'], clips=info['clips'], unused_bones=[], home=item.get('home'))
+            elif item['gen'] == 'boss_ai':
+                log = boss_rig.run(dict(spec=a['spec'], tris=a.get('tris'), texpx=a.get('texpx'), name=item['id'].replace('/', '_'),
+                                        path=path, out=os.path.join(bpy.app.tempdir or '/tmp', 'boss_ai_' + item['id'].split('_', 1)[1])))
+                ex = log['export'][os.path.basename(path)]
+                tris, dt, extra = log['tris'], 0.0, dict(bones=ex['bones'], clips=sorted(boss_rig.clips_of(log['spec']['kind'])), unused_bones=ex['unused'], home=item.get('home'))
             else:
                 log = golem_rig.run(dict(spec=a['spec'], tris=a.get('tris'), texpx=a.get('texpx'), modes='tex', name=item['id'].replace('/', '_'),
                                          path=path, out=os.path.join(bpy.app.tempdir or '/tmp', 'golem_ai_' + item['id'].split('_', 1)[1])))

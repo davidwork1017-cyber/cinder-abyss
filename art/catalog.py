@@ -190,14 +190,28 @@ CATALOG = [
          args=dict(spec='art/ai/golem/a01.json', texpx=512, tris=4096)),
     dict(id='ca/boss_lord', gen='lord', seed=191, cat='boss', zone='boss', home='abyss', ship=True, replaces=None,
          bake=dict(ao=0.6, grad=0.7, wear=0.5, grime=0.2, gain=1.1), finish=dict(dust=0.0), cues=dict(second=False, val=0.22, lichen=0)),
-    dict(id='ca/boss_behemoth', gen='behemoth', seed=207, cat='boss', zone='boss', home='rift', ship=True, replaces=None,
-         bake=dict(ao=0.6, grad=0.8, wear=0.4, grime=0.25, gain=1.32), finish=dict(dust=0.0), cues=dict(second=False, val=0.24, lichen=0)),
+    # 衔星巨兽（ai3d-bosses）：外观换成 AI 生成的 behemoth-a-02，art/ai/boss_rig.py 对到同一副骨架（混合蒙皮：UniRig 的权重 + 按区域纠正），
+    # 反照率贴图 512；behemoth_lo = 低画质的减面版（不超过原来的 4240）。来源记录 assets/ca/boss/behemoth.provenance.json。
+    # 原来的脚本外观（gen='behemoth'，art/ca/boss/behemoth.py，动作表 behemoth_clips.py 仍从那里来）不再打包；要重新生成就把下面这行放回清单、两条 boss_ai 拿掉：
+    # dict(id='ca/boss_behemoth', gen='behemoth', seed=207, cat='boss', zone='boss', home='rift', ship=True, replaces=None,
+    #      bake=dict(ao=0.6, grad=0.8, wear=0.4, grime=0.25, gain=1.32), finish=dict(dust=0.0), cues=dict(second=False, val=0.24, lichen=0)),
+    dict(id='ca/boss_behemoth', gen='boss_ai', seed=543, cat='boss', zone='boss', home='rift', ship=True, replaces=None,
+         args=dict(spec='art/ai/boss/behemoth_a02.json', texpx=512)),
+    dict(id='ca/boss_behemoth_lo', gen='boss_ai', seed=543, cat='boss', zone='boss', home='rift', ship=True, replaces=None,
+         args=dict(spec='art/ai/boss/behemoth_a02.json', texpx=512, tris=4240)),
     dict(id='ca/boss_weaver', gen='weaver', seed=229, cat='boss', zone='boss', home='frost', ship=True, replaces=None,
          bake=dict(ao=0.6, grad=0.8, wear=0.4, grime=0.2, gain=1.25), finish=dict(dust=0.0), cues=dict(second=False, val=0.22, lichen=0)),
     dict(id='ca/boss_snuffer', gen='snuffer', seed=229, cat='boss', zone='boss', home='pin', ship=True, replaces=None,
          bake=dict(ao=0.6, grad=0.7, wear=0.35, grime=0.2, gain=1.15), finish=dict(dust=0.0), cues=dict(second=False, val=0.2, lichen=0)),
-    dict(id='ca/boss_warden', gen='warden', seed=241, cat='boss', zone='boss', home='storm', ship=True, replaces=None,
-         bake=dict(ao=0.6, grad=0.7, wear=0.5, grime=0.2, gain=1.3), finish=dict(dust=0.0), cues=dict(second=False, val=0.22, lichen=0)),
+    # 雷霆监察者（ai3d-bosses）：外观换成 AI 生成的 warden-a-01，art/ai/boss_rig.py 对到同一副骨架（全刚性：按连通件 / 区域分零件，护盾板挪到环绕半径上摆三块，
+    # 环多拷一道，眼皮程序化），反照率贴图 512；warden_lo = 低画质的减面版（不超过原来的 4860）。来源记录 assets/ca/boss/warden.provenance.json。
+    # 原来的脚本外观（gen='warden'，art/ca/boss/warden.py，动作表 warden_clips.py 仍从那里来）不再打包；要重新生成就把下面这行放回清单、两条 boss_ai 拿掉：
+    # dict(id='ca/boss_warden', gen='warden', seed=241, cat='boss', zone='boss', home='storm', ship=True, replaces=None,
+    #      bake=dict(ao=0.6, grad=0.7, wear=0.5, grime=0.2, gain=1.3), finish=dict(dust=0.0), cues=dict(second=False, val=0.22, lichen=0)),
+    dict(id='ca/boss_warden', gen='boss_ai', seed=541, cat='boss', zone='boss', home='storm', ship=True, replaces=None,
+         args=dict(spec='art/ai/boss/warden_a01.json', texpx=512)),
+    dict(id='ca/boss_warden_lo', gen='boss_ai', seed=541, cat='boss', zone='boss', home='storm', ship=True, replaces=None,
+         args=dict(spec='art/ai/boss/warden_a01.json', texpx=512, tris=4860)),
 ]
 
 # 看板（lineup）：每个生成器 × 几个种子，参数沿用清单里第一个用到它的件
