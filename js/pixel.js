@@ -14,21 +14,25 @@
 //   pxdark=0|1        暗色地牢光照（压暗环境、火盆点光、主角周围的光）
 //   pxfog=0..1        视野暗角（以主角为中心）
 //   pxcon=对比度 pxsat=饱和度 pxsnap=0|1（镜头吸附）
+//   pxtel=0|1         敌方预警圈另画一层、不进调色板（边保持清楚、填充保持半透明）
+//   pxstep=0|12       角色动画按每秒几帧取样（只改画面：画的时候换成上一个取样点的骨骼，模拟照常）
+//   pxdir=0|8|16      角色朝向量化成几个方向（只在画的时候改 group.rotation.y，画完恢复）
+//   proto=1           没有 px= 时取预设 d（?proto=1 原型用）
 // 页面里：G.px.set({ h: 400, pal: 1, ... }) 现场改，G.px.cfg 当前配置，G.px.stats 最近一帧的 draw / 三角面数
 (function () {
   const W = G.world, T = THREE;
   const qs = new URLSearchParams(location.search);
   const PRESET = {
     // A：低分辨率、全彩、原来的光照（只看「像素化」本身）
-    a: { h: 400, pal: 0, dith: 0, ol: 0, dark: 0, fog: 0, con: 1.05, sat: 1.05 },
+    a: { h: 400, pal: 0, dith: 0, ol: 0, dark: 0, fog: 0, con: 1.05, sat: 1.05, tel: 1, step: 0, dir: 0 },
     // B：调色板 + 抖动、火光照明（暗）
-    b: { h: 320, pal: 1, dith: 0.6, ol: 1, dark: 1, fog: 0.75, con: 1.05, sat: 1.0 },
+    b: { h: 320, pal: 1, dith: 0.6, ol: 1, dark: 1, fog: 0.75, con: 1.05, sat: 1.0, tel: 1, step: 0, dir: 0 },
     // C：低分辨率 + 描边、高对比（暗，不量化）
-    c: { h: 400, pal: 0, dith: 0, ol: 2, dark: 1, fog: 0.55, con: 1.18, sat: 1.1 },
-    // D：折中候选：360 高、调色板（轻抖动）、角色描边 + 场景深度边、暗色光照、视野暗角
-    d: { h: 360, pal: 1, dith: 0.3, ol: 2, dark: 1, fog: 0.65, con: 1.1, sat: 1.05 },
+    c: { h: 400, pal: 0, dith: 0, ol: 2, dark: 1, fog: 0.55, con: 1.18, sat: 1.1, tel: 1, step: 0, dir: 0 },
+    // D：折中（?proto=1 用这一套）：360 高、调色板（轻抖动）、角色描边 + 场景深度边、暗色光照、视野暗角、预警圈不量化、动画 12 帧 / 秒、朝向 8 方向
+    d: { h: 360, pal: 1, dith: 0.3, ol: 2, dark: 1, fog: 0.65, con: 1.1, sat: 1.05, tel: 1, step: 12, dir: 8 },
   };
-  let pid = (qs.get('px') || 'a').toLowerCase();
+  let pid = (qs.get('px') || (qs.has('proto') && qs.get('proto') !== '0' ? 'd' : 'a')).toLowerCase();
   if (!PRESET[pid]) pid = 'a';
   const cfg = Object.assign({ id: pid, snap: 1 }, PRESET[pid]);
   const num = (k, key) => {
@@ -36,6 +40,7 @@
   };
   num('pxh', 'h'); num('pxpal', 'pal'); num('pxdith', 'dith'); num('pxol', 'ol'); num('pxdark', 'dark');
   num('pxfog', 'fog'); num('pxcon', 'con'); num('pxsat', 'sat'); num('pxsnap', 'snap');
+  num('pxtel', 'tel'); num('pxstep', 'step'); num('pxdir', 'dir');
 
   // ----- 色板：自己定的 48 色暗色地牢色板（冷紫灰的石头、暖褐的土、火 / 余烬、敌对的血红、冷色魔法、毒绿 / 青、奥术紫、腐肉粉、皮肤、黄绿） -----
   const PAL = [
@@ -56,13 +61,13 @@
   // ----- 低分辨率处理：描边 → 调色 → 视野暗角 → 调色板 + 抖动（输入输出都是显示空间 sRGB） -----
   const procMat = new T.ShaderMaterial({
     uniforms: {
-      tCol: { value: null }, tDep: { value: null }, uSrc: { value: new T.Vector2(1, 1) },
+      tCol: { value: null }, tAll: { value: null }, uTel: { value: 0 }, tDep: { value: null }, uSrc: { value: new T.Vector2(1, 1) },
       uNear: { value: 2 }, uFar: { value: 240 }, uOl: { value: 0 }, uPal: { value: palV }, uPalOn: { value: 0 }, uDith: { value: 0 },
       uCon: { value: 1 }, uSat: { value: 1 }, uFog: { value: 0 }, uHero: { value: new T.Vector2(0.5, 0.5) }, uAsp: { value: 1.6 },
     },
     vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
     fragmentShader: [
-      'uniform sampler2D tCol, tDep; uniform vec2 uSrc, uHero; uniform float uNear, uFar, uOl, uPalOn, uDith, uCon, uSat, uFog, uAsp;',
+      'uniform sampler2D tCol, tAll, tDep; uniform vec2 uSrc, uHero; uniform float uNear, uFar, uOl, uPalOn, uDith, uCon, uSat, uFog, uAsp, uTel;',
       'uniform vec3 uPal[' + PAL.length + '];',
       'varying vec2 vUv;',
       'float lin(float d){ return uNear * uFar / (uFar - d * (uFar - uNear)); }',
@@ -101,6 +106,8 @@
       '    for (int k = 0; k < ' + PAL.length + '; k++) { vec3 e = c - uPal[k]; float dd = dot(e * e, vec3(0.3, 0.55, 0.15)); if (dd < best) { best = dd; bc = uPal[k]; } }',
       '    c = bc;',
       '  }',
+      // 预警圈层：tAll = 场景 + 敌方预警圈，tCol = 不带预警圈的场景；差值原样叠回（不量化、不压暗角）：红边清楚，填充仍是半透明的一层
+      '  if (uTel > 0.5) c = clamp(c + texture2D(tAll, vUv).rgb - s.rgb, 0.0, 1.0);',
       '  gl_FragColor = vec4(c, 1.0);',
       '}',
     ].join('\n'),
@@ -124,18 +131,34 @@
   quad.frustumCulled = false;
   const qScene = new T.Scene();
   qScene.add(quad);
+  const copyMat = new T.ShaderMaterial({
+    uniforms: { tSrc: { value: null } },
+    vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+    fragmentShader: 'uniform sampler2D tSrc; varying vec2 vUv; void main(){ gl_FragColor = texture2D(tSrc, vUv); }',
+    depthTest: false, depthWrite: false, blending: T.NoBlending,
+  });
+  // 敌方预警圈另画的那一层：画的时候把预警圈的网格挪进这个场景（自己的灯光状态，主场景的着色器不因此换程序），画完挪回去
+  const teleScene = new T.Scene();
+  const mk0 = W.makeTelegraph;
+  W.makeTelegraph = function (spec, friendly) {
+    const h = mk0.apply(this, arguments);
+    if (h && h.mesh && !friendly) h.mesh.userData.pxTele = 1;
+    return h;
+  };
 
-  let rtA = null, rtB = null, rw = 0, rh = 0;
+  let rtA = null, rtB = null, rtS = null, rw = 0, rh = 0;
   function targets() {
     const v = W._px.view();
     const h = Math.max(90, Math.round(cfg.h)), w = Math.max(90, Math.round((h * v.vw) / v.vh));
     if (rtA && w === rw && h === rh) return;
-    if (rtA) (rtA.dispose(), rtB.dispose());
+    if (rtA) (rtA.dispose(), rtB.dispose(), rtS.dispose());
     rw = w;
     rh = h;
     rtA = W._px.displayRT(new T.WebGLRenderTarget(w, h, { minFilter: T.NearestFilter, magFilter: T.NearestFilter, format: T.RGBAFormat, type: T.UnsignedByteType }));
     rtA.depthTexture = new T.DepthTexture(w, h);
     rtB = new T.WebGLRenderTarget(w, h, { minFilter: T.LinearFilter, magFilter: T.LinearFilter, format: T.RGBAFormat, type: T.UnsignedByteType, depthBuffer: false });
+    rtS = new T.WebGLRenderTarget(w, h, { minFilter: T.NearestFilter, magFilter: T.NearestFilter, format: T.RGBAFormat, type: T.UnsignedByteType, depthBuffer: false });
+    rtS.texture.internalFormat = 'RGBA8';
   }
 
   // ----- 暗色地牢光照：火盆点光（固定 4 盏，换区不重编着色器）、主角的暖光、压暗的环境 / 主光 / 雾 -----
@@ -172,13 +195,63 @@
     }
   }
 
-  let lastT = 0;
-  const st = { draws: 0, tris: 0, ms: 0 };
-  W.pxRender = function () {
+  let lastT = 0, lastSim = -1, vt = 0, tMove = 0;
+  const st = { draws: 0, tris: 0, ms: 0, tele: 0, ents: 0 };
+  const ents = [], teles = [];
+  // 动画步进：每个实体记一份「上一个取样点」的骨骼和身体变换；新动作开始（ent.clip 换了）立刻取样，读招不晚
+  function holdEnt(e, key) {
+    let h = e._pxH;
+    if (!h || h.b.length !== e.bones.length) h = e._pxH = { k: -1, clip: null, b: new Float32Array(e.bones.length), p: new T.Vector3(), q: new T.Quaternion(), s: new T.Vector3(), lp: new T.Vector3(), lq: new T.Quaternion(), ls: new T.Vector3() };
+    if (h.k !== key || h.clip !== e.clip) {
+      h.k = key;
+      h.clip = e.clip;
+      h.b.set(e.bones);
+      h.p.copy(e.body.position);
+      h.q.copy(e.body.quaternion);
+      h.s.copy(e.body.scale);
+    }
+    h.lp.copy(e.body.position);
+    h.lq.copy(e.body.quaternion);
+    h.ls.copy(e.body.scale);
+    e.uBones.value = h.b;
+    e.body.position.copy(h.p);
+    e.body.quaternion.copy(h.q);
+    e.body.scale.copy(h.s);
+  }
+  function unholdEnt(e) {
+    const h = e._pxH;
+    e.uBones.value = e.bones;
+    if (!h) return;
+    e.body.position.copy(h.lp);
+    e.body.quaternion.copy(h.lq);
+    e.body.scale.copy(h.ls);
+  }
+  // 画布的像素比：放大那一步要至少 2 倍于低分辨率目标，像素才是整齐的方块（手机「低」档画布只有 341 高，比 360 的目标还小，
+  // 不改就成了缩小、糊掉）。只多一道放大的开销，场景本身画在低分辨率目标里。换算：画布高 ≥ 2 × 目标高，最多到设备像素比
+  function pxCanvas() {
+    const R = W.renderer, v = W._px.view();
+    if (!R || !W.pxRender) return;
+    const want = Math.min(window.devicePixelRatio || 1, Math.max(v.glDpr, (2 * Math.max(90, Math.round(cfg.h))) / Math.max(1, v.vh)));
+    if (Math.abs(R.getPixelRatio() - want) > 1e-3) R.setPixelRatio(want);
+  }
+  const rs0 = W.resize;
+  W.resize = function () {
+    const r = rs0.apply(this, arguments);
+    pxCanvas();
+    return r;
+  };
+  function pxRender() {
     const R = W.renderer, S = W.scene, cam = W.camera, H = W._px, v = H.view();
     targets();
+    pxCanvas();
     const now = performance.now(), dt = lastT ? Math.min(0.1, (now - lastT) / 1000) : 0.016;
     lastT = now;
+    // 画面时钟：模拟在走就跟模拟时间（逐帧截图可复现）；模拟停了半秒以上（菜单、暂停）才跟真实时间，同一步里多画几次不算时间
+    const simT = G.state && G.state.time;
+    const dSim = lastSim >= 0 && typeof simT === 'number' ? simT - lastSim : -1;
+    if (dSim > 0 && dSim < 0.5) (vt += dSim), (tMove = now);
+    else if (dSim !== 0 || now - tMove > 500) vt += dt;
+    lastSim = typeof simT === 'number' ? simT : -1;
     // 存一份会改的值，画完恢复
     const s0 = { hemi: H.hemi.intensity, sun: H.sun.intensity, fill: H.fill.intensity, li: H.lamp.intensity, ld: H.lamp.distance, exp: R.toneMappingExposure, fog: S.fog.color.getHex(), bg: S.background.getHex(), ps: H.pScale.value, ao: H.aoMark.value };
     const p0 = cam.position.clone();
@@ -198,6 +271,23 @@
     // 粒子按世界单位换算像素：换成低分辨率目标的高
     H.pScale.value = s0.ps * (rh / Math.max(1, v.vh * v.glDpr));
     H.aoMark.value = 1; // 角色像素在 alpha 里记 0（描边用）
+    // 实体（角色 / 敌人）和敌方预警圈
+    ents.length = teles.length = 0;
+    for (const o of S.children) {
+      const ud = o.userData;
+      if (ud.pxEnt && !ud.pxEnt.removed) ents.push(ud.pxEnt);
+      else if (ud.pxTele && o.visible && cfg.tel) teles.push(o);
+    }
+    const key = cfg.step > 0 ? Math.floor(vt * cfg.step) : 0;
+    const dq = cfg.dir > 0 ? (Math.PI * 2) / cfg.dir : 0;
+    for (const e of ents) {
+      if (cfg.step > 0 && !e.dying) holdEnt(e, key);
+      if (dq) {
+        e._pxR = e.group.rotation.y;
+        e.group.rotation.y = Math.round(e._pxR / dq) * dq;
+      }
+    }
+    for (const m of teles) S.remove(m);
     // 镜头吸附到低分辨率像素网格（焦平面上 1 像素多少米）
     if (cfg.snap) {
       cam.updateMatrixWorld();
@@ -216,7 +306,29 @@
     R.render(S, cam);
     st.draws = R.info.render.calls;
     st.tris = R.info.render.triangles;
+    st.tele = teles.length;
+    st.ents = ents.length;
+    // 预警圈层：先把不带预警圈的场景存一份，再把预警圈画进 rtA（深度测试用 rtA 的深度，角色挡得住）
+    if (teles.length) {
+      copyMat.uniforms.tSrc.value = rtA.texture;
+      quad.material = copyMat;
+      R.setRenderTarget(rtS);
+      R.render(qScene, qCam);
+      for (const m of teles) teleScene.add(m);
+      const ac = R.autoClear, su = R.shadowMap.autoUpdate;
+      R.autoClear = false;
+      R.shadowMap.autoUpdate = false;
+      R.setRenderTarget(rtA);
+      R.render(teleScene, cam);
+      R.autoClear = ac;
+      R.shadowMap.autoUpdate = su;
+      for (const m of teles) S.add(m);
+    }
     // 恢复
+    for (const e of ents) {
+      if (cfg.step > 0) unholdEnt(e);
+      if (dq) e.group.rotation.y = e._pxR;
+    }
     cam.position.copy(p0);
     cam.updateMatrixWorld();
     H.hemi.intensity = s0.hemi;
@@ -232,7 +344,9 @@
     for (const L of torches) L.intensity = 0; // 火盆点光只在这一帧亮（关掉 px 时原来的画面不受影响）
     // 低分辨率处理
     const u = procMat.uniforms;
-    u.tCol.value = rtA.texture;
+    u.tCol.value = teles.length ? rtS.texture : rtA.texture;
+    u.tAll.value = rtA.texture;
+    u.uTel.value = teles.length ? 1 : 0;
     u.tDep.value = rtA.depthTexture;
     u.uSrc.value.set(rw, rh);
     u.uNear.value = cam.near;
@@ -258,6 +372,7 @@
     R.render(qScene, qCam);
     st.ms = performance.now() - now;
   };
+  W.pxRender = pxRender;
   const _v2 = new T.Vector2();
   G.px = {
     cfg,
@@ -268,6 +383,12 @@
     set(o) {
       Object.assign(cfg, o || {});
       return Object.assign({}, cfg);
+    },
+    // 实验工具用：整条像素管线开 / 关（关掉时画布像素比回到游戏自己的值）
+    enable(on) {
+      W.pxRender = on ? pxRender : null;
+      W.resize();
+      return !!W.pxRender;
     },
     preset(id) {
       if (!PRESET[id]) return null;
