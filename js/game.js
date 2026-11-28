@@ -42,14 +42,15 @@
   }
   // 拾取时的警告（走近一点、背包满了）不弹 toast，写成拾取记录里的一行（pickup-feed）；节流同 toast，同一个 key 共用一个时钟
   function feedWarn(msg, key, gapMs) {
-    if (!uiDue(key, gapMs)) return;
-    if (G.ui.feedWarn) G.ui.feedWarn(msg, key);
-    else G.ui.toast(msg, '#ff8a6a');
+    if (uiDue(key, gapMs)) G.ui.feedWarn(msg, key);
   }
   // 手动分解的结果：写在背包页的绿色小字里（分解是在背包里点的；拾取记录在面板后面看不见）
   function salvNote(msg) {
-    if (G.ui.salvNote) G.ui.salvNote(msg);
-    else G.ui.toast(msg, '#7fe0c0');
+    G.ui.salvNote(msg);
+  }
+  // 异兆的事件条（#enc-bar，toast-zero）：开始的目标句、结果、祈坛增益、第一次遇到时的用法，都写在顶上正中这一条里，不弹 toast
+  function encNote(o) {
+    if (G.ui && G.ui.encNote) G.ui.encNote(o);
   }
   // 场景里的飘字提示（没有目标、魔力不足……）按游戏时间节流：飘字要取随机数，节流若看真实时间，
   // 帧快帧慢会让同一个种子打出不同的随机序列。暂停 / 面板开着时游戏时间不走，节流也跟着停
@@ -615,6 +616,8 @@
       volAmb: toInt(ro.volAmb, 0, 100, 60), volMusic: toInt(ro.volMusic, 0, 100, 50), mute: !!ro.mute,
     };
     if (ro.salvageOffCls === true) s.opts.salvageOffCls = true; // 自动分解其他职业武器（T36）：只有打开时才有这个键，老存档没有 = 关
+    // 新手提示开关（hint-once）：只有在设置里动过才有这个键；没有 = 按存档算默认（10 级以上、进过轮回或打通烬渊深处的默认关，见 ui.js hintsOn）
+    if (typeof ro.hints === 'boolean') s.opts.hints = ro.hints;
     s.seenHelp = !!raw.seenHelp;
     s.seenStory = !!raw.seenStory;
     s.tut = {};
@@ -2084,7 +2087,7 @@
   // 技能卡 / 宝石提示用；lvl 缺省取已学等级
   // 攻速折进伤害的攻击技能：有冷却、不是武器技（武器技各自按自己的武器定好了数值）
   G.cdAps = (sk) => !!(sk && sk.wm && sk.cd > 0 && !sk.weaponOnly && sk.kind !== 'summon' && !sk.round && !(sk.gunSec && G.roundGun && G.roundGun())); // 特殊弹 / 拿枪的绊雷按普攻折算，攻速已经算在发数里
-  // 按普攻折算的量表技（熔光射线：basicOf / basicSec）：一发 = 普攻转满之后扫射 basicSec 秒的发数。
+  // 按普攻折算的量表技（熔光炮台：basicOf / basicSec）：一发 = 普攻转满之后扫射 basicSec 秒的发数。
   // 每秒发数 = 武器攻速 × 攻击速度 ÷ 普攻的 time（不算辅助宝石：武器技镶不了辅助）；没拿着对应的武器时按 1.0 攻速算
   G.basicShots = function (sk) {
     const b = G.SKILLS[sk.basicOf || G.roundBasicId(sk)]; // 特殊弹（class-d2b1）按手里那把枪的右键折算
@@ -4328,9 +4331,11 @@
       ch.n++;
       ch.t = CHAIN_KEEP;
       if (ch.n > ch.best) ch.best = ch.n;
-      // 集火：玩家亲手打中的敌人成为召唤物的优先目标
-      state.focus = e;
-      state.focusT = FOCUS_KEEP;
+      // 集火：玩家亲手打中的敌人成为召唤物的优先目标（熔光炮台打中的不算：炮台自己也按集火目标挑人）
+      if (!inf.turret) {
+        state.focus = e;
+        state.focusT = FOCUS_KEEP;
+      }
       if (sk.rtype) rangedOnHit(e, ctx, hit, inf); // 远程普攻：热度的「最近打中过」、弓的专注
     }
 
@@ -4490,9 +4495,7 @@
       if (kind && !save.bossKills[kind]) {
         save.bossKills[kind] = true;
         toast('首次击败「' + e.name + '」：获得 2 点天赋点', '#ffd75e');
-      } else {
-        toast('「' + e.name + '」已被击败', '#ffb46a');
-      }
+      } // 再打：首领条收起、掉落、传送门已经说明了，不弹 toast（toast-zero）
       if (state.zoneIdx === G.ZONES.length - 1 && state.tier >= save.maxTier) {
         save.maxTier = state.tier + 1;
         toast('轮回层级 ' + save.maxTier + ' 已解锁', '#d98cff');
@@ -4598,8 +4601,7 @@
       W.die(P.ent); // 留下一具替身演倒地，本体照旧隐藏到重生
       P.ent.group.visible = false;
       W.burst(P.x, 1, P.z, 0xff5a4a, 40, 6, 0.9);
-      G.sfx('death');
-      toast('你倒下了……', '#ff6a5a');
+      G.sfx('death'); // 「你倒下了」写在死亡遮罩上，不再弹 toast（toast-zero）
     }
     return true;
   };
@@ -5761,6 +5763,7 @@
   const RANGED_HOLD = { gatling: true, flamer: true }; // 这两种松手就停（不会因为轻点的缓冲多打一发）
   const MAX_FIELDS = 40;
   const rainsLive = []; // 坠凌：还在下的冰凌雨（只记有 sk.max 上限的那几种），换区时清掉
+  const turrets = []; // 熔光炮台（见 WS_FX.rgatling）：{ x, z, ang, t, tt, ctx, k, tgt, len, fx }
   const fields = []; // 地上的火：喷枪的余烬、焚天炎爆的火场 { kind, x, z, r, t, tick, tt, mult, ctx, key, hex }
   const VK = { gatling: 'bullet', revolver: 'slug', flamer: 'flamelet', huntbow: 'arrow', eagle: 'arrow', runebow: 'arrow', emberbow: 'emberarrow' };
 
@@ -6685,7 +6688,8 @@
     if (g.cdT > 0) g.cdT = Math.max(0, g.cdT - dt);
     const c = P.cast && P.cast.ranged ? P.cast : null;
     if (!c) g.firing = false;
-    if (!(c && c.rtype === 'gatling')) {
+    // 放熔光炮台的那一帧（武器技 meltray）不算停火：机炮的转速照旧
+    if (!(c && c.rtype === 'gatling') && !(P.cast && P.cast.id === 'meltray')) {
       g.spin = Math.max(0, g.spin - dt / 0.6);
       g.ramp = Math.max(0, g.ramp - dt * 2);
     }
@@ -6711,6 +6715,7 @@
       if (P.rbuff.t <= 0 || !rw || rw.type !== G.SKILLS[P.rbuff.id].wtype) endBuff();
     }
     if (P.rstate) updateWildfire(dt);
+    if (turrets.length) tickTurrets(dt);
     updateFields(dt);
     tickD2b(dt); // 特殊弹 / 提灯（class-d2b1）
     if (CB.marks.size) tickWandMarks();
@@ -6731,6 +6736,7 @@
     g.firing = false;
     endBuff();
     P.rstate = null;
+    clearTurrets(); // 熔光炮台
     fields.length = 0;
     rainsLive.length = 0; // 冰凌雨的同场计数
     resetWandMarks(); // 疾咒的咒痕
@@ -9688,7 +9694,7 @@
     return t && G.ROUND_GUN[t] ? t : null;
   }
   G.roundGun = roundGun;
-  // 特殊弹按哪一招普攻折算伤害（同熔光射线的 basicOf）：手里那把枪的右键；不是枪时 null（按 wm 乘手里武器的伤害）
+  // 特殊弹按哪一招普攻折算伤害（同熔光炮台的 basicOf）：手里那把枪的右键；不是枪时 null（按 wm 乘手里武器的伤害）
   // 绊雷（class-d2b2，gunSec）拿枪时也这样折算：一枚 = 这把枪右键连射 gunSec 秒；拿弓照常按 wm
   G.roundBasicId = function (sk) {
     if (!sk || !(sk.round || sk.gunSec)) return null;
@@ -11157,57 +11163,119 @@
   // =====================================================================
   // 远程武器的 R（量表技，见 data.js 的 meltray / firestorm / wildfire / volley / pierceheart / overflow / emberstorm）
   // =====================================================================
-  // 熔光射线：按住 R 蓄力（瞄准线跟准星），松手（或蓄满后再按 hold 秒）放出一道贯穿射线，一次结算直线上的所有敌人。
-  // 射线每帧交给 world.laser 画（可选，没有时画一道电弧顶上）
-  WS_FX.rgatling = function (ctx, c) {
+  // 熔光炮台（laser-beam）：在身体两侧各放下一座炮台，turret.dur 秒里各自朝目标喷持续的贯穿射线（数值和规则见 data.js 的 meltray）。
+  // 出手只占一帧，右键照常扫射；炮台记在 turrets 里，每帧由 tickTurrets 推进（tickRanged 里），换区域 / 重生（resetRanged）、你倒下时收起。
+  // 画面交给 world 的 W.turret（可选：没有时只用通用电弧画射线）
+  // 炮台落点：身体左右两侧（面朝方向的垂直方向）side 米、往后 back 米；那里走不了或者和你之间隔着墙，就往你身边收，实在不行就落在你脚下
+  function turretSpot(T, sd) {
     const W = G.world;
-    const sk = ctx.sk;
-    const hex = hexOf(sk.color);
-    c.dur = c.t + sk.charge + sk.hold + 0.2;
-    c.cancelT = c.dur;
-    c.data = { ang: c.aim, ch: 0, shot: false, beamT: 0, len: sk.len };
-    G.sfx('cast', { id: ctx.id });
-    c.tick = (cc, dt) => {
-      const d = cc.data;
-      if (!d.shot) {
-        d.ang = aimInfo().ang;
-        cc.aim = d.ang;
-        d.ch += dt;
-        const k = Math.min(1, d.ch / sk.charge);
-        const sn = Math.sin(d.ang), cs = Math.cos(d.ang);
-        const len = Math.max(1, rayLen(P.x, P.z, d.ang, sk.len, -0.3));
-        fxOpt('laser', P.x, P.z, sn, cs, len, { charge: k });
-        if (k >= 1 && !d.full) {
-          d.full = true;
-          fxOpt('gaugeFull', P.ent, 'heat');
-        }
-        if (!slotHeld(WS_SLOT) || d.ch >= sk.charge + sk.hold) {
-          // 放：一次结算整条线
-          d.shot = true;
-          d.k = sk.minK + (1 - sk.minK) * k;
-          d.len = len;
-          d.beamT = sk.beamT;
-          cc.dur = cc.t + sk.beamT + 0.15;
-          cc.cancelT = cc.dur;
-          if (!fxOpt('laser', P.x, P.z, sn, cs, len, { w: 1 + 1.6 * k })) W.bolt([{ x: P.x + sn * 0.8, z: P.z + cs * 0.8 }, { x: P.x + sn * len, z: P.z + cs * len }], hex, true);
-          const hits = enemiesInLine(P.x, P.z, d.ang, len, (sk.width * (0.6 + 0.4 * k)) / 2);
-          if (hits.length) wsStrike(ctx, hits, d.k, { ang: d.ang, w: k >= 1 ? sk.w : 1, kb: sk.kb * (0.5 + 0.5 * k), poise: sk.poise * d.k, stop: sk.stop * (0.4 + 0.6 * k), dir: d.ang });
-          else G.sfx('impact', { type: 'fire', w: 1, crit: false });
-          W.shake(0.2 + 0.3 * k);
-          state.stats.beamShots = (state.stats.beamShots || 0) + 1;
-          state.stats.beamHits = (state.stats.beamHits || 0) + hits.length;
-          state.stats.beamK = d.k;
-        }
-      } else {
-        // 射线余晖：粗细跟着蓄力，慢慢收细
-        d.beamT -= dt;
-        if (d.beamT > 0) {
-          const f = d.beamT / sk.beamT;
-          fxOpt('laser', P.x, P.z, Math.sin(d.ang), Math.cos(d.ang), d.len, { w: (0.4 + 2.2 * (d.k || 1)) * f });
-        } else G.world.stop && G.world.stop(P.ent, 0.15);
+    const a = P.face, sn = Math.sin(a), cs = Math.cos(a);
+    for (const k of [1, 0.6, 0.3]) {
+      const x = P.x + cs * T.side * sd * k - sn * T.back * k, z = P.z - sn * T.side * sd * k - cs * T.back * k;
+      if (W.walkable(x, z, 0.2) && losClear(P.x, P.z, x, z)) return { x, z };
+    }
+    return { x: P.x, z: P.z };
+  }
+  function turretOff(tu) {
+    const i = turrets.indexOf(tu);
+    if (i >= 0) turrets.splice(i, 1);
+    if (tu.fx && G.world.turretOff) G.world.turretOff(tu.fx);
+  }
+  function clearTurrets() {
+    while (turrets.length) turretOff(turrets[turrets.length - 1]);
+  }
+  // 这座炮台该打谁：你最近亲手打中的敌人优先（range 米内、看得见），否则 range 米内最近的醒着、看得见的敌人；都没有时 null
+  function turretTarget(tu, T) {
+    const ok = (e) => e && !e.dead && dist(e.x, e.z, tu.x, tu.z) - e.r <= T.range && losClear(tu.x, tu.z, e.x, e.z);
+    if (state.focusT > 0 && ok(state.focus)) return state.focus;
+    if (ok(tu.tgt) && tu.tgt.awake) return tu.tgt; // 已经在打的这个还能打：接着打，不在两个差不多近的敌人之间来回跳
+    let best = null, bd = 1e9;
+    for (const e of state.enemies) {
+      if (e.dead || !e.awake) continue;
+      const d = dist(e.x, e.z, tu.x, tu.z) - e.r;
+      if (d <= T.range && d < bd && losClear(tu.x, tu.z, e.x, e.z)) {
+        bd = d;
+        best = e;
       }
-    };
+    }
+    return best;
+  }
+  // faint：小而淡的数字（同一个敌人每隔一会儿才冒一个）；noFlash / dot：不闪白、不后仰、不甩命中火花（只是画面：一秒十跳加上机炮的子弹，
+  // 怪会一直是白的、一直在抖，命中火花还多占两次 draw call）——射线打到哪儿由射线尽头的光和火星交代
+  const TURRET_INFO = { w: 0, quiet: true, faint: true, noFlash: true, dot: true, turret: true };
+  function tickTurrets(dt) {
+    if (P.dead) {
+      clearTurrets();
+      return;
+    }
+    for (let i = turrets.length - 1; i >= 0; i--) {
+      const tu = turrets[i], ctx = tu.ctx, sk = ctx.sk, T = sk.turret;
+      tu.t -= dt;
+      if (tu.t <= 0) {
+        turretOff(tu);
+        continue;
+      }
+      // 每 0.1 秒重新挑一次目标（挑的时候要对每个敌人看视线，不每帧做）；目标死了当帧就换
+      tu.rt -= dt;
+      if (tu.rt <= 0 || !tu.tgt || tu.tgt.dead) {
+        tu.rt = 0.1;
+        tu.tgt = turretTarget(tu, T);
+      }
+      // 炮管转向目标：每秒最多 turn 弧度
+      if (tu.tgt) {
+        const want = Math.atan2(tu.tgt.x - tu.x, tu.tgt.z - tu.z);
+        let d = want - tu.ang;
+        d = Math.atan2(Math.sin(d), Math.cos(d));
+        const mx = T.turn * dt;
+        tu.ang += Math.abs(d) <= mx ? d : Math.sign(d) * mx;
+      }
+      const on = !!tu.tgt;
+      tu.len = on ? Math.max(0.6, rayLen(tu.x, tu.z, tu.ang, T.len, -0.3)) : 0;
+      if (tu.fx) {
+        tu.fx.ang = tu.ang;
+        tu.fx.len = tu.len;
+        tu.fx.on = on;
+        tu.fx.t = tu.t;
+      }
+      tu.tt -= dt;
+      if (tu.tt > 0) continue;
+      tu.tt += T.tick;
+      if (!on) continue;
+      // 一跳：沿炮管当前的朝向（不是目标的方向：转得慢的时候扫得到路上的敌人，也会打偏）结算整条线
+      const hits = enemiesInLine(tu.x, tu.z, tu.ang, tu.len, T.width / 2);
+      const info = TURRET_INFO;
+      info.ang = tu.ang;
+      info.kb = sk.kb;
+      info.poise = sk.poise;
+      for (const e of hits) G.hitEnemy(e, ctx, tu.k, info);
+      if (hits.length) {
+        state.stats.turretHits = (state.stats.turretHits || 0) + hits.length;
+        tu.sfxT = (tu.sfxT || 0) - T.tick;
+        if (tu.sfxT <= 0) {
+          tu.sfxT = 0.6;
+          G.sfx('impact', { type: lastHit.type, w: 0, crit: false });
+        }
+      }
+      state.stats.turretTicks = (state.stats.turretTicks || 0) + 1;
+    }
+  }
+  WS_FX.rgatling = function (ctx, c) {
+    const sk = ctx.sk, T = sk.turret;
+    clearTurrets(); // 还在的旧炮台收起，换成这一对
+    // 每一跳 = 两座炮台活满全程合起来打一个敌人时，整招（ctx 一击）的 1 / (n × dur / tick)
+    const ticks = T.n * Math.round(T.dur / T.tick);
+    for (let i = 0; i < T.n; i++) {
+      const sd = i % 2 ? -1 : 1;
+      const p = turretSpot(T, sd);
+      const tu = { x: p.x, z: p.z, ang: c.aim, t: T.dur, tt: T.tick * (0.5 + 0.25 * i), ctx, k: 1 / ticks, tgt: null, rt: 0, len: 0, fx: null };
+      tu.fx = G.world.turret ? G.world.turret(tu.x, tu.z, tu.ang, T.dur, { y: T.y, side: sd }) : null; // 只是画面句柄：模拟不读它
+      turrets.push(tu);
+    }
+    G.sfx('cast', { id: ctx.id });
+    G.world.shake(0.12);
+    state.stats.turretCasts = (state.stats.turretCasts || 0) + 1;
   };
+  G.turretList = () => turrets;
 
   // 焚天炎爆：以你为中心半径 radius 的火浪（墙后的不挨），之后留下半径 burn.r 的火场
   WS_FX.rflamer = function (ctx) {
@@ -11610,7 +11678,9 @@
     const max = isLife ? P.maxLife : P.maxMana;
     if (cur >= max && !P.hot[kind]) return false; // 满的时候不浪费
     if (P.flask[kind] < 1) {
-      toast(isLife ? '生命药剂已空，击杀敌人补充' : '魔力药剂已空，击杀敌人补充', '#c8b89a', 'flask-' + kind, 2000);
+      // 药剂图标抖一下（每次按都有）；拾取记录里一行警告，同一瓶 60 秒最多一次（toast-zero）
+      if (G.ui.flaskDeny) G.ui.flaskDeny(kind);
+      feedWarn(isLife ? '生命药剂空了 · 击杀补充' : '魔力药剂空了 · 击杀补充', 'flask-' + kind, 60000);
       return false;
     }
     P.flask[kind] -= 1;
@@ -11740,7 +11810,7 @@
   G.clickChest = function (c) {
     if (!c || c.open || P.dead) return false;
     if (dist(c.x, c.z, P.x, P.z) > 7) {
-      toast('走近一点', '#c8b89a', 'far', 900);
+      feedWarn('走近一点', 'far', 900);
       return false;
     }
     return G.openChest(c);
@@ -12128,7 +12198,6 @@
     if (G.clsDef() && !G.classCanUse(save.cls, id)) return null; // 别的职业的技能：学不了
     save.blankGems.pop();
     const slot = learnSkill(id);
-    toast('习得技能：' + sk.name + (slot >= 0 ? '' : '（去技能页绑定）') + ' · 用掉一颗' + G.BLANK_GEM.short, GEM_COLOR);
     G.sfx('gem');
     G.persist();
     return { id, slot };
@@ -12291,7 +12360,7 @@
       P.life = P.maxLife;
       P.mana = P.maxMana;
     }
-    toast('等级提升：Lv ' + save.level + '（获得 ' + gained + ' 点天赋点）', '#ffd75e');
+    if (G.ui.levelToast) G.ui.levelToast(save.level, gained); // 60 秒内连升几级：同一条 toast 改写，不另弹（toast-zero）
     if (G.world.levelUpFx) G.world.levelUpFx(P.x, P.z); // vf-vfx3：金色的环往外画开 + 竖直的细光痕（原来 4.5 米环 + 30 粒金光点）
     else G.world.ring(P.x, P.z, 4.5, 0xffd75e, 0.6);
     G.sfx('level');
@@ -12399,18 +12468,12 @@
   G.applyCurrency = function (item, curId, idx) {
     const save = G.save;
     if (!item || !G.CURRENCY[curId] || !(save.cur[curId] > 0)) return false;
-    if (item.rarity === 3) {
-      toast('烬铸武器无法改造', '#ff8a6a', 'uqlock', 600);
-      return false;
-    }
-    if (item.rarity === 4) {
-      toast(G.RELIC_NAME + '无法改造', '#ff8a6a', 'uqlock', 600);
-      return false;
-    }
+    G.craftMsg = ''; // 改造不成的原因（背包页的红字读它；toast-zero：不弹 toast）
+    if (item.rarity === 3 || item.rarity === 4) return false; // 烬铸 / 渊契：背包页写 lockText
     if (!G.canCraft(item, curId)) return false;
     const r = G.craft(item, curId, idx);
     if (!r.ok) {
-      if (r.msg) toast(r.msg, '#ff8a6a');
+      G.craftMsg = r.msg || '';
       return false;
     }
     save.cur[curId]--;
@@ -13005,7 +13068,7 @@
     enc.k = ok ? 1 : enc.k;
     enc.pend.length = 0;
     const D = G.ENCOUNTERS[enc.kind];
-    toast(D.name + (msg ? '：' + msg : ok ? '：完成' : '：失败'), ok ? '#c8b0ff' : '#a89a8a');
+    encNote({ kind: enc.kind, txt: msg || (ok ? '完成' : '失败'), st: ok ? 'ok' : 'fail' });
     state.stats.encDone = (state.stats.encDone || 0) + (ok ? 1 : 0);
   }
 
@@ -13023,7 +13086,7 @@
           enc.st = 'open';
           W.ring(s.x, s.z, D.r, 0xa98cff, 0.6);
           W.burst(s.x, 1.4, s.z, 0xb090ff, 30, 5, 0.8);
-          if (d < 40) toast('裂隙张开了：站进圈里坚守 ' + D.hold + ' 秒', '#c8b0ff');
+          // 张开了：事件条写「走进圈里，坚守 N 秒」，人在 40 米内时显示（G.ui 每帧看 enc.st === 'open'）
           return;
         }
         if (enc.st === 'open') {
@@ -13137,7 +13200,7 @@
             return e;
           });
         }
-        toast('锁链崩开：' + D.time + ' 秒内打倒三只匣卫', '#ffd36a');
+        encNote({ kind: 'box', txt: D.time + ' 秒内打倒三只匣卫', st: 'go' });
         return true;
       },
     },
@@ -13188,7 +13251,7 @@
         W.burst(enc.site.x, 2.4, enc.site.z, 0x9fe7ff, 30, 5, 0.8);
         W.ring(P.x, P.z, 2.4, 0x9fe7ff, 0.5);
         W.text(P.x, P.z, B.name, B.color, 26, { kind: 'tag', y: 2.6 });
-        toast('祈坛：' + B.name + '（' + B.desc + '）' + B.dur + ' 秒', B.color);
+        encNote({ kind: 'shrine', txt: B.name + '：' + B.desc + ' · ' + B.dur + ' 秒', st: 'ok', color: B.color });
         G.sfx('gem');
         return true;
       },
@@ -13209,7 +13272,7 @@
           enc.wave = 0;
           enc.leaveT = 0;
           ENC_RUN.trial.wave(enc);
-          toast('试锋开始：' + D.time + ' 秒内打完三波', '#ff8a6a');
+          encNote({ kind: 'trial', txt: D.time + ' 秒内打完三波', st: 'go' });
           return;
         }
         if (enc.st !== 'run') return;
@@ -13292,7 +13355,7 @@
           return e;
         });
         G.world.ring(at.x, at.z, 4, 0xb090ff, G.ENC.warn);
-        toast('「' + G.BOSSES[zone.def.boss].name + '」的残影浮现了', '#c8b0ff');
+        // 残影活着时事件条写「击败「X」的残影」，进度 = 它的生命（G.ui 看 enc.mob）
       },
     },
     ember: {
@@ -13376,7 +13439,7 @@
           });
         }
         G.world.burst(s.x, 1.2, s.z, 0xffa64a, 30, 5, 0.7);
-        toast('余烬开始落下：' + D.time + ' 秒内打碎四块烬晶', '#ffb070');
+        encNote({ kind: 'ember', txt: D.time + ' 秒内打碎四块烬晶', st: 'go' });
         return true;
       },
     },
@@ -13480,8 +13543,8 @@
         enc.live = true;
         ENC_RUN[enc.kind].wake(enc);
         // 能互动的几种：醒来时提示一句怎么用（同一种只在这次进区提示一次）
-        const HINT = { shrine: '祈坛：走近按 F 激活', trader: '拾烬客：走近按 F 交易', box: '缚匣：走近崩开锁链（会惊醒匣卫）' };
-        if (HINT[enc.kind]) toast(HINT[enc.kind], '#d8c8a8', 'enc-' + enc.kind, 2600);
+        const HINT = { shrine: '走近按 F 激活', trader: '走近按 F 交易', box: '走近崩开锁链（会惊醒匣卫）' };
+        if (HINT[enc.kind]) encNote({ kind: enc.kind, txt: HINT[enc.kind], st: 'hint', once: true }); // 同一种这次游戏只提示一次
       }
       if (enc.pend.length) tickPend(enc, dt);
       ENC_RUN[enc.kind].tick(enc, dt, d, pr);
@@ -13531,7 +13594,7 @@
   G.clickEnc = function (enc) {
     if (!enc || P.dead) return false;
     if (dist(enc.site.x, enc.site.z, P.x, P.z) > 7) {
-      toast('走近一点', '#c8b89a', 'far', 900);
+      feedWarn('走近一点', 'far', 900);
       return false;
     }
     return G.encUse(enc);
@@ -13619,7 +13682,7 @@
     if (item.rarity >= 1) res.dust = (res.dust || 0) + 1;
     for (const id in res) grantCurrency(id, res[id]);
     const txt = resultText(res);
-    if (txt) toast('卖给拾烬客：' + txt, '#7fe07a');
+    Object.defineProperty(res, 'txt', { value: txt }); // 拾烬客面板写「卖掉了「X」，得到 …」（toast-zero：不弹 toast；不可枚举，res 照旧只列通货）
     G.sfx('pickup');
     G.persist();
     return res;
@@ -13639,7 +13702,6 @@
     if (left > 0) return false;
     for (const id in plan) F[id] -= plan[id];
     F[want] = Math.min(G.FRAG_DROP.max, (F[want] || 0) + 1);
-    toast('换得 1 个' + G.FRAGS[want].name, G.FRAGS[want].color);
     G.persist();
     return plan;
   };
@@ -13740,7 +13802,7 @@
     if (W.precompile) W.precompile();
     if (W.crownBraziers) W.crownBraziers(state.pin.lit, -1, 0);
     G.persist();
-    toast(G.PINNACLE.name + ' · 轮回 ' + tier + '　首领等级 ' + level, '#ffd27a');
+    // 区名 / 等级：左上的区域信息常驻，进区时亮一下（toast-zero：不弹 toast）
     return state.zone;
   };
   const pinHere = () => !!(state.pin && state.zone && state.zone.def.id === G.PINNACLE.id);
@@ -13887,7 +13949,7 @@
     S.snuffT = PINS.snuffIv;
     pinRingOff();
     G.persist();
-    toast('一盏魂灯熄灭了（还剩 ' + S.lives + ' 盏）', '#ffd27a');
+    // 熄了一盏：死亡遮罩上写着（还剩几盏），左上魂灯常驻（toast-zero：不弹 toast）
     return false;
   };
   // 魂灯燃尽：四个烛芯里随机退还 G.PIN_REFUND 个（不同种类），回到进来之前那一区、打开地图
@@ -13916,7 +13978,7 @@
     if (first) {
       save.bossKills.snuffer = true;
       toast('首次击败「' + e.name + '」：获得 2 点天赋点', '#ffd75e');
-    } else toast('「' + e.name + '」已被击败', '#ffb46a');
+    }
     const PK = save.pinnacle;
     const ilvl = Math.max(1, e.level), x = e.x, z = e.z;
     for (let i = 0; i < 3; i++) G.spawnLoot('item', G.rollItem(ilvl, 2), x, z);
@@ -14122,7 +14184,7 @@
     save.tier = tier;
     G.questSync(true); // 主线：进区步、进轮回层级（lastZone / tier 刚写入）
     G.persist();
-    toast(def.name + (tier > 0 ? ' · 轮回 ' + tier : '') + '　怪物等级 ' + level, '#ffb46a');
+    // 区名 / 怪物等级 / 轮回层级：左上的区域信息常驻，进区时亮一下（toast-zero：不弹 toast）
     return state.zone;
   };
 })();

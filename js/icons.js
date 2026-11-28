@@ -1376,16 +1376,20 @@
       }
       miniLamp(g, 0, 8, 1.3, col, true);
     },
-    // 熔光射线：枪口（左下）喷出一道粗光束斜贯到右上，外焰橙红、芯白热，一路缠着电弧，落点炸开
+    // 熔光炮台：左下、右下各一座矮炮台，两道细射线斜着朝上方交汇，交汇处一小团光（外焰橙红、芯偏暖，不发白）
     gatling(g, col) {
-      const m = rot(-45, 1, 0, 0);
-      glow(g, (p) => p.M(-5, 26).L(-6.5, -30).L(6.5, -30).L(5, 26).Z(), '#ff6a2c', { m, blur: 10, core: rgba('#ff7a2c', 0.75) });
-      glow(g, (p) => p.M(-2.4, 26).L(-3, -30).L(3, -30).L(2.4, 26).Z(), col, { m, blur: 6, core: lite(col, 0.4) });
-      solid(g, (p) => p.M(-1, 26).L(-1.2, -30).L(1.2, -30).L(1, 26).Z(), '#fffbe8', { m, hi: 0, lo: 0, lw: 0, bevel: 0 });
-      glow(g, (p) => p.M(-6, 18).L(4, 12).L(-5, 4).L(5, -4).L(-4, -12).L(6, -20).L(-3, -27), C.light, { m, stroke: 1.3, blur: 4, core: '#fff6c0' });
-      glow(g, (p) => p.E(19, -19, 7), col, { blur: 10, core: lite(col, 0.6) });
-      solid(g, (p) => p.R(-26, 15, 12, 8, 2), C.ironD, { m: rot(-45, 1, 0, 0), bevel: 1, lw: 1.6 });
-      spark(g, 19, -19, 7, '#ffffff');
+      const tx = 0, ty = -21;
+      for (const sx of [-1, 1]) {
+        const bx = sx * 16, by = 17, mx = bx + sx * -4.6, my = by - 12;
+        glow(g, (p) => p.M(mx - 2.4, my).L(tx - 1.6, ty).L(tx + 1.6, ty).L(mx + 2.4, my).Z(), '#ff6a2c', { blur: 7, core: rgba('#ff7a2c', 0.7) });
+        solid(g, (p) => p.M(mx - 0.7, my).L(tx - 0.5, ty).L(tx + 0.5, ty).L(mx + 0.7, my).Z(), lite(col, 0.45), { hi: 0, lo: 0, lw: 0, bevel: 0 });
+        solid(g, (p) => p.R(-3, -13, 6, 13, 1.6), C.ironD, { m: rot(-sx * 21, 1, bx, by), bevel: 1, lw: 1.4 });
+        solid(g, (p) => p.M(bx - 9, by + 9).L(bx - 6, by - 1).L(bx + 6, by - 1).L(bx + 9, by + 9).Z(), '#5a4636', { hi: 0.35, lo: 0.5, bevel: 1, lw: 1.6 });
+        glow(g, (p) => p.E(mx, my, 2.6), col, { blur: 5, core: lite(col, 0.5) });
+      }
+      glow(g, (p) => p.M(-10, 1).L(-6, -4).L(-9, -9).L(-4, -14).L(-5, -19), C.light, { stroke: 1.2, blur: 4, core: '#ffe9a8' });
+      glow(g, (p) => p.E(tx, ty, 6.5), col, { blur: 10, core: lite(col, 0.55) });
+      spark(g, tx, ty, 5, '#fff3d0');
     },
     // 焚天炎爆：中心一团白热，一圈往外翻卷的火浪，地上一圈烧红的焦痕
     flamer(g, col) {

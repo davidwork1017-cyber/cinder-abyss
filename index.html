@@ -262,9 +262,13 @@
 <script src="js/assets/index.js"></script>
 <!-- 角色模型（Quaternius CC0，GLB 打成 base64）：开场就要用，同步引入；缺了就用程序化角色 -->
 <script src="js/assets/chars.js"></script>
+<!-- AI 生成的武器 / 装备模型包（ai3d-weapons）：建主角骨架之前就要到，同步引入。&aiwpn=0（或页面加载前 window.CA_AIWPN = 0）关掉，照旧用脚本件，A/B 用 -->
+<script>if (window.CA_AIWPN !== 0 && !/[?&]aiwpn=0\b/.test(location.search)) { window.CA_AIWPN = 1; document.write('<script src="js/assets/kit-aiwpn.js"><\/script>'); } else window.CA_AIWPN = 0;</script>
 <!-- 特效贴图库（tools/gen-vfx-textures.mjs 程序化生成，打成 base64）：同步引入，js/vfx.js 解码成纹理、提供共用的特效着色器 -->
 <script src="js/assets/vfx.js"></script>
 <script src="js/assets.js"></script>
+<!-- AI 生成的技能件（冰晶、冰凌、冰碴、冰簇、雷桩、冰棱；art/ai/pieces.py 生成的小网格，没有贴图）：同步引入，js/vfx.js / js/world.js 建几何体时读；缺了就用原来的几何体 -->
+<script src="js/assets/skill-pieces.js"></script>
 <script src="js/vfx.js"></script>
 <script src="js/items.js"></script>
 <script src="js/world.js"></script>

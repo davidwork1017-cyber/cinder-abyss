@@ -552,6 +552,2038 @@
    "sha256": "547a75dd84511feb18273e0e7501f3d9156e11521d6b27d298b54d75d7f18f4f"
   },
   {
+   "id": "ca/aiwpn_amulet",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_amulet.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 658,
+   "verts": 1974,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.137,
+     -0.249,
+     -0.05
+    ],
+    "max": [
+     0.137,
+     0.012,
+     0.05
+    ]
+   },
+   "h": 0.262,
+   "r": 0.137,
+   "y0": -0.249,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/gear_amulet/provenance.json",
+     "lod": "hi",
+     "mode": "fc"
+    },
+    "bake": {},
+    "provenance": "assets/ai/gear_amulet/provenance.json",
+    "sourceSha256": "6c5faf6e56ee396da392e407c115834dc31c45de2a2324bd800961f402866dd5"
+   },
+   "lod": "hi",
+   "mode": "fc",
+   "sha256": "2479a07f8b013c9220bfdbf0aaffac951d07d53ef57c2656419db0dab4d36340"
+  },
+  {
+   "id": "ca/aiwpn_amulet_lo",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_amulet_lo.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 159,
+   "verts": 477,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.14,
+     -0.247,
+     -0.049
+    ],
+    "max": [
+     0.136,
+     0.011,
+     0.05
+    ]
+   },
+   "h": 0.258,
+   "r": 0.14,
+   "y0": -0.247,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/gear_amulet/provenance.json",
+     "lod": "lo",
+     "mode": "fc"
+    },
+    "bake": {},
+    "provenance": "assets/ai/gear_amulet/provenance.json",
+    "sourceSha256": "6c5faf6e56ee396da392e407c115834dc31c45de2a2324bd800961f402866dd5"
+   },
+   "lod": "lo",
+   "mode": "fc",
+   "sha256": "6d289e9cc4fcee60c359b60e0028ca58d129189dd51aaaa9cc38a86ddc46bac3"
+  },
+  {
+   "id": "ca/aiwpn_banner",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_banner.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 760,
+   "verts": 2280,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.44,
+     -0.578,
+     -0.109
+    ],
+    "max": [
+     0.44,
+     1.728,
+     0.109
+    ]
+   },
+   "h": 2.306,
+   "r": 0.44,
+   "y0": -0.578,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/wpn_banner/provenance.json",
+     "lod": "hi",
+     "mode": "fc"
+    },
+    "bake": {},
+    "provenance": "assets/ai/wpn_banner/provenance.json",
+    "sourceSha256": "fcb98d5735f2e20adb930db53c92a7419977fa5f6e389d3ed36ab5bc9ef86bda"
+   },
+   "lod": "hi",
+   "mode": "fc",
+   "sha256": "8f7edd011e06fa06636ad4a00cd095523c8e555c06ad421c652cd4cf1d6b3e78"
+  },
+  {
+   "id": "ca/aiwpn_banner_lo",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_banner_lo.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 398,
+   "verts": 1194,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.44,
+     -0.578,
+     -0.109
+    ],
+    "max": [
+     0.44,
+     1.728,
+     0.109
+    ]
+   },
+   "h": 2.306,
+   "r": 0.44,
+   "y0": -0.578,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/wpn_banner/provenance.json",
+     "lod": "lo",
+     "mode": "fc"
+    },
+    "bake": {},
+    "provenance": "assets/ai/wpn_banner/provenance.json",
+    "sourceSha256": "fcb98d5735f2e20adb930db53c92a7419977fa5f6e389d3ed36ab5bc9ef86bda"
+   },
+   "lod": "lo",
+   "mode": "fc",
+   "sha256": "325a3b098dc5e390515aa14fc3ecb68528b7d45406bf14666b140e112a58d260"
+  },
+  {
+   "id": "ca/aiwpn_belt",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_belt.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 658,
+   "verts": 1974,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.273,
+     -0.094,
+     -0.246
+    ],
+    "max": [
+     0.275,
+     0.089,
+     0.245
+    ]
+   },
+   "h": 0.184,
+   "r": 0.275,
+   "y0": -0.094,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/gear_belt/provenance.json",
+     "lod": "hi",
+     "mode": "fc"
+    },
+    "bake": {},
+    "provenance": "assets/ai/gear_belt/provenance.json",
+    "sourceSha256": "d02d60ff39d7e5188913a61c3a4e8caf694d3248a5e3a6a0018f1e0d9230df64"
+   },
+   "lod": "hi",
+   "mode": "fc",
+   "sha256": "461c10d4bcdb1cfa6fff415aee20f8859fe3b4b4dfee1b8c9fab21a6859fac29"
+  },
+  {
+   "id": "ca/aiwpn_belt_lo",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_belt_lo.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 126,
+   "verts": 378,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.261,
+     -0.085,
+     -0.239
+    ],
+    "max": [
+     0.271,
+     0.089,
+     0.205
+    ]
+   },
+   "h": 0.175,
+   "r": 0.271,
+   "y0": -0.085,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/gear_belt/provenance.json",
+     "lod": "lo",
+     "mode": "fc"
+    },
+    "bake": {},
+    "provenance": "assets/ai/gear_belt/provenance.json",
+    "sourceSha256": "d02d60ff39d7e5188913a61c3a4e8caf694d3248a5e3a6a0018f1e0d9230df64"
+   },
+   "lod": "lo",
+   "mode": "fc",
+   "sha256": "2849c7a91b915a8b3ae3eea0b054c77e3f2ee43ddffa2cc2320e7786f0eb3c0f"
+  },
+  {
+   "id": "ca/aiwpn_blade",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_blade.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 500,
+   "verts": 1500,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.153,
+     -0.214,
+     -0.071
+    ],
+    "max": [
+     0.156,
+     1.167,
+     0.071
+    ]
+   },
+   "h": 1.381,
+   "r": 0.156,
+   "y0": -0.214,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/wpn_blade/provenance.json",
+     "lod": "hi",
+     "mode": "fc"
+    },
+    "bake": {},
+    "provenance": "assets/ai/wpn_blade/provenance.json",
+    "sourceSha256": "a0eaf4e7b495e453dad46f20beffa82b6d5defc8830cc64593e4ae4a30bd3bde"
+   },
+   "lod": "hi",
+   "mode": "fc",
+   "sha256": "121311a142000a619889f2fc24a8abf7c1b5b1bade9dda3f9be9c4aa64bfae2e"
+  },
+  {
+   "id": "ca/aiwpn_blade_lo",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_blade_lo.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 104,
+   "verts": 312,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.139,
+     -0.225,
+     -0.08
+    ],
+    "max": [
+     0.133,
+     1.166,
+     0.08
+    ]
+   },
+   "h": 1.391,
+   "r": 0.139,
+   "y0": -0.225,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/wpn_blade/provenance.json",
+     "lod": "lo",
+     "mode": "fc"
+    },
+    "bake": {},
+    "provenance": "assets/ai/wpn_blade/provenance.json",
+    "sourceSha256": "a0eaf4e7b495e453dad46f20beffa82b6d5defc8830cc64593e4ae4a30bd3bde"
+   },
+   "lod": "lo",
+   "mode": "fc",
+   "sha256": "2b3a5fcea4d86e61bd53c8bd177604d95da4e9c94b6af1d44377f51e88df31c1"
+  },
+  {
+   "id": "ca/aiwpn_body",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_body.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 660,
+   "verts": 1980,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.27,
+     -0.25,
+     -0.192
+    ],
+    "max": [
+     0.27,
+     0.25,
+     0.198
+    ]
+   },
+   "h": 0.5,
+   "r": 0.27,
+   "y0": -0.25,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/gear_body/provenance.json",
+     "lod": "hi",
+     "mode": "fc"
+    },
+    "bake": {},
+    "provenance": "assets/ai/gear_body/provenance.json",
+    "sourceSha256": "56e8ee7cb9e3e5c6676e3b734d819187ba997b42703b99b40c6f8e0158858b81"
+   },
+   "lod": "hi",
+   "mode": "fc",
+   "sha256": "b971c601048a3169a39894f6c19be4a03c74b8d293628c868249ebf87372328e"
+  },
+  {
+   "id": "ca/aiwpn_body_lo",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_body_lo.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 207,
+   "verts": 621,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.264,
+     -0.249,
+     -0.192
+    ],
+    "max": [
+     0.262,
+     0.24,
+     0.193
+    ]
+   },
+   "h": 0.49,
+   "r": 0.264,
+   "y0": -0.249,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/gear_body/provenance.json",
+     "lod": "lo",
+     "mode": "fc"
+    },
+    "bake": {},
+    "provenance": "assets/ai/gear_body/provenance.json",
+    "sourceSha256": "56e8ee7cb9e3e5c6676e3b734d819187ba997b42703b99b40c6f8e0158858b81"
+   },
+   "lod": "lo",
+   "mode": "fc",
+   "sha256": "ef787e43d0563f135f5eeee4ee51eb7f9188d69e9f90c38f1cff4f2167506c40"
+  },
+  {
+   "id": "ca/aiwpn_boots",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_boots.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 659,
+   "verts": 1977,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.113,
+     -0.225,
+     -0.192
+    ],
+    "max": [
+     0.093,
+     0.226,
+     0.193
+    ]
+   },
+   "h": 0.45,
+   "r": 0.193,
+   "y0": -0.225,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/gear_boots/provenance.json",
+     "lod": "hi",
+     "mode": "fc"
+    },
+    "bake": {},
+    "provenance": "assets/ai/gear_boots/provenance.json",
+    "sourceSha256": "e5a1c7254844bdd4b79d052249614f2570602deee0d5f4ee71311c21389fcab9"
+   },
+   "lod": "hi",
+   "mode": "fc",
+   "sha256": "8916e8dc934bae9f5e53afe08356e0cf5b3403d95359163b0e875b7b4accee58"
+  },
+  {
+   "id": "ca/aiwpn_boots_lo",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_boots_lo.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 209,
+   "verts": 627,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.114,
+     -0.205,
+     -0.172
+    ],
+    "max": [
+     0.077,
+     0.19,
+     0.187
+    ]
+   },
+   "h": 0.395,
+   "r": 0.187,
+   "y0": -0.205,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/gear_boots/provenance.json",
+     "lod": "lo",
+     "mode": "fc"
+    },
+    "bake": {},
+    "provenance": "assets/ai/gear_boots/provenance.json",
+    "sourceSha256": "e5a1c7254844bdd4b79d052249614f2570602deee0d5f4ee71311c21389fcab9"
+   },
+   "lod": "lo",
+   "mode": "fc",
+   "sha256": "ec9b44245c298993508c9a70d1296d7513b264a965b33cb36dcd3575e50c1b14"
+  },
+  {
+   "id": "ca/aiwpn_daggers",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_daggers.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 648,
+   "verts": 1944,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.235,
+     -0.311,
+     -0.036
+    ],
+    "max": [
+     0.235,
+     0.311,
+     0.034
+    ]
+   },
+   "h": 0.622,
+   "r": 0.235,
+   "y0": -0.311,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/wpn_daggers/provenance.json",
+     "lod": "hi",
+     "mode": "fc"
+    },
+    "bake": {},
+    "provenance": "assets/ai/wpn_daggers/provenance.json",
+    "sourceSha256": "5cd608df99064b7d49b32d205f9f99b48b070dd44d482006309129ec14285585"
+   },
+   "lod": "hi",
+   "mode": "fc",
+   "sha256": "c486145e9f251b3f7bf0d2680b12023784ab1cc76b4beb0842059f1d7b9b4080"
+  },
+  {
+   "id": "ca/aiwpn_daggers_lo",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_daggers_lo.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 299,
+   "verts": 897,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.235,
+     -0.312,
+     -0.035
+    ],
+    "max": [
+     0.235,
+     0.311,
+     0.025
+    ]
+   },
+   "h": 0.623,
+   "r": 0.235,
+   "y0": -0.312,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/wpn_daggers/provenance.json",
+     "lod": "lo",
+     "mode": "fc"
+    },
+    "bake": {},
+    "provenance": "assets/ai/wpn_daggers/provenance.json",
+    "sourceSha256": "5cd608df99064b7d49b32d205f9f99b48b070dd44d482006309129ec14285585"
+   },
+   "lod": "lo",
+   "mode": "fc",
+   "sha256": "7368d3228f8b3a8633896308eb16d5313c4a91896b7f17fb24039647ad8c8eac"
+  },
+  {
+   "id": "ca/aiwpn_eagle",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_eagle.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 432,
+   "verts": 1296,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.177,
+     -0.707,
+     -0.043
+    ],
+    "max": [
+     0.143,
+     0.715,
+     0.043
+    ]
+   },
+   "h": 1.422,
+   "r": 0.177,
+   "y0": -0.707,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/wpn_eagle/provenance.json",
+     "lod": "hi",
+     "mode": "fc"
+    },
+    "bake": {},
+    "provenance": "assets/ai/wpn_eagle/provenance.json",
+    "sourceSha256": "e2b6f5789172ee16145c965eef95bc60eabba1695bf83815d3c6eb3862c65485"
+   },
+   "lod": "hi",
+   "mode": "fc",
+   "sha256": "1d98da5f00d76a3af9af37b3727f0e8a802850989cc16303f704a4ac79700a06"
+  },
+  {
+   "id": "ca/aiwpn_eagle_lo",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_eagle_lo.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 363,
+   "verts": 1089,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.177,
+     -0.704,
+     -0.043
+    ],
+    "max": [
+     0.141,
+     0.715,
+     0.04
+    ]
+   },
+   "h": 1.42,
+   "r": 0.177,
+   "y0": -0.704,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/wpn_eagle/provenance.json",
+     "lod": "lo",
+     "mode": "fc"
+    },
+    "bake": {},
+    "provenance": "assets/ai/wpn_eagle/provenance.json",
+    "sourceSha256": "e2b6f5789172ee16145c965eef95bc60eabba1695bf83815d3c6eb3862c65485"
+   },
+   "lod": "lo",
+   "mode": "fc",
+   "sha256": "14db8bc0961ff950f708befa52bba4636adca0ede8b88bf118adb5ddf0fc99df"
+  },
+  {
+   "id": "ca/aiwpn_emberbow",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_emberbow.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 447,
+   "verts": 1341,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.139,
+     -0.71,
+     -0.027
+    ],
+    "max": [
+     0.14,
+     0.709,
+     0.027
+    ]
+   },
+   "h": 1.418,
+   "r": 0.14,
+   "y0": -0.71,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/wpn_emberbow/provenance.json",
+     "lod": "hi",
+     "mode": "fc"
+    },
+    "bake": {},
+    "provenance": "assets/ai/wpn_emberbow/provenance.json",
+    "sourceSha256": "a9aa8036c83fa21ab77b770b2a6a217c2433f75e7aced7f01444e220b20d44c0"
+   },
+   "lod": "hi",
+   "mode": "fc",
+   "sha256": "b95ff181f0526e2193063073b582cb4b72963d7ec8b6a94d6d1c1dddbbd9a835"
+  },
+  {
+   "id": "ca/aiwpn_emberbow_lo",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_emberbow_lo.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 437,
+   "verts": 1311,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.139,
+     -0.71,
+     -0.027
+    ],
+    "max": [
+     0.14,
+     0.709,
+     0.027
+    ]
+   },
+   "h": 1.418,
+   "r": 0.14,
+   "y0": -0.71,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/wpn_emberbow/provenance.json",
+     "lod": "lo",
+     "mode": "fc"
+    },
+    "bake": {},
+    "provenance": "assets/ai/wpn_emberbow/provenance.json",
+    "sourceSha256": "a9aa8036c83fa21ab77b770b2a6a217c2433f75e7aced7f01444e220b20d44c0"
+   },
+   "lod": "lo",
+   "mode": "fc",
+   "sha256": "1b6a85706d0fd0f5b91796f2cb8295c9e6e577ae1be3e3674506bb8febd4df78"
+  },
+  {
+   "id": "ca/aiwpn_flamer",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_flamer.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 640,
+   "verts": 1920,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.128,
+     -0.135,
+     -0.089
+    ],
+    "max": [
+     0.383,
+     0.766,
+     0.089
+    ]
+   },
+   "h": 0.901,
+   "r": 0.383,
+   "y0": -0.135,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/wpn_flamer/provenance.json",
+     "lod": "hi",
+     "mode": "fc"
+    },
+    "bake": {},
+    "provenance": "assets/ai/wpn_flamer/provenance.json",
+    "sourceSha256": "a9607821ffb9b0b21c6fc1e9c3a05aa0dc643bc21a09c8ab2d6488cdd8ac7f02"
+   },
+   "lod": "hi",
+   "mode": "fc",
+   "sha256": "652135130cb6da7d2aa7f5c91a56a79a793596e96d9dfe4373dfde1db2e010c5"
+  },
+  {
+   "id": "ca/aiwpn_flamer_lo",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_flamer_lo.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 235,
+   "verts": 705,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.126,
+     -0.135,
+     -0.086
+    ],
+    "max": [
+     0.383,
+     0.766,
+     0.089
+    ]
+   },
+   "h": 0.901,
+   "r": 0.383,
+   "y0": -0.135,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/wpn_flamer/provenance.json",
+     "lod": "lo",
+     "mode": "fc"
+    },
+    "bake": {},
+    "provenance": "assets/ai/wpn_flamer/provenance.json",
+    "sourceSha256": "a9607821ffb9b0b21c6fc1e9c3a05aa0dc643bc21a09c8ab2d6488cdd8ac7f02"
+   },
+   "lod": "lo",
+   "mode": "fc",
+   "sha256": "c554d059c027856a1d741ab2694890801dbc9bd9ab8c7d1452089e54f9a9d1ab"
+  },
+  {
+   "id": "ca/aiwpn_gatling",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_gatling.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 749,
+   "verts": 2247,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.235,
+     -0.168,
+     -0.149
+    ],
+    "max": [
+     0.381,
+     0.569,
+     0.149
+    ]
+   },
+   "h": 0.737,
+   "r": 0.381,
+   "y0": -0.168,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/wpn_gatling/provenance.json",
+     "lod": "hi",
+     "mode": "fc",
+     "part": "body"
+    },
+    "bake": {},
+    "provenance": "assets/ai/wpn_gatling/provenance.json",
+    "sourceSha256": "7a8ba4e9895312f6299a1b81426403aaf505f038e30176ab6a9161fb3212f9f1"
+   },
+   "lod": "hi",
+   "mode": "fc",
+   "part": "body",
+   "sha256": "1cf8d3d47389c4431da81c7194d83e7dad68fb5d71f42debf0c9ac81d384ba80"
+  },
+  {
+   "id": "ca/aiwpn_gatling_barrel",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_gatling_barrel.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 239,
+   "verts": 717,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     0.068,
+     0.561,
+     -0.124
+    ],
+    "max": [
+     0.373,
+     0.832,
+     0.119
+    ]
+   },
+   "h": 0.272,
+   "r": 0.373,
+   "y0": 0.561,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/wpn_gatling/provenance.json",
+     "lod": "hi",
+     "mode": "fc",
+     "part": "barrel"
+    },
+    "bake": {},
+    "provenance": "assets/ai/wpn_gatling/provenance.json",
+    "sourceSha256": "7a8ba4e9895312f6299a1b81426403aaf505f038e30176ab6a9161fb3212f9f1"
+   },
+   "lod": "hi",
+   "mode": "fc",
+   "part": "barrel",
+   "sha256": "f0a9a2f2ffd332b4fca60675d4a8a61307dcad31bd699013b5f35feca329bbdc"
+  },
+  {
+   "id": "ca/aiwpn_gatling_barrel_lo",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_gatling_barrel_lo.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 140,
+   "verts": 420,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     0.077,
+     0.561,
+     -0.112
+    ],
+    "max": [
+     0.361,
+     0.833,
+     0.111
+    ]
+   },
+   "h": 0.273,
+   "r": 0.361,
+   "y0": 0.561,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/wpn_gatling/provenance.json",
+     "lod": "lo",
+     "mode": "fc",
+     "part": "barrel"
+    },
+    "bake": {},
+    "provenance": "assets/ai/wpn_gatling/provenance.json",
+    "sourceSha256": "7a8ba4e9895312f6299a1b81426403aaf505f038e30176ab6a9161fb3212f9f1"
+   },
+   "lod": "lo",
+   "mode": "fc",
+   "part": "barrel",
+   "sha256": "7bb0e5aac6cb65a1b5ec62e6fcea22d835b5ac71d32ffd4e6f92e339dd8a5eab"
+  },
+  {
+   "id": "ca/aiwpn_gatling_lo",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_gatling_lo.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 240,
+   "verts": 720,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.228,
+     -0.162,
+     -0.149
+    ],
+    "max": [
+     0.381,
+     0.57,
+     0.156
+    ]
+   },
+   "h": 0.732,
+   "r": 0.381,
+   "y0": -0.162,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/wpn_gatling/provenance.json",
+     "lod": "lo",
+     "mode": "fc",
+     "part": "body"
+    },
+    "bake": {},
+    "provenance": "assets/ai/wpn_gatling/provenance.json",
+    "sourceSha256": "7a8ba4e9895312f6299a1b81426403aaf505f038e30176ab6a9161fb3212f9f1"
+   },
+   "lod": "lo",
+   "mode": "fc",
+   "part": "body",
+   "sha256": "a4f4997cec97964886a49c03ce9e194eae6d31e07542b55426f8e957f9ffbf13"
+  },
+  {
+   "id": "ca/aiwpn_gloves",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_gloves.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 640,
+   "verts": 1920,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.202,
+     -0.208,
+     -0.065
+    ],
+    "max": [
+     0.202,
+     0.21,
+     0.066
+    ]
+   },
+   "h": 0.418,
+   "r": 0.202,
+   "y0": -0.208,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/gear_gloves/provenance.json",
+     "lod": "hi",
+     "mode": "fc"
+    },
+    "bake": {},
+    "provenance": "assets/ai/gear_gloves/provenance.json",
+    "sourceSha256": "8cb9dcef35557871f66a30a4c0b2a23356893f407500565f8291507998a22d00"
+   },
+   "lod": "hi",
+   "mode": "fc",
+   "sha256": "94218b720daa000ab3a2916ad974f2da699e985b869f3999e80233b82f9861c8"
+  },
+  {
+   "id": "ca/aiwpn_gloves_lo",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_gloves_lo.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 151,
+   "verts": 453,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.201,
+     -0.21,
+     -0.069
+    ],
+    "max": [
+     0.202,
+     0.205,
+     0.067
+    ]
+   },
+   "h": 0.415,
+   "r": 0.202,
+   "y0": -0.21,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/gear_gloves/provenance.json",
+     "lod": "lo",
+     "mode": "fc"
+    },
+    "bake": {},
+    "provenance": "assets/ai/gear_gloves/provenance.json",
+    "sourceSha256": "8cb9dcef35557871f66a30a4c0b2a23356893f407500565f8291507998a22d00"
+   },
+   "lod": "lo",
+   "mode": "fc",
+   "sha256": "84cebb5915f729b7247ca4c5ad1193ed385068181ec68896c0036580280cec45"
+  },
+  {
+   "id": "ca/aiwpn_hammer",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_hammer.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 879,
+   "verts": 2637,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.427,
+     -0.268,
+     -0.123
+    ],
+    "max": [
+     0.427,
+     1.455,
+     0.123
+    ]
+   },
+   "h": 1.723,
+   "r": 0.427,
+   "y0": -0.268,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/wpn_hammer/provenance.json",
+     "lod": "hi",
+     "mode": "fc"
+    },
+    "bake": {},
+    "provenance": "assets/ai/wpn_hammer/provenance.json",
+    "sourceSha256": "8cdec134776f399681fb7f008c8cf0c3d838721ab86e6bd5bb34848eb0d34383"
+   },
+   "lod": "hi",
+   "mode": "fc",
+   "sha256": "c15f71e0ee0b343c7d7da5ce104474a774014ef211362c6e473eae18d512f5f6"
+  },
+  {
+   "id": "ca/aiwpn_hammer_lo",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_hammer_lo.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 209,
+   "verts": 627,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.445,
+     -0.263,
+     -0.117
+    ],
+    "max": [
+     0.445,
+     1.472,
+     0.118
+    ]
+   },
+   "h": 1.734,
+   "r": 0.445,
+   "y0": -0.263,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/wpn_hammer/provenance.json",
+     "lod": "lo",
+     "mode": "fc"
+    },
+    "bake": {},
+    "provenance": "assets/ai/wpn_hammer/provenance.json",
+    "sourceSha256": "8cdec134776f399681fb7f008c8cf0c3d838721ab86e6bd5bb34848eb0d34383"
+   },
+   "lod": "lo",
+   "mode": "fc",
+   "sha256": "9e04342a413e5a5bc6558a1176e1a298b264c37b9a86df18d287698eb0f1e564"
+  },
+  {
+   "id": "ca/aiwpn_helm",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_helm.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 658,
+   "verts": 1974,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.184,
+     -0.212,
+     -0.203
+    ],
+    "max": [
+     0.18,
+     0.212,
+     0.2
+    ]
+   },
+   "h": 0.424,
+   "r": 0.203,
+   "y0": -0.212,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/gear_helm/provenance.json",
+     "lod": "hi",
+     "mode": "fc"
+    },
+    "bake": {},
+    "provenance": "assets/ai/gear_helm/provenance.json",
+    "sourceSha256": "9582eb7d6ab2aacd94a8644a484e0177cbc058633c82e511479d680bb44a3f82"
+   },
+   "lod": "hi",
+   "mode": "fc",
+   "sha256": "6b749eeefe7b3b408e7b3eb78d13ae4e637020e3d4bcf4f511363d5bd5f71c0b"
+  },
+  {
+   "id": "ca/aiwpn_helm_lo",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_helm_lo.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 197,
+   "verts": 591,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.178,
+     -0.204,
+     -0.199
+    ],
+    "max": [
+     0.17,
+     0.212,
+     0.196
+    ]
+   },
+   "h": 0.416,
+   "r": 0.199,
+   "y0": -0.204,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/gear_helm/provenance.json",
+     "lod": "lo",
+     "mode": "fc"
+    },
+    "bake": {},
+    "provenance": "assets/ai/gear_helm/provenance.json",
+    "sourceSha256": "9582eb7d6ab2aacd94a8644a484e0177cbc058633c82e511479d680bb44a3f82"
+   },
+   "lod": "lo",
+   "mode": "fc",
+   "sha256": "5d888ce3bec1e92c18ec5277c74b05cc70c28ae9b5606ee6cc806222587cf643"
+  },
+  {
+   "id": "ca/aiwpn_huntbow",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_huntbow.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 438,
+   "verts": 1314,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.1,
+     -0.708,
+     -0.023
+    ],
+    "max": [
+     0.231,
+     0.71,
+     0.022
+    ]
+   },
+   "h": 1.418,
+   "r": 0.231,
+   "y0": -0.708,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/wpn_huntbow/provenance.json",
+     "lod": "hi",
+     "mode": "fc"
+    },
+    "bake": {},
+    "provenance": "assets/ai/wpn_huntbow/provenance.json",
+    "sourceSha256": "3179faa094eaed71a2137c281f3e8619e28668fa3205723c6b0416be4fae80e9"
+   },
+   "lod": "hi",
+   "mode": "fc",
+   "sha256": "0d072851734a43a6e7d0657d667b60cbe8221edb0a4a53d047bfdac3db311a7b"
+  },
+  {
+   "id": "ca/aiwpn_huntbow_lo",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_huntbow_lo.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 378,
+   "verts": 1134,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.1,
+     -0.712,
+     -0.023
+    ],
+    "max": [
+     0.231,
+     0.71,
+     0.022
+    ]
+   },
+   "h": 1.422,
+   "r": 0.231,
+   "y0": -0.712,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/wpn_huntbow/provenance.json",
+     "lod": "lo",
+     "mode": "fc"
+    },
+    "bake": {},
+    "provenance": "assets/ai/wpn_huntbow/provenance.json",
+    "sourceSha256": "3179faa094eaed71a2137c281f3e8619e28668fa3205723c6b0416be4fae80e9"
+   },
+   "lod": "lo",
+   "mode": "fc",
+   "sha256": "e55dfd7445bb3ac86a200be92caa12e71c188a0251b2a59a03cf0fda361eb136"
+  },
+  {
+   "id": "ca/aiwpn_katana",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_katana.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 547,
+   "verts": 1641,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.075,
+     -0.161,
+     -0.05
+    ],
+    "max": [
+     0.077,
+     1.198,
+     0.049
+    ]
+   },
+   "h": 1.36,
+   "r": 0.077,
+   "y0": -0.161,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/wpn_katana/provenance.json",
+     "lod": "hi",
+     "mode": "fc"
+    },
+    "bake": {},
+    "provenance": "assets/ai/wpn_katana/provenance.json",
+    "sourceSha256": "a87ffb1ed880d07718b5933bae10dd2eedbbd12590deca7dc138c9329d9fe5c5"
+   },
+   "lod": "hi",
+   "mode": "fc",
+   "sha256": "f3181be5e465fb8b07ddf58b6ddedc2bbea9b545602a5baa506111ecb7bb6e75"
+  },
+  {
+   "id": "ca/aiwpn_katana_lo",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_katana_lo.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 399,
+   "verts": 1195,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.075,
+     -0.161,
+     -0.05
+    ],
+    "max": [
+     0.077,
+     1.198,
+     0.049
+    ]
+   },
+   "h": 1.36,
+   "r": 0.077,
+   "y0": -0.161,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/wpn_katana/provenance.json",
+     "lod": "lo",
+     "mode": "fc"
+    },
+    "bake": {},
+    "provenance": "assets/ai/wpn_katana/provenance.json",
+    "sourceSha256": "a87ffb1ed880d07718b5933bae10dd2eedbbd12590deca7dc138c9329d9fe5c5"
+   },
+   "lod": "lo",
+   "mode": "fc",
+   "sha256": "723feb5bcdc23702c470c96ee6b8f6a21c35b7bab5cb5141501401bf093e7ceb"
+  },
+  {
+   "id": "ca/aiwpn_lantern",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_lantern.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 629,
+   "verts": 1887,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.077,
+     -0.144,
+     -0.066
+    ],
+    "max": [
+     0.179,
+     0.56,
+     0.065
+    ]
+   },
+   "h": 0.704,
+   "r": 0.179,
+   "y0": -0.144,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/wpn_lantern/provenance.json",
+     "lod": "hi",
+     "mode": "fc"
+    },
+    "bake": {},
+    "provenance": "assets/ai/wpn_lantern/provenance.json",
+    "sourceSha256": "13753ac0b670c60c18c38826c409e9dbcbcc7b20b9674ca128e563d31c29917e"
+   },
+   "lod": "hi",
+   "mode": "fc",
+   "sha256": "b213537b9c31f9c0af78428dae8bd7bcfb2c7a77be17f2a6b55c5894e8429a60"
+  },
+  {
+   "id": "ca/aiwpn_lantern_lo",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_lantern_lo.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 241,
+   "verts": 723,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.04,
+     -0.109,
+     -0.053
+    ],
+    "max": [
+     0.166,
+     0.514,
+     0.059
+    ]
+   },
+   "h": 0.624,
+   "r": 0.166,
+   "y0": -0.109,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/wpn_lantern/provenance.json",
+     "lod": "lo",
+     "mode": "fc"
+    },
+    "bake": {},
+    "provenance": "assets/ai/wpn_lantern/provenance.json",
+    "sourceSha256": "13753ac0b670c60c18c38826c409e9dbcbcc7b20b9674ca128e563d31c29917e"
+   },
+   "lod": "lo",
+   "mode": "fc",
+   "sha256": "efb7a74aa42a0695e730ac27eae76107de7d8c766424074f874456c309315689"
+  },
+  {
+   "id": "ca/aiwpn_revolver",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_revolver.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 640,
+   "verts": 1920,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.097,
+     -0.093,
+     -0.059
+    ],
+    "max": [
+     0.254,
+     0.528,
+     0.057
+    ]
+   },
+   "h": 0.621,
+   "r": 0.254,
+   "y0": -0.093,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/wpn_revolver/provenance.json",
+     "lod": "hi",
+     "mode": "fc"
+    },
+    "bake": {},
+    "provenance": "assets/ai/wpn_revolver/provenance.json",
+    "sourceSha256": "f07a2eae1ff531df4d30db62ba7a784cd0ef1b99099f214f9f119ede67dba04d"
+   },
+   "lod": "hi",
+   "mode": "fc",
+   "sha256": "bef1ca5d471f79eea4e2585fdddf3cea7794894f29d547492cfc83c4d5890a29"
+  },
+  {
+   "id": "ca/aiwpn_revolver_lo",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_revolver_lo.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 203,
+   "verts": 609,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.097,
+     -0.09,
+     -0.057
+    ],
+    "max": [
+     0.246,
+     0.525,
+     0.057
+    ]
+   },
+   "h": 0.615,
+   "r": 0.246,
+   "y0": -0.09,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/wpn_revolver/provenance.json",
+     "lod": "lo",
+     "mode": "fc"
+    },
+    "bake": {},
+    "provenance": "assets/ai/wpn_revolver/provenance.json",
+    "sourceSha256": "f07a2eae1ff531df4d30db62ba7a784cd0ef1b99099f214f9f119ede67dba04d"
+   },
+   "lod": "lo",
+   "mode": "fc",
+   "sha256": "f6402d17ac298d26b01aaf1cd167003e113cc2dd9d9c59c5d2afa157461dd378"
+  },
+  {
+   "id": "ca/aiwpn_ring",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_ring.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 680,
+   "verts": 2040,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.13,
+     -0.181,
+     -0.113
+    ],
+    "max": [
+     0.13,
+     0.183,
+     0.114
+    ]
+   },
+   "h": 0.363,
+   "r": 0.13,
+   "y0": -0.181,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/gear_ring/provenance.json",
+     "lod": "hi",
+     "mode": "fc"
+    },
+    "bake": {},
+    "provenance": "assets/ai/gear_ring/provenance.json",
+    "sourceSha256": "89ce8a3f3365333b0d89cedcefd45f447005aeaa9315b26ac10c351bce39672c"
+   },
+   "lod": "hi",
+   "mode": "fc",
+   "sha256": "658f588c449d316553f043b97a881cf3b7a47a5f4288496f6d70957b7bba0223"
+  },
+  {
+   "id": "ca/aiwpn_ring_lo",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_ring_lo.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 168,
+   "verts": 504,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.131,
+     -0.185,
+     -0.112
+    ],
+    "max": [
+     0.13,
+     0.182,
+     0.109
+    ]
+   },
+   "h": 0.367,
+   "r": 0.131,
+   "y0": -0.185,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/gear_ring/provenance.json",
+     "lod": "lo",
+     "mode": "fc"
+    },
+    "bake": {},
+    "provenance": "assets/ai/gear_ring/provenance.json",
+    "sourceSha256": "89ce8a3f3365333b0d89cedcefd45f447005aeaa9315b26ac10c351bce39672c"
+   },
+   "lod": "lo",
+   "mode": "fc",
+   "sha256": "1f0ee52a1b43bdba9146d9f6c81f77b508d4fc76e9a32e216ced0b7a573661d1"
+  },
+  {
+   "id": "ca/aiwpn_runebow",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_runebow.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 450,
+   "verts": 1350,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.141,
+     -0.711,
+     -0.024
+    ],
+    "max": [
+     0.18,
+     0.712,
+     0.022
+    ]
+   },
+   "h": 1.422,
+   "r": 0.18,
+   "y0": -0.711,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/wpn_runebow/provenance.json",
+     "lod": "hi",
+     "mode": "fc"
+    },
+    "bake": {},
+    "provenance": "assets/ai/wpn_runebow/provenance.json",
+    "sourceSha256": "cf8ec6343ab2c9a17287f1e062a29974abeecdba7de079219b214d0869cee90d"
+   },
+   "lod": "hi",
+   "mode": "fc",
+   "sha256": "2b9fab753e4ff43812d2427252f578617a16aedeb364e667c7c19f44da4bfd5a"
+  },
+  {
+   "id": "ca/aiwpn_runebow_lo",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_runebow_lo.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 470,
+   "verts": 1410,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.141,
+     -0.711,
+     -0.024
+    ],
+    "max": [
+     0.18,
+     0.712,
+     0.022
+    ]
+   },
+   "h": 1.422,
+   "r": 0.18,
+   "y0": -0.711,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/wpn_runebow/provenance.json",
+     "lod": "lo",
+     "mode": "fc"
+    },
+    "bake": {},
+    "provenance": "assets/ai/wpn_runebow/provenance.json",
+    "sourceSha256": "cf8ec6343ab2c9a17287f1e062a29974abeecdba7de079219b214d0869cee90d"
+   },
+   "lod": "lo",
+   "mode": "fc",
+   "sha256": "2b977491a5b6a9fa1d720d0662a2c035e0290ad2e04fef18d25eadd83a9b91b5"
+  },
+  {
+   "id": "ca/aiwpn_staff",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_staff.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 599,
+   "verts": 1797,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.205,
+     -0.482,
+     -0.081
+    ],
+    "max": [
+     0.205,
+     1.526,
+     0.081
+    ]
+   },
+   "h": 2.007,
+   "r": 0.205,
+   "y0": -0.482,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/wpn_staff/provenance.json",
+     "lod": "hi",
+     "mode": "fc"
+    },
+    "bake": {},
+    "provenance": "assets/ai/wpn_staff/provenance.json",
+    "sourceSha256": "8152a0ffdc9735e2d22abc7bf76c7e3060674ebdfae0dfbd42773ebaa03b0956"
+   },
+   "lod": "hi",
+   "mode": "fc",
+   "sha256": "758080df8ddee2036fadc31f247bd71a0938b414e8f25975d0fc1d398c667d50"
+  },
+  {
+   "id": "ca/aiwpn_staff_lo",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_staff_lo.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 136,
+   "verts": 408,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.195,
+     -0.482,
+     -0.078
+    ],
+    "max": [
+     0.205,
+     1.51,
+     0.078
+    ]
+   },
+   "h": 1.991,
+   "r": 0.205,
+   "y0": -0.482,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/wpn_staff/provenance.json",
+     "lod": "lo",
+     "mode": "fc"
+    },
+    "bake": {},
+    "provenance": "assets/ai/wpn_staff/provenance.json",
+    "sourceSha256": "8152a0ffdc9735e2d22abc7bf76c7e3060674ebdfae0dfbd42773ebaa03b0956"
+   },
+   "lod": "lo",
+   "mode": "fc",
+   "sha256": "7363692d7510b0ff8e897c852704ae899e55a8e14be57720a94f0063cb1829b7"
+  },
+  {
+   "id": "ca/aiwpn_wand",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_wand.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 438,
+   "verts": 1314,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.071,
+     -0.128,
+     -0.072
+    ],
+    "max": [
+     0.071,
+     0.627,
+     0.072
+    ]
+   },
+   "h": 0.755,
+   "r": 0.072,
+   "y0": -0.128,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/wpn_wand/provenance.json",
+     "lod": "hi",
+     "mode": "fc"
+    },
+    "bake": {},
+    "provenance": "assets/ai/wpn_wand/provenance.json",
+    "sourceSha256": "6d775cf949d43568cc53045f0b40d0e8c6b3ad0357b73ebb70e891e7a81287ec"
+   },
+   "lod": "hi",
+   "mode": "fc",
+   "sha256": "1991273fc19e6867ba047c5d4ed92bee7cf38b68551e3bb9c89939b31f640f1d"
+  },
+  {
+   "id": "ca/aiwpn_wand_lo",
+   "category": "aiweapon",
+   "zone": "aiwpn",
+   "file": "assets/ca/aiwpn/aiwpn_wand_lo.glb",
+   "ship": true,
+   "replaces": null,
+   "tris": 68,
+   "verts": 204,
+   "materials": 1,
+   "textures": 0,
+   "bounds": {
+    "min": [
+     -0.078,
+     -0.128,
+     -0.076
+    ],
+    "max": [
+     0.078,
+     0.628,
+     0.052
+    ]
+   },
+   "h": 0.756,
+   "r": 0.078,
+   "y0": -0.128,
+   "source": {
+    "script": "art/ai/importer.py",
+    "gen": "ai",
+    "catalog": "art/catalog.py",
+    "seed": 0,
+    "args": {
+     "prov": "assets/ai/wpn_wand/provenance.json",
+     "lod": "lo",
+     "mode": "fc"
+    },
+    "bake": {},
+    "provenance": "assets/ai/wpn_wand/provenance.json",
+    "sourceSha256": "6d775cf949d43568cc53045f0b40d0e8c6b3ad0357b73ebb70e891e7a81287ec"
+   },
+   "lod": "lo",
+   "mode": "fc",
+   "sha256": "f8a51b8fad24a4ec6047c2c3b67bbf474a537f01716e68c826c29513b456d2ae"
+  },
+  {
    "id": "ca/ash_arch_a",
    "category": "kit",
    "zone": "ash",
@@ -2166,39 +4198,47 @@
    "file": "assets/ca/gear/gear_mine.glb",
    "ship": true,
    "replaces": null,
-   "tris": 508,
-   "verts": 1236,
+   "tris": 500,
+   "verts": 1498,
    "materials": 1,
    "textures": 1,
    "bounds": {
     "min": [
-     -0.255,
+     -0.256,
      0,
      -0.255
     ],
     "max": [
-     0.255,
-     0.103,
-     0.255
+     0.252,
+     0.194,
+     0.256
     ]
    },
-   "h": 0.103,
-   "r": 0.255,
+   "h": 0.194,
+   "r": 0.256,
    "y0": 0,
    "source": {
-    "script": "art/ca/gen.py",
-    "gen": "field_mine",
+    "script": "art/ai/importer.py",
+    "gen": "ai",
     "catalog": "art/catalog.py",
     "seed": 233,
-    "args": {},
+    "args": {
+     "prov": "assets/ai/gear_mine/provenance.json",
+     "lod": "hi",
+     "mode": "vc"
+    },
     "bake": {
-     "ao": 0.3,
-     "grad": 0.2,
-     "wear": 0.45,
-     "grime": 0.25
-    }
+     "ao": 0.1,
+     "grad": 0.15,
+     "wear": 0.35,
+     "grime": 0.05
+    },
+    "provenance": "assets/ai/gear_mine/provenance.json",
+    "sourceSha256": "3a449fed80acb43b5bf0e1e1cf3d719add4a660f47b652c9e421d67f156da27a"
    },
-   "sha256": "203dba0abce23c4e08c16138e158956caf61d78434530a0e8520df7510d4724b"
+   "lod": "hi",
+   "mode": "vc",
+   "sha256": "132f17fe05a8d66c1fb15aa0b7a95ce131d4e1b37f4ff1cc10e7315a3805fe6f"
   },
   {
    "id": "ca/rift_boulder",

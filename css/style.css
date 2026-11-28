@@ -97,6 +97,12 @@ kbd {
   text-shadow: 0 1px 3px #000, 0 0 6px #000;
 }
 #zone-sub b { color: var(--gold); font-weight: 600; }
+/* 进区（toast-zero：替代区名 toast）：区名亮一下 */
+#zone-name.fresh { animation: zn-fresh 1.4s ease-out; }
+@keyframes zn-fresh {
+  0% { color: #fff3d6; text-shadow: 0 0 16px rgba(255, 190, 90, 0.95), 0 2px 6px #000; }
+  100% { text-shadow: 0 2px 6px #000, 0 0 22px rgba(255, 120, 40, 0.4); }
+}
 #zone-sub i {
   display: inline-block;
   width: 4px;
@@ -267,6 +273,21 @@ kbd {
   transition: opacity 0.2s;
 }
 .flask.ready { opacity: 1; }
+/* 按了空的药剂（toast-zero：替代「药剂已空」的 toast）：小图标左右轻抖一下、边框发红；减少动态效果时只发红 */
+.flask.deny .flask-body { animation: fl-deny 0.36s ease-out; }
+@keyframes fl-deny {
+  0%, 100% { transform: translateX(0); border-color: #6b4e30; }
+  20% { transform: translateX(-3px); border-color: #d0533e; }
+  45% { transform: translateX(3px); border-color: #d0533e; }
+  70% { transform: translateX(-2px); border-color: #b0503a; }
+}
+@keyframes fl-deny-still {
+  0%, 60% { border-color: #d0533e; }
+  100% { border-color: #6b4e30; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .flask.deny .flask-body { animation: fl-deny-still 0.5s ease-out; }
+}
 .flask-body {
   position: relative;
   display: flex;
@@ -2568,7 +2589,8 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
   border-radius: 3px;
   box-shadow: 0 6px 22px rgba(0, 0, 0, 0.6), 0 0 18px rgba(255, 130, 50, 0.18);
 }
-#coach.on { opacity: 1; transform: none; }
+/* hint-once：点一下提示卡就收起（鼠标、触屏都是）；只有点在画布上的才算游戏输入，点卡片不会放技能 */
+#coach.on { opacity: 1; transform: none; pointer-events: auto; cursor: pointer; }
 body.panel-open #coach { display: none; }
 .co-tag { font-size: 11px; letter-spacing: 4px; color: var(--ember-2); }
 .co-body { margin-top: 3px; font-size: 13.5px; line-height: 23px; color: #f0e2c8; }
@@ -2698,6 +2720,10 @@ body.alt-on #quest .q-h { display: none; }
   0% { color: #fff6e0; text-shadow: 0 0 14px rgba(255, 190, 90, 0.95), 0 1px 3px #000; }
   100% { text-shadow: 0 1px 3px #000, 0 0 6px #000, 0 0 2px #000; }
 }
+/* 完成一步（toast-zero：替代「主线 n/N 完成」的 toast）：追踪条自己亮几秒「主线 n/N 完成 · 获得 …」，再换下一步 */
+#quest.done .q-k { color: #ffe3a6; animation: q-pulse 1.2s ease-out; }
+#quest.done .q-goal { font-size: 13.5px; line-height: 19px; color: #ffd98a; }
+#quest.done .q-goal:empty, #quest.done .q-how, #quest.done .q-h, body.alt-on #quest.done .q-alt { display: none; }
 
 /* ---- 技能格上方的连段指示：三格，第三格（终结技）更宽 ---- */
 .s-combo { position: absolute; left: 50%; top: -17px; display: none; gap: 3px; transform: translateX(-50%); }
@@ -3547,6 +3573,15 @@ body.alt-on #quest .q-h { display: none; }
 #enc-bar .eb-track { height: 9px; margin: 4px 0 3px; background: rgba(10, 6, 4, 0.82); border: 1px solid rgba(0, 0, 0, 0.9); box-shadow: 0 0 0 1px color-mix(in srgb, var(--c) 35%, transparent); }
 #enc-bar .eb-fill { display: block; height: 100%; width: 0; background: linear-gradient(180deg, color-mix(in srgb, var(--c) 70%, #fff), var(--c) 55%, color-mix(in srgb, var(--c) 60%, #000)); transition: width 0.15s linear; }
 #enc-bar .eb-txt { font-size: 12.5px; letter-spacing: 1px; color: #e8dcc6; text-shadow: 0 1px 3px #000, 0 0 6px #000; }
+/* toast-zero：异兆的开始目标句、结果、祈坛增益、用法都写在这一条里。用法 / 守隙张开没有进度，不画进度槽；失败的进度灰掉 */
+#enc-bar[data-mode='hint'] .eb-track, #enc-bar[data-mode='open'] .eb-track { display: none; }
+#enc-bar[data-mode='fail'] .eb-fill { background: #6d655c; }
+#enc-bar[data-mode='fail'] .eb-name { color: #b9ae9e; }
+#enc-bar.pulse .eb-name, #enc-bar.pulse .eb-txt { animation: eb-pulse 0.9s ease-out; }
+@keyframes eb-pulse {
+  0% { color: #fff6e0; text-shadow: 0 0 12px color-mix(in srgb, var(--c) 90%, transparent), 0 1px 3px #000; }
+  100% { text-shadow: 0 1px 3px #000, 0 0 6px #000; }
+}
 #enc-buff {
   display: none;
   margin-top: 6px;
@@ -4332,6 +4367,14 @@ html.touch-ui .orb-wrap { display: contents; }
 /* 首领条：顶栏下面、小地图左边 */
 html.touch-ui #boss-box { top: calc(var(--sa-t) + 56px); left: calc(var(--sa-l) + 196px); right: calc(var(--sa-r) + 132px); width: auto; max-width: 460px; margin: 0 auto; transform: translateY(-8px); }
 html.touch-ui #boss-box.on { transform: none; }
+/* 异兆事件条（toast-zero：开始的目标句、结果都写在这里）：触屏上放到顶上一排下面那一格（和首领条同一格，不压在画面中间的角色上），收窄；
+   首领条或新手提示卡占着那一格时往下让到 +112 */
+html.touch-ui #enc-bar { top: calc(var(--sa-t) + 56px); width: min(300px, calc(36 * var(--vw, 1vw))); }
+html.touch-ui.t-boss #enc-bar { top: calc(var(--sa-t) + 112px); }
+html.touch-ui:has(#coach.on) #enc-bar { top: calc(var(--sa-t) + 112px); } /* 单独一条：不认 :has 的浏览器只丢这一条 */
+html.touch-ui #enc-bar .eb-name { font-size: 14px; letter-spacing: 3px; }
+html.touch-ui #enc-bar .eb-track { height: 6px; margin: 3px 0 2px; }
+html.touch-ui #enc-bar .eb-txt { font-size: 11.5px; }
 
 /* 右上：小地图（2D 画布上画，110 px，见 W.mmTouch），主线追踪紧贴在下面，两行 */
 html.touch-ui #quest { right: calc(var(--sa-r) + 8px); top: calc(var(--sa-t) + 122px); width: 158px; }
@@ -4343,22 +4386,27 @@ html.touch-ui #quest .q-how, html.touch-ui #quest .q-h, html.touch-ui #quest .q-
 html.touch-ui #quest.t-q1 { pointer-events: auto; }
 html.touch-ui #quest.t-q1::after { content: ''; position: absolute; left: -6px; right: 0; top: -13px; bottom: -13px; }
 html.touch-ui #quest.t-q1 .q-k { display: none; }
+/* 完成一步（toast-zero）：收成一行时留「主线 n/N 完成」那一行，得到的通货在拾取记录里 */
+html.touch-ui #quest.t-q1.done .q-k { display: block; }
+html.touch-ui #quest.t-q1.done .q-goal { display: none; }
 html.touch-ui #zone-loading { right: calc(var(--sa-r) + 8px); top: calc(var(--sa-t) + 122px); width: 110px; padding: 4px 6px; font-size: 11px; }
 html.touch-ui body.quest-on #combo, html.touch-ui #combo { top: calc(var(--sa-t) + 118px); right: calc(var(--sa-r) + 176px); }
 html.touch-ui #combo-n { font-size: 38px; line-height: 38px; }
 html.touch-ui .cb-label { font-size: 11px; letter-spacing: 4px; text-indent: 4px; }
 html.touch-ui .cb-bar { width: 64px; margin-top: 4px; }
-/* 提示卡：顶栏下方居中、不超过 40% 宽、最多两行（点一下展开），不压摇杆区和按钮簇；首领条出来时排到它下面 */
+/* 提示卡：顶栏下方居中、不超过 40% 宽、整句显示（最多四行，改版说明才会到四行），点一下收起；不压摇杆区和按钮簇；首领条出来时排到它下面 */
 html.touch-ui #coach { --cw: min(calc(40 * var(--vw, 1vw)), 360px, calc(calc(100 * var(--vw, 1vw)) - 2 * max(var(--sa-l), var(--sa-r)) - 348px)); left: 50%; top: calc(var(--sa-t) + 56px); width: var(--cw); margin-left: calc(var(--cw) / -2); box-sizing: border-box; padding: 5px 10px 6px; border-left-width: 2px; }
 html.touch-ui #coach.on { pointer-events: auto; }
 html.touch-ui.t-boss #coach { top: calc(var(--sa-t) + 112px); }
 html.touch-ui #coach .co-tag, html.touch-ui #coach .co-ok { display: none; }
-html.touch-ui .co-body { margin-top: 0; font-size: 12px; line-height: 17px; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
-html.touch-ui #coach.t-open .co-body { display: block; -webkit-line-clamp: unset; }
-/* 拾取记录：区域名下面、提示卡（顶上居中，最低到 +104）以下，最多 3 行 */
+html.touch-ui .co-body { margin-top: 0; font-size: 12px; line-height: 17px; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden; }
+/* 首领条出来时卡片排在它下面、离摇杆区和按钮簇近：只留两行（打首领时只出紧急提示，都是一两行的短句） */
+html.touch-ui.t-boss .co-body { -webkit-line-clamp: 2; }
+/* 拾取记录：区域名下面，最多 3 行 */
 html.touch-ui #feed { left: calc(var(--sa-l) + 8px); bottom: auto; top: calc(var(--sa-t) + 108px); max-width: min(300px, calc(calc(100 * var(--vw, 1vw)) * 0.42)); }
-/* 首领条出来时提示卡挪到 +112（和拾取记录同高）：拾取记录收窄，右边停在提示卡左边以外（提示卡最宽 min(40%, 360px)、居中） */
+/* 提示卡亮着（最多四行，可能低过 +108）或首领条出来（提示卡挪到 +112）时：拾取记录收窄，右边停在提示卡左边以外（提示卡最宽 min(40%, 360px)、居中） */
 html.touch-ui.t-boss #feed { max-width: min(300px, calc(50 * var(--vw, 1vw) - min(20 * var(--vw, 1vw), 180px) - var(--sa-l) - 18px)); }
+html.touch-ui:has(#coach.on) #feed { max-width: min(300px, calc(50 * var(--vw, 1vw) - min(20 * var(--vw, 1vw), 180px) - var(--sa-l) - 18px)); } /* 单独一条：不认 :has 的浏览器只丢这一条 */
 html.touch-ui .fd { height: 22px; line-height: 22px; font-size: 12px; gap: 5px; padding-right: 8px; }
 html.touch-ui .fd .ibox { width: 18px; height: 18px; }
 html.touch-ui .fd-note { font-size: 11px; }
@@ -4482,9 +4530,6 @@ html.touch-ui:not(.t-lp) #tip { display: none !important; }
 /* 触屏的按键表：标签都很短，左列按内容收窄，说明占满剩下的宽度 */
 html.touch-ui .hk-keys { width: auto; min-width: 52px; }
 html.touch-ui .hk > span:last-child { flex: 1; min-width: 0; }
-/* 打起来以后提示卡收成一行、变淡（js/touch.js 加 t-min；点一下展开） */
-html.touch-ui #coach.on.t-min:not(.t-open) { opacity: 0.55; }
-html.touch-ui #coach.t-min:not(.t-open) .co-body { -webkit-line-clamp: 1; }
 
 /* 触屏：旁白卡放在顶栏、提示卡下方居中，字小一号、可以折行，不压小地图 / 追踪条、摇杆区和按钮簇 */
 html.touch-ui #narr { bottom: auto; top: calc(var(--sa-t) + 104px); max-width: calc(calc(100 * var(--vw, 1vw)) - 2 * max(var(--sa-l), var(--sa-r)) - 360px); font-size: 13px; line-height: 1.5; }

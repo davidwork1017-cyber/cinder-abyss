@@ -1395,6 +1395,7 @@
     qual = QUALITY[id];
     qualId = id;
     if (G.vfx) G.vfx.U.uLo.value = id === 'low' ? 1 : 0; // vf-vfx：特效着色器里低画质收一点大面积的噪声纹理
+    if (W.pieceLod) W.pieceLod(); // ai3d-skills：AI 技能件换档
     // tex-t2：低档的贴图变体（lo / 不解码）：档位跨过低档就换当前区纹理的图像
     if (G.assets && G.assets.setLow && G.assets.setLow(id === 'low') && renderer) retierZone();
     if (!renderer) return id;
@@ -4225,6 +4226,49 @@
   // map（可选）：这份 spec 光栅化后的网格。给了就在网格节点上数可走面积、做 BFS（0.5 m 节点正好落在 0.25 m 网格的节点上，
   // 节点上的网格值就是精确 sd，阈值 0 / 0.6 远在 CUT_STAMP 以内，结果和逐点精确求值一样），省掉整片的精确求值。
   // 进区时用这个版本（makeLayout），W.genLayout / 测试不给 map，照旧逐点精确求值（zones-integrate）
+  // 不相邻的关键路径房间（序号差 ≥ 2）边到边的间距 < gapMin 的列表（0.5 m 格子上量；validateSpec 第 4 条。map-loops：抽出来给生成器自查用）
+  function pathGaps(spec, gapMin) {
+    const h = 0.5, why = [];
+    const path = spec.rooms.filter((r) => r.path && r.kind !== 'link').sort((a, b) => a.order - b.order);
+    const roomSd = (rm, x, z) => {
+      let v = -1e18;
+      for (const p of rm.prims) v = Math.max(v, primSd(p, x, z));
+      return v;
+    };
+    // 外接框预筛：只看 A 的图元外接框和「B 的外接框外扩 gap」相交的那一块（更远的格子离 B 一定超过 gap，不影响结论）
+    const unionBox = (rm) => {
+      const u = [1e18, 1e18, -1e18, -1e18];
+      for (const p of rm.prims) {
+        const b = primBox(p);
+        if (b[0] < u[0]) u[0] = b[0];
+        if (b[1] < u[1]) u[1] = b[1];
+        if (b[2] > u[2]) u[2] = b[2];
+        if (b[3] > u[3]) u[3] = b[3];
+      }
+      return u;
+    };
+    for (let a = 0; a < path.length; a++) {
+      for (let b = a + 2; b < path.length; b++) {
+        const RA = path[a], RB = path[b];
+        if (Math.abs(RA.order - RB.order) < 2) continue;
+        let gap = 1e18;
+        const ub = unionBox(RB), g0 = gapMin + h;
+        const boxes = RA.prims.map(primBox).map((bx) => [Math.max(bx[0], ub[0] - g0), Math.max(bx[1], ub[1] - g0), Math.min(bx[2], ub[2] + g0), Math.min(bx[3], ub[3] + g0)]);
+        for (const bx of boxes) {
+          if (bx[0] > bx[2] || bx[1] > bx[3]) continue;
+          for (let z = Math.ceil(bx[1] / h) * h; z <= bx[3]; z += h) {
+            for (let x = Math.ceil(bx[0] / h) * h; x <= bx[2]; x += h) {
+              if (roomSd(RA, x, z) < 0) continue;
+              const g = -roomSd(RB, x, z);
+              if (g < gap) gap = g;
+            }
+          }
+        }
+        if (gap < gapMin) why.push('房间 ' + RA.id + ' 和 ' + RB.id + ' 只隔 ' + gap.toFixed(1) + ' m');
+      }
+    }
+    return why;
+  }
   function validateSpec(spec, gen, map) {
     const ck = Object.assign({}, CHECK, gen && gen.check);
     const why = [];
@@ -4322,43 +4366,7 @@
       }
     }
     // 不相邻的关键路径房间：边到边 ≥ gap（在 A 的格子上量到 B 的距离）
-    const roomSd = (rm, x, z) => {
-      let v = -1e18;
-      for (const p of rm.prims) v = Math.max(v, primSd(p, x, z));
-      return v;
-    };
-    // 外接框预筛：只看 A 的图元外接框和「B 的外接框外扩 gap」相交的那一块（更远的格子离 B 一定超过 gap，不影响结论）
-    const unionBox = (rm) => {
-      const u = [1e18, 1e18, -1e18, -1e18];
-      for (const p of rm.prims) {
-        const b = primBox(p);
-        if (b[0] < u[0]) u[0] = b[0];
-        if (b[1] < u[1]) u[1] = b[1];
-        if (b[2] > u[2]) u[2] = b[2];
-        if (b[3] > u[3]) u[3] = b[3];
-      }
-      return u;
-    };
-    for (let a = 0; a < path.length; a++) {
-      for (let b = a + 2; b < path.length; b++) {
-        const RA = path[a], RB = path[b];
-        if (Math.abs(RA.order - RB.order) < 2) continue;
-        let gap = 1e18;
-        const ub = unionBox(RB), g0 = ck.gap + h;
-        const boxes = RA.prims.map(primBox).map((bx) => [Math.max(bx[0], ub[0] - g0), Math.max(bx[1], ub[1] - g0), Math.min(bx[2], ub[2] + g0), Math.min(bx[3], ub[3] + g0)]);
-        for (const bx of boxes) {
-          if (bx[0] > bx[2] || bx[1] > bx[3]) continue;
-          for (let z = Math.ceil(bx[1] / h) * h; z <= bx[3]; z += h) {
-            for (let x = Math.ceil(bx[0] / h) * h; x <= bx[2]; x += h) {
-              if (roomSd(RA, x, z) < 0) continue;
-              const g = -roomSd(RB, x, z);
-              if (g < gap) gap = g;
-            }
-          }
-        }
-        if (gap < ck.gap) why.push('房间 ' + RA.id + ' 和 ' + RB.id + ' 只隔 ' + gap.toFixed(1) + ' m');
-      }
-    }
+    for (const w of pathGaps(spec, ck.gap)) why.push(w);
     // 怪群槽位、宝箱：离起点、离门，不在灼烧 / 熔岩上
     const doors = spec.links.filter((L) => L.door).map((L) => L.door);
     const bad = (x, z) => pr.hp.some((hz) => hz.kind === 'burn' && primSd(hz.p, x, z) >= 0) || pr.cp.some((c) => c.mat === MAT.LAVA && primSd(c.p, x, z) >= 0);
@@ -4459,7 +4467,112 @@
     };
   };
   // 测试 / 调试用的内部函数
-  W.terrain = { zoneSd, primSd, primBox, exactSd, terrPrep, validateSpec, specHash, mulberry32, blob, specBounds, GEN, ZONE_TERRAIN, lvFor };
+  // map-loops（测试 / 调试用）：旁支是环路还是死路。死路 = 只有一扇门的 side 房间；回路 = 两扇门以上。
+  // 死路的回头路：从死路里离路最远的那一格（起点距离 + 首领门距离最大）走到首领门，和「从起点走到那一格」的最短路重合（容差 3 m）的长度。
+  // 1 m 节点（光栅化网格抽样）、pad 0.5、8 邻接 Dijkstra；和度量工具（vf-shots/map-loops/tools/layout-metrics.mjs）同一个定义
+  function branchStats(spec) {
+    const map = rasterize(spec), k = Math.max(1, Math.round(1 / map.h)), h = map.h * k;
+    const nx = Math.floor((map.nx - 1) / k) + 1, nz = Math.floor((map.nz - 1) / k) + 1, N = nx * nz;
+    const walk = new Uint8Array(N);
+    for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) if (map.sd[j * k * map.nx + i * k] >= 0.5) walk[j * nx + i] = 1;
+    const cellOf = (x, z) => {
+      const i0 = Math.round((x - map.x0) / h), j0 = Math.round((z - map.z0) / h);
+      let best = -1, bd = 1e9;
+      for (let dj = -3; dj <= 3; dj++) for (let di = -3; di <= 3; di++) {
+        const i = i0 + di, j = j0 + dj;
+        if (i >= 0 && j >= 0 && i < nx && j < nz && walk[j * nx + i] && di * di + dj * dj < bd) (bd = di * di + dj * dj), (best = j * nx + i);
+      }
+      return best;
+    };
+    const NB = [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1], [1, 1, Math.SQRT2], [1, -1, Math.SQRT2], [-1, 1, Math.SQRT2], [-1, -1, Math.SQRT2]];
+    const dij = (src) => {
+      const d = new Float64Array(N).fill(1e9), par = new Int32Array(N).fill(-1), hk = [], hv = [];
+      const push = (key, v) => {
+        hk.push(key);
+        hv.push(v);
+        for (let i = hk.length - 1; i > 0; ) {
+          const q = (i - 1) >> 1;
+          if (hk[q] <= hk[i]) break;
+          [hk[q], hk[i]] = [hk[i], hk[q]];
+          [hv[q], hv[i]] = [hv[i], hv[q]];
+          i = q;
+        }
+      };
+      const pop = () => {
+        const rk = hk[0], rv = hv[0], lk = hk.pop(), lv = hv.pop();
+        if (hk.length) {
+          hk[0] = lk;
+          hv[0] = lv;
+          for (let i = 0; ; ) {
+            const a = 2 * i + 1, b = a + 1;
+            let m = i;
+            if (a < hk.length && hk[a] < hk[m]) m = a;
+            if (b < hk.length && hk[b] < hk[m]) m = b;
+            if (m === i) break;
+            [hk[m], hk[i]] = [hk[i], hk[m]];
+            [hv[m], hv[i]] = [hv[i], hv[m]];
+            i = m;
+          }
+        }
+        return [rk, rv];
+      };
+      if (src < 0) return { d, par };
+      d[src] = 0;
+      push(0, src);
+      while (hk.length) {
+        const [du, u] = pop();
+        if (du > d[u]) continue;
+        const i = u % nx, j = (u / nx) | 0;
+        for (const [di, dj, w] of NB) {
+          const a = i + di, b = j + dj;
+          if (a < 0 || b < 0 || a >= nx || b >= nz) continue;
+          const v = b * nx + a;
+          if (!walk[v] || (di && dj && (!walk[j * nx + a] || !walk[b * nx + i]))) continue;
+          const nd = du + w * h;
+          if (nd < d[v]) {
+            d[v] = nd;
+            par[v] = u;
+            push(nd, v);
+          }
+        }
+      }
+      return { d, par };
+    };
+    const doorsOf = (id) => spec.links.filter((L) => (L.a === id || L.b === id) && L.door).length;
+    const sides = spec.rooms.filter((rm) => rm.kind === 'side');
+    const out = { sides: sides.length, loops: 0, dead: [] };
+    const deadRooms = [];
+    for (const rm of sides) {
+      if (doorsOf(rm.id) >= 2) out.loops++;
+      else deadRooms.push(rm);
+    }
+    if (!deadRooms.length) return out;
+    const Sd = dij(cellOf(spec.start.x, spec.start.z)), Dd = dij(cellOf(spec.arena.door.x, spec.arena.door.z));
+    for (const rm of deadRooms) {
+      const own = [rm].concat(spec.rooms.filter((q) => q.kind === 'link' && q.ends && q.ends.indexOf(rm.id) >= 0 && !q.path));
+      let tip = -1, best = -1;
+      for (let c = 0; c < N; c++) {
+        if (!walk[c] || Sd.d[c] > 1e8) continue;
+        const x = map.x0 + (c % nx) * h, z = map.z0 + ((c / nx) | 0) * h;
+        if (!own.some((q) => q.prims.some((p) => primSd(p, x, z) >= 0))) continue;
+        const v = Sd.d[c] + Dd.d[c];
+        if (v > best) (best = v), (tip = c);
+      }
+      if (tip < 0) {
+        out.dead.push({ room: rm.id, back: -1 });
+        continue;
+      }
+      const C = dij(tip), lim = Sd.d[tip] + 3;
+      let len = 0;
+      for (let u = tip; u >= 0 && Dd.par[u] >= 0; u = Dd.par[u]) {
+        const v = Dd.par[u];
+        if (Sd.d[v] + C.d[v] <= lim) len += Dd.d[u] - Dd.d[v];
+      }
+      out.dead.push({ room: rm.id, back: Math.round(len * 10) / 10 });
+    }
+    return out;
+  }
+  W.terrain = { zoneSd, primSd, primBox, exactSd, terrPrep, validateSpec, specHash, mulberry32, blob, specBounds, GEN, ZONE_TERRAIN, lvFor, branchStats };
 
   // ---------- 地形外观的共用工具（B 阶段各区的 dress 只调用、不修改）----------
   // 全部挂在当前的 zoneGroup 上、随换区一起释放；每个工具一次 draw（实例化或合并成一个网格），低画质也能用
@@ -5921,8 +6034,8 @@
       const hh = H[host.order - 1] * 0.5 + H[host.order] * 0.5;
       for (const side of r() < 0.5 ? [-1, 1] : [1, -1]) {
         for (const tilt of [0.2, 0.55, -0.2]) {
-          const hb = hh + side * (Math.PI / 2 - tilt), Cr = 6.6 * k;
-          const d = ashRay(host, host.core.x, host.core.z, hb) + rnd(4.5, 6) + Cr * 0.9;
+          const hb = hh + side * (Math.PI / 2 - tilt), Cr = 6 * k; // map-loops：6.6k → 6k（死路短一点）
+          const d = ashRay(host, host.core.x, host.core.z, hb) + rnd(2, 3) + Cr * 0.9; // map-loops：C 是区里唯一的死路，小路缩短（原 4.5–6）
           const rm = blobRoom('side', host.order, false, Cr, Cr * 1.08, hb, 0.2, 5);
           const c = [host.core.x + Math.sin(hb) * d, host.core.z + Math.cos(hb) * d];
           for (const p of rm.prims) ashShift(p, c[0], c[1]);
@@ -6066,6 +6179,76 @@
     }
     ashNeck(r, rooms, 4, SB.id, [3, 3.3], 'corr', links);
     ashNeck(r, rooms, cHost.id, SC.id, [3, 3.4], 'corr', links);
+    // map-loops：旁支 A（浅滩那边的焦木林）、B（农庄后院）各再接一条小路，通到关键路径上更靠前的房间（环路），走完旁支不用原路退回。
+    // 小路从旁支中心直通目标房间中心（ashNeck 的三段胶囊）。房间外的那段：离别的房间 ≥ 3 m、离熔岩 ≥ 1.5 m、不超过 34 m；
+    // 绕旁支的路要比直接走关键路径至少长 5 m（不能是捷径，关键路径长度不变）。C 是区里唯一留下的死路（宝箱 + 试锋的点位）。
+    // 随机数只在骨架最后取：同一个种子前面的布局不变，只多出这两条小路；接不上就让这串随机数重来
+    {
+      const lavaL = feats.filter((f) => f.kind === 'river');
+      const lavaD = (x, z) => {
+        let d = 1e9;
+        for (const f of lavaL) for (let i = 0; i + 1 < f.pts.length; i++) d = Math.min(d, segD(x, z, f.pts[i][0], f.pts[i][1], f.pts[i + 1][0], f.pts[i + 1][1]) - Math.max(f.hw[i], f.hw[i + 1]));
+        return d;
+      };
+      const cd = (A, B) => Math.hypot(A.core.x - B.core.x, A.core.z - B.core.z);
+      const mainLen = (o0, o1) => {
+        let s = 0;
+        for (let o = o0; o < o1; o++) s += cd(pathRooms[o], pathRooms[o + 1]);
+        return s;
+      };
+      // 一段线（a → b）在两头房间之外的部分：离熔岩、别的房间够远；返回房间外的长度，不合格返回 -1
+      const legOk = (S, T, a, b) => {
+        const D = Math.hypot(b[0] - a[0], b[1] - a[1]), n = Math.max(1, Math.ceil(D / 0.75));
+        let out = 0;
+        for (let i = 0; i <= n; i++) {
+          const x = a[0] + ((b[0] - a[0]) * i) / n, z = a[1] + ((b[1] - a[1]) * i) / n;
+          if (ashRoomSd(S, x, z) > -2 || ashRoomSd(T, x, z) > -2) continue;
+          out += D / n;
+          if (lavaD(x, z) < 3.4 + 1.5) return -1;
+          for (const rm of rooms) {
+            if (rm === S || rm === T) continue;
+            const own = rm.kind === 'link' && rm.ends && (rm.ends.indexOf(S.id) >= 0 || rm.ends.indexOf(T.id) >= 0); // 两头房间自己的小路 / 颈口：不碰上就行
+            if (ashRoomSd(rm, x, z) > -(3.4 + (own ? 1 : 3))) return -1;
+          }
+        }
+        return out;
+      };
+      // 先试直线；不行再试一个拐点（在 S → T 连线的中点往远离 host 的一侧偏 5–17 m），绕开 host 房间
+      const loopTo = (S, inLen, host, cands) => {
+        for (const T of cands) {
+          const A = [S.core.x, S.core.z], B = [T.core.x, T.core.z], D = cd(S, T);
+          const ux = (B[0] - A[0]) / D, uz = (B[1] - A[1]) / D, M = [(A[0] + B[0]) / 2, (A[1] + B[1]) / 2];
+          const sg = (M[0] - host.core.x) * -uz + (M[1] - host.core.z) * ux >= 0 ? 1 : -1;
+          for (const off of [0, 5, 9, 13, 17]) {
+            const Wp = [M[0] - uz * off * sg, M[1] + ux * off * sg];
+            const len = off ? Math.hypot(Wp[0] - A[0], Wp[1] - A[1]) + Math.hypot(B[0] - Wp[0], B[1] - Wp[1]) : D;
+            if (inLen + len < mainLen(host.order, T.order) + 5) continue; // 捷径
+            const o1 = off ? legOk(S, T, A, Wp) : legOk(S, T, A, B), o2 = off ? legOk(S, T, Wp, B) : 0;
+            if (o1 < 0 || o2 < 0 || o1 + o2 > 34) continue;
+            let L;
+            if (!off) L = ashNeck(r, rooms, S.id, T.id, [3, 3.4], 'corr', links);
+            else {
+              // 两段的小路：每段一个胶囊，拐点补圆（胶囊端头本来就是圆的）
+              const hw = 3 + r() * 0.4, aS = Math.atan2(Wp[0] - A[0], Wp[1] - A[1]), aT = Math.atan2(Wp[0] - B[0], Wp[1] - B[1]);
+              const rs = ashRay(S, A[0], A[1], aS), rt = ashRay(T, B[0], B[1], aT);
+              const dS = { x: A[0] + Math.sin(aS) * rs, z: A[1] + Math.cos(aS) * rs }, dT = { x: B[0] + Math.sin(aT) * rt, z: B[1] + Math.cos(aT) * rt };
+              const id = rooms.length;
+              L = { id, kind: 'link', order: S.order, path: false, prims: [{ t: 'capsule', ax: A[0], az: A[1], bx: Wp[0], bz: Wp[1], hw }, { t: 'capsule', ax: Wp[0], az: Wp[1], bx: B[0], bz: B[1], hw }],
+                core: { x: Wp[0], z: Wp[1], r: hw }, axis: [A, Wp, B], ends: [S.id, T.id], tags: [], len: o1 + o2 };
+              rooms.push(L);
+              links.push({ a: S.id, b: id, door: dS, kind: 'corr' }, { a: id, b: T.id, door: dT, kind: 'corr' });
+            }
+            L.loop = true;
+            S.tags.push('loop');
+            return true;
+          }
+        }
+        return false;
+      };
+      const fordLen = Math.hypot(fn[0] - R3.core.x, fn[1] - R3.core.z) + Math.hypot(ff[0] - fn[0], ff[1] - fn[1]) + Math.hypot(SA.core.x - ff[0], SA.core.z - ff[1]);
+      if (!loopTo(SA, fordLen, R3, [R4, R5])) return fail('旁支 A 接不回关键路径');
+      if (!loopTo(SB, cd(R4, SB), R4, [R5, R6])) return fail('旁支 B 接不回关键路径');
+    }
     for (const rm of rooms) if (rm.lv === undefined) rm.lv = lvOf(rm.order);
     // 地标：石桥、浅滩、塌桥；第二座窄石桥
     feats.push({ kind: 'bridge', x: C[0], z: C[1], ang: HR, len: 2 * hwB + 2.4, w: AG.bridgeW });
@@ -6086,6 +6269,7 @@
   }
   // 可走面积的估计（1 m 格子）
   // zones-integrate：改成按图元盖章（每个图元只算自己外接框里的格子），和原来逐格 exactSd 的判定逐格相同，快几倍
+  // map-loops：环路小路（loop）不算进去：骨架的缩放 k 按改前的面积目标定，同一个种子的房间大小不变
   function ashArea(spec) {
     let x0 = 1e18, z0 = 1e18, x1 = -1e18, z1 = -1e18;
     for (const rm of spec.rooms) for (const p of rm.prims) {
@@ -6107,7 +6291,7 @@
         for (let i = 0, k = j * nx + i0; i <= i1 - i0; i++, k++) fn(k, row[i]);
       }
     };
-    for (const rm of spec.rooms) for (const p of rm.prims) each(p, (k, v) => { if (v > g[k]) g[k] = v; });
+    for (const rm of spec.rooms) if (!rm.loop) for (const p of rm.prims) each(p, (k, v) => { if (v > g[k]) g[k] = v; });
     for (const c of spec.cuts || []) each(c.prim, (k, v) => { if (v > 0 && g[k] >= 0) g[k] = -1; });
     let n = 0;
     for (let k = 0; k < g.length; k++) if (g[k] >= 0) n++;
@@ -6336,7 +6520,7 @@
     const sub = (R() * 4294967296) >>> 0;
     let att = 0, k = 1, L = null, best = 0, base = null;
     // zones-polish：外接框转不进上限也换一串随机数重摆骨架（加长以后 S 形偶尔太舒展，原来只能等校验失败、整个换种子）
-    for (let it = 0; it < 16; it++) {
+    for (let it = 0; it < 32; it++) { // map-loops：16 → 32（两条环路小路接不上也要换一串随机数重摆）
       L = ashSkeleton(mulberry32((sub + Math.imul(att, 0x9e3779b1)) >>> 0), k);
       if (!L.ok) {
         att++;
@@ -6345,7 +6529,7 @@
       }
       const a = ashArea(L.spec);
       if (a < ASH_GEN.area[0] || a > ASH_GEN.area[1]) {
-        if (it < 15) {
+        if (it < 31) {
           k = Math.max(0.82, Math.min(1.25, k * Math.pow(5100 / a, 0.6)));
           continue;
         }
@@ -6373,7 +6557,7 @@
         }
         if (v <= 0) break;
       }
-      if (bestV <= 0 || it === 15) break;
+      if (bestV <= 0 || it === 31) break;
       att++;
       k = 1;
     }
@@ -6384,7 +6568,7 @@
     ashFinish(mulberry32((sub ^ 0x51ed27) >>> 0), L);
     return L.spec;
   }
-  ashGen.check = { box: ASH_GEN.box[0], areaMin: 4800, areaMax: 5450 }; // zones-polish：×1.6（原 3000–3400）
+  ashGen.check = { box: ASH_GEN.box[0], areaMin: 4800, areaMax: 5800 }; // zones-polish：×1.6（原 3000–3400）；map-loops：上限 5450 → 5800（两条环路小路）
 
   // ---------- 布景（dress）：熔岩河、石桥、浅滩、塌桥、焦木、农舍、熔渣坑，以及起点 26 m 以外沿路的枯树、积灰、余烬裂缝 ----------
   // 色板（中性的暖灰烬色，暗部冷紫；明暗目标同 ASH_PAL 的注释：地面 25–35%、岩壁 / 障碍 15–25%、熔岩高光 85–100%）
@@ -6667,6 +6851,7 @@
     bridge: [8, 11.5], bridgeHw: 2.5, neckHw: 4.3, // 冰桥；进场地那段末端的颈口半宽
     arenaR: 14.3, // 场地：正圆，半径 arenaR + 0.8 ≈ 15
     sideWalk: [9, 13], sideR: [5, 6], // 旁支栈道长度、藏宝小岛半径
+    deadWalk: [3.5, 5], deadR: [4.4, 5], // map-loops：唯一的死路宝箱岛：栈道长度、小岛半径（原来的 sideWalk 9–13 / sideR 5–6）
     area: [3850, 4950], // 生成器自己先按估算面积筛一遍（校验按 0.5 m 网格精确量 3800–5100）
     cells: 480000, // 网格格数上限：区域外面是虚空（有透弹挖空），rasterize 超过 50 万格就把格距放大一倍，留点余量
     mobs: [76, 100], // 全区怪数（按每群的平均数估）：少于 76 补一群，多于 100 撤一群，补完仍少于 72 换一组（改版前 47 / 62 / 45 的约 1.6 倍）
@@ -6820,13 +7005,15 @@
     const doorD = Math.max(farRim + 1.2, nearRim + 0.6);
     const door = { x: ac.x - Math.sin(LA.ang) * doorD, z: ac.z - Math.cos(LA.ang) * doorD };
 
-    // ---- 旁支：从关键路径的岛里挑 4–5 个，垂直于路径方向岔出去，死路栈道 + 小岛 ----
-    // size-frost：前 4 条必须有（3 个宝箱 + 1 个精英群，角色随机排），第 5 条是放普通怪群的小岛，摆不下就不要；
+    // ---- 旁支：4 个小岛（3 个宝箱 + 1 个精英群，角色随机排）----
+    // map-loops：其中 3 个（精英 + 两个宝箱）是「垫脚岛」：摆在关键路径上 p 和 p+1 两个岛中间那段的一侧，栈道从 p 进、往 p+1 出（环路，不用原路退回）；
+    // 剩下 1 个宝箱岛是区里唯一的死路，垂直岔出去，栈道缩短到 3.5–5 m（原 9–13）、岛小一点。原来第 5 条只放普通怪群的小岛去掉（怪数照旧按全区总数补齐）。
     // 候选的父岛排好随机顺序，一个岛两侧都摆不下就换下一个岛
     const sideOf = [];
     for (let i = 1; i <= nI; i++) sideOf.push(i);
     shuffleR(sideOf, R);
-    const roles = shuffleR(['chest', 'chest', 'chest', 'elite'], R).concat(['pack']);
+    const roles = shuffleR(['chest', 'chest', 'chest', 'elite'], R);
+    const deadRole = roles.indexOf('chest'), loopRoles = roles.filter((q, i) => i !== deadRole); // 死路一定是宝箱岛，精英一定走环路
     const sides = [];
     // 两个圆 / 折线之间的粗略间距（排布检查用）
     const segDist = (px, pz, ax, az, bx, bz) => {
@@ -6854,25 +7041,80 @@
       const b = ibox(L);
       return b[0] * b[1];
     };
-    for (let k = 0, pi = 0; k < roles.length && pi < sideOf.length; pi++) {
-      const p = sideOf[pi], I = isl[p], dirA = Math.atan2(isl[p + 1].x - isl[p - 1].x, isl[p + 1].z - isl[p - 1].z);
+    // 垫脚岛：p → p+1 那段（p+1 不是场地）中点的一侧，离那段栈道 ≥ 6、离 p / p+1 的岸 5–15 m（两条栈道的长度），离别的岛 ≥ 12.5；
+    // 两条栈道（按岛心连线粗算）离别的连接 ≥ 5、离别的岛 ≥ 4。绕过去的路比直走那段至少长 5 m（不是捷径）
+    const segHit = (a, b, skip) => {
+      for (let q = 0; q <= AI; q++) if (skip.indexOf(q) < 0 && segDist(isl[q].x, isl[q].z, a[0], a[1], b[0], b[1]) - isl[q].R - FROST.walkHw[1] < 4) return true;
+      for (const L of LG) if (skip.indexOf(L.a) < 0 && skip.indexOf(L.b) < 0 && plDist(L.pts, [a, b]) - hwMax(L) - FROST.walkHw[1] < 5) return true;
+      // 已摆的旁支：小岛本身、它的栈道（和这一段共用一个岛的那条栈道不比：两条栈道在同一个岛上靠岸）
+      for (const s of sides) {
+        if (Math.hypot(s.x - a[0], s.z - a[1]) < 1e-6 || Math.hypot(s.x - b[0], s.z - b[1]) < 1e-6) continue;
+        if (segDist(s.x, s.z, a[0], a[1], b[0], b[1]) - s.rad - FROST.walkHw[1] < 5) return true;
+        for (const q of s.to !== undefined ? [s.parent, s.to] : [s.parent]) {
+          if (skip.indexOf(q) >= 0) continue;
+          if (plDist([[isl[q].x, isl[q].z], [s.x, s.z]], [a, b]) - 2 * FROST.walkHw[1] < 5) return true;
+        }
+      }
+      return false;
+    };
+    for (let k = 0, pi = 0; k < loopRoles.length && pi < sideOf.length; pi++) {
+      const p = sideOf[pi], n1 = p + 1;
+      if (n1 > nI || sides.some((s) => s.parent === p)) continue;
+      const A = isl[p], B = isl[n1], D = Math.hypot(B.x - A.x, B.z - A.z), ux = (B.x - A.x) / D, uz = (B.z - A.z) / D;
+      const t = (A.R + (D - A.R - B.R) / 2) / D, mx = A.x + (B.x - A.x) * t, mz = A.z + (B.z - A.z) * t;
+      const mainL = LG[p];
       let best = null;
       for (const sg of R() < 0.5 ? [1, -1] : [-1, 1]) {
-        const a = dirA + sg * (Math.PI / 2) + rnd(-0.4, 0.4), rad = rnd(FROST.sideR[0], FROST.sideR[1]), len = rnd(FROST.sideWalk[0], FROST.sideWalk[1]);
-        const rd = rimDist(rooms[p], I.x, I.z, a), d = rd + len + rad;
-        const c = { x: I.x + Math.sin(a) * d, z: I.z + Math.cos(a) * d, rad, a, len };
-        // 离其它岛（父岛除外）≥ 12.5、离其它连接 ≥ 6 才算数
-        let clr = 1e9;
-        for (let q = 0; q <= AI; q++) if (q !== p) clr = Math.min(clr, Math.hypot(c.x - isl[q].x, c.z - isl[q].z) - isl[q].R - rad - 12.5);
-        for (const L of LG) clr = Math.min(clr, polyDist(L.pts, c.x, c.z) - hwMax(L) - rad - 6);
-        for (const s of sides) clr = Math.min(clr, Math.hypot(c.x - s.x, c.z - s.z) - s.rad - rad - 8);
-        if (clr < 0) continue;
-        c.box = boxWith(c);
-        if (!best || c.box < best.box) best = Object.assign(c, { clr });
+        const rad = rnd(FROST.sideR[0], FROST.sideR[1]);
+        for (const off of [9, 12, 15, 18]) {
+          const o = off + rad + rnd(-1, 1), c = { x: mx + uz * o * sg, z: mz - ux * o * sg, rad };
+          let clr = 1e9;
+          for (let q = 0; q <= AI; q++) {
+            const g = Math.hypot(c.x - isl[q].x, c.z - isl[q].z) - isl[q].R - rad;
+            if (q === p || q === n1) {
+              if (g > 15) clr = -1;
+              clr = Math.min(clr, g - 5);
+            } else clr = Math.min(clr, g - 12.5);
+          }
+          for (const L of LG) clr = Math.min(clr, polyDist(L.pts, c.x, c.z) - hwMax(L) - rad - 6);
+          for (const s of sides) clr = Math.min(clr, Math.hypot(c.x - s.x, c.z - s.z) - s.rad - rad - 8);
+          if (clr < 0) continue;
+          const dA = Math.hypot(c.x - A.x, c.z - A.z), dB = Math.hypot(B.x - c.x, B.z - c.z);
+          if (dA + dB < D + 5) continue;
+          if (segHit([A.x, A.z], [c.x, c.z], [p]) || segHit([c.x, c.z], [B.x, B.z], [n1])) continue;
+          c.box = boxWith(c);
+          if (!best || c.box < best.box) best = Object.assign(c, { clr });
+          break;
+        }
       }
-      if (!best) continue;
-      sides.push(Object.assign(best, { parent: p, role: roles[k] }));
+      if (!best || !mainL) continue;
+      sides.push(Object.assign(best, { parent: p, to: n1, role: loopRoles[k] }));
       k++;
+    }
+    if (sides.length < 3) return frostFail('loopSide');
+    // 死路的宝箱岛：照原来的摆法（垂直岔出去），栈道短。所有父岛、两侧都试，取离「关键路径穿过父岛的那条线」（进岛的岸点 → 出岛的岸点）最近的，
+    // 估计的回头路（小岛远端到那条线的距离）≤ 20 m 才要
+    {
+      let best = null;
+      for (let pi = 0; pi < sideOf.length; pi++) {
+        const p = sideOf[pi], I = isl[p], dirA = Math.atan2(isl[p + 1].x - isl[p - 1].x, isl[p + 1].z - isl[p - 1].z);
+        if (sides.some((s) => s.parent === p)) continue;
+        const pin = LG[p - 1].pB, pout = LG[p].pA;
+        for (const sg of R() < 0.5 ? [1, -1] : [-1, 1]) {
+          const a = dirA + sg * (Math.PI / 2) + rnd(-0.4, 0.4), rad = rnd(FROST.deadR[0], FROST.deadR[1]), len = rnd(FROST.deadWalk[0], FROST.deadWalk[1]);
+          const rd = rimDist(rooms[p], I.x, I.z, a), d = rd + len + rad;
+          const c = { x: I.x + Math.sin(a) * d, z: I.z + Math.cos(a) * d, rad, a, len };
+          // 离其它岛（父岛除外）≥ 12.5、离其它连接 ≥ 6 才算数
+          let clr = 1e9;
+          for (let q = 0; q <= AI; q++) if (q !== p) clr = Math.min(clr, Math.hypot(c.x - isl[q].x, c.z - isl[q].z) - isl[q].R - rad - 12.5);
+          for (const L of LG) clr = Math.min(clr, polyDist(L.pts, c.x, c.z) - hwMax(L) - rad - 6);
+          for (const s of sides) clr = Math.min(clr, Math.hypot(c.x - s.x, c.z - s.z) - s.rad - rad - 8);
+          if (clr < 0 || segHit([I.x, I.z], [c.x, c.z], [p])) continue;
+          c.est = segDist(c.x, c.z, pin.x, pin.z, pout.x, pout.z) + rad;
+          if (c.est <= 20 && (!best || c.est < best.est)) best = Object.assign(c, { clr, parent: p });
+        }
+      }
+      if (best) sides.push(Object.assign(best, { role: 'chest', dead: true }));
     }
     if (sides.length < 4) return frostFail('side');
     {
@@ -6883,12 +7125,13 @@
     sides.sort((a, b) => a.parent - b.parent);
     const sideBase = rooms.length;
     for (const s of sides) {
-      rooms.push({ id: rooms.length, kind: 'side', order: s.parent + 1, path: false, prims: isle(s.x, s.z, s.rad, 2, 0.86), core: { x: s.x, z: s.z, r: 0 }, tags: [s.role] });
+      rooms.push({ id: rooms.length, kind: 'side', order: s.parent + 1, path: false, prims: isle(s.x, s.z, s.rad, 2, 0.86), core: { x: s.x, z: s.z, r: 0 }, tags: s.to !== undefined ? [s.role, 'loop'] : [s.role] });
       s.room = rooms.length - 1;
       isl[s.room] = { x: s.x, z: s.z, rad: s.rad };
       isl[s.room].R = maxR(rooms[s.room], s.x, s.z);
     }
     for (const s of sides) LG.push(Object.assign(linkGeo(s.parent, s.room, 'walk', false), { a: s.parent, b: s.room, kind: 'walk', path: false }));
+    for (const s of sides) if (s.to !== undefined) LG.push(Object.assign(linkGeo(s.room, s.to, 'walk', false), { a: s.room, b: s.to, kind: 'walk', path: false, loop: true })); // map-loops：垫脚岛往 p+1 出去的栈道
 
     // ---- 排布检查（按圆和折线粗算，宁可多扔几次）----
     for (let i = 0; i <= AI; i++) {
@@ -7175,6 +7418,8 @@
     // 外接框：长边 ≤ 172 m；网格（外接框四周已含 4 m）0.25 m 一格不超过 FROST.cells（size-frost：原来是 170 × 150 的长宽上限）
     const BW = spec.bounds.maxX - spec.bounds.minX, BH = spec.bounds.maxZ - spec.bounds.minZ;
     if (Math.max(BW, BH) - 8 > 172 || (BW / 0.25 + 2) * (BH / 0.25 + 2) > FROST.cells) return frostFail('box');
+    // map-loops：校验第 4 条（不相邻的关键路径岛 ≥ 14 m）先在这里查：浅水圆、栈道摆完以后偶尔挤到 14 m 以内，原来要等校验失败、整个换种子
+    if (pathGaps(spec, CHECK.gap).length) return frostFail('gap');
     spec.est = { area: Math.round(area), mobs, elites };
     return spec;
   }
@@ -7904,7 +8149,7 @@
       y = yA0 + rnd(-ySpan, ySpan);
       const L = !arena && !P.disk && R() < 0.4 && k <= nH; // L 形：从 P 的墙出去，沿着 B 的侧墙走，转个弯从侧墙进 B
       if (!L) {
-        const g = arena ? rnd(8, 11) : rnd(8, 13.5);
+        const g = arena ? rnd(8, 11) : rnd(7.5, 12.5); // map-loops：8–13.5 → 7.5–12.5（能摆下回路的布局偏舒展，关键路径会长 4%，这里收回来）
         const sB = sA + g, yb = arena ? y : y + rnd(-1, 1) * Math.max(0, wid - STORM.door - STORM.frameR * 2 - 1.5) * 0.75;
         const c = pt(d, sB + len, yb);
         B = { u: c[0], v: c[1], hu: d[0] ? len : wid, hv: d[0] ? wid : len };
@@ -7944,38 +8189,230 @@
     }
     const pathHalls = halls.slice(1, nH + 1), arena = halls[nH + 1];
     // ---------- 旁支小室：3–5 个，从关键路径大厅没开门的墙岔出去 ----------
+    // map-loops：第 1 间（宝箱室）是区里唯一的死路：小一点（半边 4.5）、走廊 3–4.5 m，门开在离「关键路径穿过这个大厅的那条线」最近的地方；
+    // 其余各间（精英室、宝箱 + 小群、普通小群）都再开一条走廊通到下一个关键路径大厅（不是场地），走完不用原路退回。
+    // 回路的走廊：从小室没开门的那面墙出去，直的或者拐一个弯（L 形），进下一个大厅时离它已有的门 ≥ 7 m，和别的东西隔开 STORM.gap；
+    // 绕小室的路（按房间中心的曼哈顿距离）要比直走大厅之间至少长 5 m（不是捷径）。接不回去的小室不要（撤掉重摆）
     const want = R() < 0.5 ? 3 : R() < 0.7 ? 4 : 5, sides = [];
     const order = shuffleR(pathHalls.slice(), R);
-    for (let pass = 0; pass < 2 && sides.length < want; pass++) {
+    const nextHall = (H) => (H.order < nH ? pathHalls[H.order] : null);
+    const man = (A, B) => Math.abs(A.u - B.u) + Math.abs(A.v - B.v);
+    // 走进大厅的门 → 走出去的门（关键路径穿过大厅的那条线）
+    const pathLine = (H) => {
+      const o = H.doors.find((D) => D.out && !D.side);
+      return [H.entry.p, o ? o.p : [H.u, H.v]];
+    };
+    // 回路接到下一个大厅（T 在 H 后面）；接不上就接上一个大厅（T 在 H 前面：玩家从 T 走回路进小室、再从直走廊进 H，同样是两个相邻大厅之间的第二条路）
+    const loopCor = (S, H, q) => {
+      const g0 = S.g; // g0：进小室那条走廊的长度
+      const nx = nextHall(H), pv = H.order >= 2 ? pathHalls[H.order - 2] : null;
+      for (const T of [nx, pv]) {
+        if (!T) continue;
+        if (T === nx && man(H, S) + man(S, T) < man(H, T) + 5) continue;
+        const C = loopTo(S, H, q, T, g0, T === pv);
+        if (C) return C;
+      }
+      return null;
+    };
+    const loopTo = (S, H, q, T, g0, back2) => {
+      // 两个盒子之间的曼哈顿间隙已经超过走廊总长上限：不用试了
+      if (Math.max(0, Math.abs(S.u - T.u) - S.hu - T.hu) + Math.max(0, Math.abs(S.v - T.v) - S.hv - T.hv) > 50) return null;
+      // 先试朝着 T 的那几面墙（出 S、进 T 都按 S → T 的方向排，加一点随机）
+      const tu = T.u - S.u, tv = T.v - S.v, rank = (L) => L.map((x) => [x, x[0] * tu + x[1] * tv + rnd(-6, 6)]).sort((a, b) => b[1] - a[1]).map((x) => x[0]);
+      const MIN = 2.2 + 3; // 每段走廊（拐弯之间）至少这么长
+      const pick = (lo, hi) => (hi < lo ? null : lo + R() * (hi - lo));
+      // 在 [lo, hi] 里取，避开 bans 里每个点 ±7 m（T 那面墙上已有的门）
+      const pickAvoid = (lo, hi, bans) => {
+        let iv = hi >= lo ? [[lo, hi]] : [];
+        for (const b of bans) iv = iv.flatMap(([a, c]) => [[a, Math.min(c, b - 7)], [Math.max(a, b + 7), c]]).filter(([a, c]) => c >= a);
+        const tot = iv.reduce((m, [a, c]) => m + (c - a), 0);
+        if (!iv.length) return null;
+        let r = R() * tot;
+        for (const [a, c] of iv) {
+          if (r <= c - a) return a + r;
+          r -= c - a;
+        }
+        return iv[iv.length - 1][1];
+      };
+      for (const e of rank(SDIRS.filter((x) => !(x[0] === -q[0] && x[1] === -q[1])))) {
+        // 以 e 为 X 轴、e 的左手方向为 Y 轴的坐标：先按区间算出合格的门位，再在区间里取，不靠瞎撒
+        const al = (u, v) => u * e[0] + v * e[1], la = (u, v) => u * -e[1] + v * e[0];
+        const fromE = (m, latv) => [e[0] * m - e[1] * latv, e[1] * m + e[0] * latv];
+        const Sx = al(S.u, S.v), Sy = la(S.u, S.v), Xs = Sx + alongH(S, e), spanS = Math.max(0, latH(S, e) - 1.5 - 1.2 - 0.3);
+        const Tx = al(T.u, T.v), Ty = la(T.u, T.v), hTe = alongH(T, e), hTp = latH(T, e);
+        for (const f of rank(SDIRS.slice())) {
+          const fX = f[0] * e[0] + f[1] * e[1], fY = f[0] * -e[1] + f[1] * e[0];
+          const onWall = T.doors.filter((D) => D.n[0] === f[0] && D.n[1] === f[1]); // T 的 −f 那面墙上已有的门（门的 n 朝里 = f）
+          for (let t = 0; t < 2; t++) {
+            let ps = null, door = null, mid = null;
+            if (fX === 0) {
+              // L：出 S 沿 +X 走到 xt，拐弯沿 fY 走进 T（门在 T 的 −f 那面墙上，墙的 Y = Ty − fY·hTp）
+              const spT = Math.max(0, hTe - 1.5 - 1.2 - 2.2 - 0.6), Yw = Ty - fY * hTp;
+              const xt = pickAvoid(Math.max(Tx - spT, Xs + MIN), Tx + spT, onWall.map((D) => al(D.p[0], D.p[1])));
+              const ys = fY > 0 ? pick(Sy - spanS, Math.min(Sy + spanS, Yw - MIN)) : pick(Math.max(Sy - spanS, Yw + MIN), Sy + spanS);
+              if (xt === null || ys === null) break;
+              ps = [Xs, ys];
+              mid = [[xt, ys]];
+              door = [xt, Yw];
+            } else {
+              const spT = Math.max(0, hTp - 1.5 - 1.2 - 2.2 - 0.6), Xw = Tx - fX * hTe;
+              if (fX === 1) {
+                // 直的（两扇门横向对得上）或 Z（出去 m、横移、再进 T）
+                const D = Xw - Xs, lo = Math.max(Sy - spanS, Ty - spT), hi = Math.min(Sy + spanS, Ty + spT), bans = onWall.map((Dd) => la(Dd.p[0], Dd.p[1]));
+                const ySt = lo <= hi && D >= 3 && (t === 0 || D < 2 * MIN) ? pickAvoid(lo, hi, bans) : null;
+                if (ySt !== null) {
+                  const y = ySt;
+                  ps = [Xs, y];
+                  mid = [];
+                  door = [Xw, y];
+                } else if (D >= 2 * MIN) {
+                  const ys = pick(Sy - spanS, Sy + spanS), yt = pickAvoid(Ty - spT, Ty + spT, bans), m = pick(Xs + MIN, Xw - MIN);
+                  if (yt === null) break;
+                  ps = [Xs, ys];
+                  mid = [[m, ys], [m, yt]];
+                  door = [Xw, yt];
+                } else break;
+              } else {
+                // U：出去绕过 T 的门再折回来，两扇门横向至少错开 7.9 m
+                const ys = pick(Sy - spanS, Sy + spanS), lo1 = Ty - spT, hi1 = Math.min(Ty + spT, ys - (2 * 2.2 + 3.5)), lo2 = Math.max(Ty - spT, ys + (2 * 2.2 + 3.5)), hi2 = Ty + spT;
+                const w1 = Math.max(0, hi1 - lo1), w2 = Math.max(0, hi2 - lo2);
+                if (w1 + w2 <= 0 && !(hi1 >= lo1) && !(hi2 >= lo2)) break;
+                const bans = onWall.map((Dd) => la(Dd.p[0], Dd.p[1]));
+                const yt = hi1 >= lo1 && (hi2 < lo2 || R() * (w1 + w2) < w1) ? pickAvoid(lo1, hi1, bans) : hi2 >= lo2 ? pickAvoid(lo2, hi2, bans) : null;
+                if (yt === null) break;
+                const m = Math.max(Xs, Xw) + MIN + R() * 3;
+                ps = [Xs, ys];
+                mid = [[m, ys], [m, yt]];
+                door = [Xw, yt];
+              }
+            }
+            const P0 = fromE(ps[0], ps[1]), PD = fromE(door[0], door[1]);
+            const pts = [[P0[0] - e[0] * OV, P0[1] - e[1] * OV]].concat(mid.map((c) => fromE(c[0], c[1])), [[PD[0] + f[0] * OV, PD[1] + f[1] * OV]]);
+            const dT = pts[pts.length - 1], doorT = [dT[0] - f[0] * OV, dT[1] - f[1] * OV];
+            if (T.doors.some((D) => Math.hypot(D.p[0] - doorT[0], D.p[1] - doorT[1]) < 7)) continue;
+            let len = 0;
+            for (let i = 0; i + 1 < pts.length; i++) len += Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]);
+            if (len > 52) continue; // 回路走廊总长上限（够不够划算由下面两条比较决定）
+            // 接到上一个大厅 T：绕小室（回路走廊 + 小室里 + 直走廊）要比 T → H 的关键路径走廊至少长 5 m（不是捷径）
+            // 也不能太绕：从 T 的出口走回路到小室的进门，要比「走关键路径进 H、再从直走廊进小室」短，不然最近的走法还是从 H 进出（又成了回头路）
+            if (back2) {
+              const mh = (a, b) => Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]);
+              const mainC = cors.find((c) => c.a === T && c.b === H), sDoor = [pts[0][0] + e[0] * OV, pts[0][1] + e[1] * OV], mainL = mainC ? mainC.len : man(T, H);
+              if (len + mh(sDoor, S.entry.p) + g0 < mainL + 5) continue;
+              const tOut = T.doors.find((D) => D.out && !D.side), hDoor = [S.entry.p[0] - q[0] * g0, S.entry.p[1] - q[1] * g0];
+              const viaLoop = mh(tOut.p, doorT) + len + mh(sDoor, S.entry.p), viaH = mainL + mh(H.entry.p, hDoor) + g0;
+              if (viaLoop > viaH - 3) continue;
+            }
+            // 回路要比原路退回短，否则玩家照样会走回头路：都从 S 的进门处量到 T 的出口（门之间按曼哈顿距离、走廊按长度）
+            //   原路：S 的进门 → H 的出口 → 关键路径走廊 → T 的进门 → T 的出口；回路：S 的进门 → S 的回路门 → 回路走廊 → T 的回路门 → T 的出口
+            if (!back2) {
+              const mh = (a, b) => Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]);
+              const hOut = H.doors.find((D) => D.out && !D.side), tOut = T.doors.find((D) => D.out && !D.side), mainC = cors.find((c) => c.a === H && c.b === T);
+              const tEnd = tOut ? tOut.p : [T.u, T.v], sDoor = [pts[0][0] + e[0] * OV, pts[0][1] + e[1] * OV];
+              const back = mh(S.entry.p, hOut.p) + (mainC ? mainC.len : man(H, T)) + mh(T.entry.p, tEnd) + g0;
+              const loop = mh(S.entry.p, sDoor) + len + mh(doorT, tEnd);
+              if (loop > back - 3) continue;
+            }
+            const C = addCor(S, T, pts, 2.2, 'corr', 1.5, 1.5);
+            const ok = C.legs.every((bx) => clear(bx, (h) => h === S || h === T || h === C)) && fitW(C.legs, false);
+            if (!ok) {
+              cors.pop();
+              continue;
+            }
+            fitW(C.legs, true);
+            C.order = S.order;
+            C.side = true;
+            C.loop = true;
+            C.doorA = addDoor(S, [pts[0][0] + e[0] * OV, pts[0][1] + e[1] * OV], [-e[0], -e[1]], 1.5, 0);
+            C.doorA.out = e;
+            C.doorA.side = true;
+            C.doorB = addDoor(T, doorT, f, 1.5, 0.6);
+            return C;
+          }
+        }
+      }
+      return null;
+    };
+    // 先摆回路的小室（want − 1 间），再在所有大厅里找死路的那间（回头路估计最小的），死路排在 sides[0]（宝箱室）
+    const loops = [];
+    for (let pass = 0; pass < 2 && loops.length < want - 1; pass++) {
       for (const H of order) {
-        if (sides.length >= want) break;
-        if (pass === 0 && sides.some((s) => s.parent === H)) continue;
-        const dirs = SDIRS.filter((q) => !H.doors.some((D) => (D.n[0] === -q[0] && D.n[1] === -q[1]) || (D.out && D.out[0] === q[0] && D.out[1] === q[1])));
-        for (let t = 0; t < 4 && dirs.length; t++) {
-          const q = dirs[Math.floor(R() * dirs.length)], half = sides.length === 1 ? 6 : rnd(5, 5.8), hw = 2.2;
+        if (loops.length >= want - 1) break;
+        if (pass === 0 && loops.some((x) => x.parent === H)) continue;
+        if (!nextHall(H)) continue; // 最后一个大厅的下一个是场地：接不回去
+        const dirs = SDIRS.filter((q) => !H.doors.some((D) => !D.side && ((D.n[0] === -q[0] && D.n[1] === -q[1]) || (D.out && D.out[0] === q[0] && D.out[1] === q[1])))); // 有关键路径门的墙不开（旁支的门可以同墙，门距 ≥ 7 m 另查）
+        // 小室开在朝着下一个大厅的那几面墙上（按方向排，前几次先试最朝着它的）
+        const NT = nextHall(H), qs = dirs.map((x) => [x, x[0] * (NT.u - H.u) + x[1] * (NT.v - H.v)]).sort((a, b) => b[1] - a[1]).map((x) => x[0]);
+        for (let t = 0; t < 8 && dirs.length; t++) {
+          const q = t < 4 ? qs[t % qs.length] : dirs[Math.floor(R() * dirs.length)], half = loops.length === 0 ? 6 : rnd(5, 5.8), hw = 2.2;
           const sA = dotP(H.u, H.v, q) + alongH(H, q), span = Math.max(0, latH(H, q) - 1.5 - 0.6 * 2 - hw - 1);
-          const y = dotP(H.u, H.v, lat(q)) + rnd(-span, span), g = rnd(12, 13.5);
+          const y = dotP(H.u, H.v, lat(q)) + rnd(-span, span), g = rnd(8, 11); // map-loops：12–13.5 → 8–11（小室近一点，回路走廊好摆）
           if (H.doors.some((D) => Math.hypot(D.p[0] - pt(q, sA, y)[0], D.p[1] - pt(q, sA, y)[1]) < 7)) continue;
           const c = pt(q, sA + g + half, y + rnd(-1, 1));
-          const S = { u: c[0], v: c[1], hu: half, hv: half, kind: 'side', order: H.order + 1, path: false, doors: [], parent: H };
-          const tmp = { legs: [segBox(pt(q, sA - OV, y), pt(q, sA + g + OV, y), hw)] };
-          if (!clear(S, null)) continue;
-          if (!clear(tmp.legs[0], (h) => h === H)) continue;
-          if (boxGap(S, tmp.legs[0]) > 0.01) continue;
-          if (!fitW([S, tmp.legs[0]], true)) continue;
+          const S = { u: c[0], v: c[1], hu: half, hv: half, kind: 'side', order: H.order + 1, path: false, doors: [], parent: H, g };
+          const leg = segBox(pt(q, sA - OV, y), pt(q, sA + g + OV, y), hw);
+          if (!clear(S, null) || !clear(leg, (h) => h === H) || boxGap(S, leg) > 0.01 || !fitW([S, leg], false)) continue;
+          const wb0 = wb.slice(), nf = framesL.length;
+          fitW([S, leg], true);
           halls.push(S);
           const C = addCor(H, S, [pt(q, sA - OV, y), pt(q, sA + g + OV, y)], hw, 'corr', 0, 1.5);
           C.order = H.order;
           C.side = true;
           C.doorA = addDoor(H, pt(q, sA, y), [-q[0], -q[1]], 1.5, 0);
           C.doorA.out = q;
+          C.doorA.side = true;
           C.doorB = addDoor(S, pt(q, sA + g, y), q, 1.5, 0.6);
           S.entry = C.doorB;
-          sides.push(S);
+          if (!loopCor(S, H, q)) {
+            // 接不回去：撤掉这间（刚推进去的小室、走廊、两扇门、门框柱、外接框）
+            cors.pop();
+            halls.pop();
+            H.doors.pop();
+            framesL.length = nf;
+            for (let i = 0; i < 4; i++) wb[i] = wb0[i];
+            stormFail('loop');
+            continue;
+          }
+          S.loop = true;
+          loops.push(S);
           break;
         }
       }
     }
+    // 死路：小一点（半边 4.5）、走廊 3–4.5 m；每个大厅每面空墙多试几处，取「门到关键路径那条线 + 走廊 + 小室进深」最小的，≤ 21 m 才要
+    let bestD = null;
+    for (const H of order) {
+      const dirs = SDIRS.filter((q) => !H.doors.some((D) => !D.side && ((D.n[0] === -q[0] && D.n[1] === -q[1]) || (D.out && D.out[0] === q[0] && D.out[1] === q[1])))); // 有关键路径门的墙不开（旁支的门可以同墙，门距 ≥ 7 m 另查）
+      const PL = pathLine(H);
+      for (let t = 0; t < 8 && dirs.length; t++) {
+        const q = dirs[Math.floor(R() * dirs.length)], half = 4.5, hw = 2.2;
+        const sA = dotP(H.u, H.v, q) + alongH(H, q), span = Math.max(0, latH(H, q) - 1.5 - 0.6 * 2 - hw - 1);
+        const y = dotP(H.u, H.v, lat(q)) + rnd(-span, span), g = rnd(3, 4.5);
+        const dp = pt(q, sA, y);
+        if (H.doors.some((D) => Math.hypot(D.p[0] - dp[0], D.p[1] - dp[1]) < 7)) continue;
+        const c = pt(q, sA + g + half, y + rnd(-1, 1));
+        const S = { u: c[0], v: c[1], hu: half, hv: half, kind: 'side', order: H.order + 1, path: false, doors: [], parent: H, g };
+        const leg = segBox(pt(q, sA - OV, y), pt(q, sA + g + OV, y), hw);
+        if (!clear(S, null) || !clear(leg, (h) => h === H) || boxGap(S, leg) > 0.01 || !fitW([S, leg], false)) continue;
+        const est = segD(dp[0], dp[1], PL[0][0], PL[0][1], PL[1][0], PL[1][1]) + g + 2 * half;
+        if (est <= 21 && (!bestD || est < bestD.est)) bestD = { est, q, sA, y, g, S, leg, H };
+      }
+    }
+    if (bestD) {
+      const { q, sA, y, g, S, leg, H } = bestD;
+      fitW([S, leg], true);
+      halls.push(S);
+      const C = addCor(H, S, [pt(q, sA - OV, y), pt(q, sA + g + OV, y)], 2.2, 'corr', 0, 1.5);
+      C.order = H.order;
+      C.side = true;
+      C.doorA = addDoor(H, pt(q, sA, y), [-q[0], -q[1]], 1.5, 0);
+      C.doorA.out = q;
+      C.doorA.side = true;
+      C.doorB = addDoor(S, pt(q, sA + g, y), q, 1.5, 0.6);
+      S.entry = C.doorB;
+      sides.push(S);
+    } else stormFail('dead');
+    sides.push(...loops);
     if (sides.length < 3) return stormFail('sides');
     // ---------- 外接框、面积 ----------
     let x0 = 1e9, z0 = 1e9, x1 = -1e9, z1 = -1e9, area = 0;
@@ -8151,7 +8588,12 @@
       elites++;
     }
     // ---------- 宝箱：宝箱室、精英室、第三间旁支各一个，放在背对门的那面墙前 ----------
-    const chestsL = [chestRoom, eliteRoom, sides[2]].map((S) => ({ u: S.u + S.entry.n[0] * (S.hu - 1.8), v: S.v + S.entry.n[1] * (S.hv - 1.8), S }));
+    // 宝箱靠在没有门的那面墙前（map-loops：回路的小室另有一扇出去的门，原来的「背对进门的那面墙」可能正对着它）
+    const chestsL = [chestRoom, eliteRoom, sides[2]].map((S) => {
+      const ws = [S.entry.n].concat(SDIRS.filter((x) => !(x[0] === S.entry.n[0] && x[1] === S.entry.n[1])));
+      const w = ws.find((x) => !S.doors.some((D) => D.n[0] === -x[0] && D.n[1] === -x[1])) || S.entry.n;
+      return { u: S.u + w[0] * (S.hu - 1.8), v: S.v + w[1] * (S.hv - 1.8), S };
+    });
 
     // ---------- 输出 spec（世界坐标）----------
     const rooms = [], links = [], cuts = [], packs = [], chests = [];
@@ -8625,8 +9067,11 @@
     const L7 = addRoom({ kind: 'room', order: 7, path: true, prims: plat(u7, v7, Rl[7], 1, cR[1], 'u') });
     const AREN = addRoom({ kind: 'arena', order: 8, path: true, prims: [C(au, av, AR)], core: { x: X(au, av), z: Z(au, av), r: AR }, tags: ['arena'] });
     // 洞穴：一个挂在 L1 或 L4 的外侧（第一段 A 岸崖壁），一个挂在 P2 的外侧（第一段 B 岸崖壁），一个挂在 P6 的外侧（第二段 B 岸崖壁）
-    const caveOnL4 = R() < 0.5;
-    const pA = caveOnL4 ? { u: u4 + rnd(-4, -1.5), v: v4, r: Rl[4] } : { u: u1 + rnd(-2.5, 2.5), v: v1, r: Rl[1] };
+    // map-loops：A 洞总是挂在 L4 上（靠 L5 那一侧），有暗道通到 L5；挂在 L1 上的话前面是深渊，暗道只能通回同一岸的 L4，会抄掉半个区的近路。
+    // 随机数照旧取一次（后面的摆放和改前同一个种子对得上）
+    R();
+    const caveOnL4 = true;
+    const pA = caveOnL4 ? { u: u4 + rnd(1.5, 4), v: v4, r: Rl[4] } : { u: u1 + rnd(-2.5, 2.5), v: v1, r: Rl[1] };
     const tlA = rnd(5, 7), rcA = rnd(5.5, 6.8);
     const tA0 = [pA.u, pA.v + pA.r * 0.55], tA1 = [pA.u, pA.v + pA.r + tlA];
     const cA = [pA.u + rnd(-1.5, 1.5), tA1[1] + rcA - 1.2];
@@ -8654,7 +9099,7 @@
     // P2 上：怪群鼓包和洞穴口一前一后
     const p2a = u2 + Rl[2] * 0.6, p2b = u3 - Rl[3] * 0.6, vP2 = eB[1] - hwP + over;
     const p2u = (t) => u2 + Rl[2] * 0.92 + P2len * t; // P2 露在两个平台之外那一段，按比例取 u
-    const tlB = rnd(5, 7), rcB = rnd(5.5, 6.8), jB = rnd(-1.5, 1.5);
+    const tlB = rnd(2, 3), rcB = rnd(5, 5.6), jB = rnd(-1.5, 1.5); // map-loops：P2 上的 B 洞是区里唯一的死路，隧道缩短（原 5–7）、洞小一点（原 5.5–6.8）
     const tCav = caveT((t) => [p2u(t) + jB, eB[1] - 5.5 - tlB - rcB + 1.2], rcB, [L2, L3]), tBul = bulgeT(tCav);
     const ubu = p2u(tBul), ucv = p2u(tCav);
     const tB0 = [ucv, vP2 - 1], tB1 = [ucv, eB[1] - 5.5 - tlB];
@@ -8696,6 +9141,13 @@
     const TA = addRoom({ kind: 'link', order: CVA.order, lv: CVA.lv, path: false, prims: [CAP(tA0[0], tA0[1], tA1[0], tA1[1], 2.25)], axis: [tA0, tA1].map(P2W), ends: [caveOnL4 ? L4.id : L1.id, CVA.id] });
     const TB = addRoom({ kind: 'link', order: 3, lv: CVB.lv, path: false, prims: [CAP(tB0[0], tB0[1], tB1[0], tB1[1], 2.25)], axis: [tB0, tB1].map(P2W), ends: [P2.id, CVB.id] });
     const TC = addRoom({ kind: 'link', order: 7, lv: CVC.lv, path: false, prims: [CAP(tC0[0], tC0[1], tC1[0], tC1[1], 2.25)], axis: [tC0, tC1].map(P2W), ends: [P6.id, CVC.id] });
+    // map-loops：A 洞（L4 上方）、C 洞（P6 旁边）各有一条暗道穿过崖壁，通到前面的平台（L5 / L7），走完洞不用原路退回。
+    // A 的暗道在洞的高度上顺着 +u 走到 L5 的正上方再折下来进 L5；C 的顺着 +v 直通 L7 的外侧。离别的房间至少隔 2 m 的岩壁（下面自查）
+    const tA2 = [u5, cA[1]], tA3 = [u5, v5], tC2 = [cC[0], v7];
+    const TA2 = addRoom({ kind: 'link', order: CVA.order, lv: CVA.lv, path: false, prims: [CAP(cA[0], cA[1], tA2[0], tA2[1], 2.25), CAP(tA2[0], tA2[1], tA3[0], tA3[1], 2.25)], axis: [cA, tA2, tA3].map(P2W), ends: [CVA.id, L5.id], tags: ['loop'] });
+    const TC2 = addRoom({ kind: 'link', order: CVC.order, lv: CVC.lv, path: false, prims: [CAP(cC[0], cC[1], tC2[0], tC2[1], 2.25)], axis: [cC, tC2].map(P2W), ends: [CVC.id, L7.id], tags: ['loop'] });
+    CVA.tags.push('loop');
+    CVC.tags.push('loop');
 
     // ---- 挖空：深渊五截（第一段三截、第二段两截）+ 场地的虚空环 + 桥两侧 ----
     const V = MAT.VOID, voidGroups = [];
@@ -8823,7 +9275,7 @@
       L.core = { x: best.x, z: best.z, r: Math.max(0.5, best.r - 0.05) };
     }
     const mid = (A) => ({ x: (A[0][0] + A[A.length - 1][0]) / 2, z: (A[0][1] + A[A.length - 1][1]) / 2 });
-    for (const L of [P0, B1, P2, B2, P4, B3, P6, B4, TA, TB, TC]) {
+    for (const L of [P0, B1, P2, B2, P4, B3, P6, B4, TA, TB, TC, TA2, TC2]) {
       const m = mid(L.axis);
       L.core = { x: m.x, z: m.z, r: L === P0 || L === P2 || L === P4 || L === P6 ? hwP - over : hwB };
     }
@@ -8862,6 +9314,10 @@
     link(TB, CVB, edgeOn(CVB, cB, tB0), 'door');
     link(P6, TC, { x: X(cR[1] + 5.5, vcv6), z: Z(cR[1] + 5.5, vcv6) }, 'door');
     link(TC, CVC, edgeOn(CVC, cC, tC0), 'door');
+    link(CVA, TA2, edgeOn(CVA, cA, tA2), 'door');
+    link(TA2, L5, edgeOn(L5, tA3, tA2), 'door');
+    link(CVC, TC2, edgeOn(CVC, cC, tC2), 'door');
+    link(TC2, L7, edgeOn(L7, tC2, cC), 'door');
     const doors = links.map((L) => L.door);
 
     // ---- 余烬口：P2 上两个（避开鼓包和洞口），P4、P6 上各一个，P0 够长时再放一个；偏向崖壁一侧 1 m，靠深渊一侧留出过路的宽度 ----
@@ -8926,8 +9382,8 @@
         }
       }
     }
-    // 旁支：三个洞里随机一个放精英群，其余放宝箱
-    const eliteCave = Math.floor(R() * 3);
+    // 旁支：三个洞里随机一个放精英群，其余放宝箱（map-loops：精英只放在有暗道的 A / C 洞里，死路的 B 洞总是宝箱）
+    const eliteCave = R() < 0.5 ? 0 : 2;
     const caveStuff = (cv, c, t0, elite) => {
       // 洞底：从洞口往里的方向
       const du = c[0] - t0[0], dv = c[1] - t0[1], dl = Math.hypot(du, dv) || 1, nu = du / dl, nvv = dv / dl;
@@ -8988,10 +9444,21 @@
     const platN = PL.map((L) => packs.filter((p) => p.room === L.id).length);
     const mobs = packs.reduce((s2, p) => s2 + (p.n[0] + p.n[1]) / 2, 0);
     let caveHit = false;
-    for (const [cv, own] of [[CVA, [TA.id, caveOnL4 ? L4.id : L1.id]], [CVB, [TB.id, P2.id]], [CVC, [TC.id, P6.id]]]) {
+    for (const [cv, own] of [[CVA, [TA.id, caveOnL4 ? L4.id : L1.id, TA2.id, L5.id]], [CVB, [TB.id, P2.id]], [CVC, [TC.id, P6.id, TC2.id, L7.id]]]) {
       for (let k = 0; k < 24 && !caveHit; k++) {
         const a = (k / 24) * TAU, x = cv.core.x + Math.sin(a) * (cv.core.r + 1.5), z = cv.core.z + Math.cos(a) * (cv.core.r + 1.5);
         for (const o of rooms) if (o !== cv && o.kind !== 'void' && own.indexOf(o.id) < 0 && roomSd(o, x, z) > -1) caveHit = o.kind + o.id;
+      }
+    }
+    // 暗道：洞和目标平台之外的那段，离别的房间（不算虚空）≥ 2 m 岩壁
+    for (const [T, own] of [[TA2, [CVA.id, L5.id, TA.id]], [TC2, [CVC.id, L7.id, TC.id]]]) {
+      for (let k = 0; k + 1 < T.axis.length; k++) {
+        const A = T.axis[k], B = T.axis[k + 1], n = Math.ceil(Math.hypot(B[0] - A[0], B[1] - A[1]) / 0.75);
+        for (let i = 0; i <= n && !caveHit; i++) {
+          const x = A[0] + ((B[0] - A[0]) * i) / n, z = A[1] + ((B[1] - A[1]) * i) / n;
+          if (roomSd(rooms[own[0]], x, z) > -1 || roomSd(rooms[own[1]], x, z) > -1) continue;
+          for (const o of rooms) if (o !== T && o.kind !== 'void' && own.indexOf(o.id) < 0 && roomSd(o, x, z) > -(2.25 + 2)) caveHit = 'tunnel ' + o.kind + o.id;
+        }
       }
     }
     // 不相邻的关键路径平台（序号差 ≥ 2）：图元之间边到边 ≥ 14.2 m。校验第 4 条在 0.5 m 的格子上量，量出来只会更大；
@@ -9463,10 +9930,19 @@
     // 每圈 3 个房间（各带一个鼓包），旁支 2 → 3。两圈的角度合起来超过一圈：中圈的末尾转回到外圈的开头底下（隔着 ≥ 7 m 坑壁），
     // 外圈内侧的虚空只放在没有中圈的那一段
     rS: [60.5, 63.5], rO: [43.2, 44.8], rM: [27.2, 28.0], hw: 4.4, rA: 16, spanO: [193, 199], spanM: [187, 193],
-    rampHw: 3.5, neckHw: 4, linkHw: 3.75, bulge: [9.4, 10], bulgeOut: 0.28, side: [6.2, 6.8], sideNeck: [8, 9.5], sideHw: 3, // zones-polish：环带宽 8 → 8.8、鼓包 8.1–8.6 → 9.4–10、撞击坑 5.6–6.1 → 6.2–6.8
+    rampHw: 3.5, neckHw: 4, linkHw: 3.75, bulge: [9.4, 10], bulgeOut: 0.28, side: [6.2, 6.8], sideNeck: [8, 9.5], sideHw: 3, sideDead: [5.2, 5.6], sideNeckDead: [3.5, 4.5], // map-loops：死路的坑（中圈）小一点、颈口短 // zones-polish：环带宽 8 → 8.8、鼓包 8.1–8.6 → 9.4–10、撞击坑 5.6–6.1 → 6.2–6.8
     meteor: [1.5, 2.0], crystal: [0.85, 1.2], crystalR: 13,
   };
+  // map-loops：外圈的两个撞击坑各开两道 V 形的颈口（坑心两侧各一道，中间夹一块岩石），顺着走的方向先进后出，不用原路退回；
+  // 中圈的撞击坑是区里唯一的死路（小一点、颈口短）。V 形摆不下（碰到鼓包 / 别的坑）就换一组随机数重摆（最多 24 次）
   function riftGen(R, def) {
+    for (let k = 0; k < 24; k++) {
+      const spec = riftTry(R, def);
+      if (spec) return spec;
+    }
+    return GEN.legacy(R, def); // 几乎不会走到：交给校验换种子
+  }
+  function riftTry(R, def) {
     const D = Math.PI / 180, K = RIFT_G;
     const rnd = (a, b) => a + R() * (b - a), rr = (v) => rnd(v[0], v[1]);
     const s = R() < 0.5 ? 1 : -1;
@@ -9501,9 +9977,9 @@
       return { ph, prims, x: c.x, z: c.z, rad, r: r0 - 0.05 };
     };
     // 旁支：从环带外沿垂直往外岔出去的撞击坑（圆）
-    const side = (ph, ringR) => {
-      const rad = rr(K.side), neck = rr(K.sideNeck), c = P(ph, ringR + hw + neck + rad * 0.8);
-      return { ph, prims: [{ t: 'circle', x: c.x, z: c.z, r: rad }], x: c.x, z: c.z, rad, r: rad - 0.05, root: P(ph, ringR), door0: P(ph, ringR + hw), door1: P(ph, ringR + hw + neck - 0.15 * rad) };
+    const side = (ph, ringR, dead) => {
+      const rad = rr(dead ? K.sideDead : K.side), neck = rr(dead ? K.sideNeckDead : K.sideNeck), c = P(ph, ringR + hw + neck + rad * 0.8);
+      return { ph, ringR, prims: [{ t: 'circle', x: c.x, z: c.z, r: rad }], x: c.x, z: c.z, rad, r: rad - 0.05, root: P(ph, ringR), mid: P(ph, ringR), door0: P(ph, ringR + hw), door1: P(ph, ringR + hw + neck - 0.15 * rad) };
     };
     const at = (a, b, t) => a + (b - a) * t;
     // 每圈三等分成 3 个房间；鼓包在各自那一段的中间，旁支挂在分界附近（外圈两个、中圈一个）
@@ -9511,9 +9987,49 @@
     const B1 = bulge(ph0 + s * spO * rnd(0.14, 0.19), rO), B2 = bulge(ph0 + s * spO * rnd(0.47, 0.53), rO), B3 = bulge(ph0 + s * spO * rnd(0.8, 0.85), rO);
     // 中圈的鼓包往外鼓：t > 0.7 以后外面是外圈的开头和起点连接，鼓包不放那里
     const B4 = bulge(ph1 + s * spM * rnd(0.13, 0.18), rM), B5 = bulge(ph1 + s * spM * rnd(0.4, 0.45), rM), B6 = bulge(ph1 + s * spM * rnd(0.62, 0.66), rM);
-    const SA = side(ph0 + s * spO * rnd(0.31, 0.35), rO), SC = side(ph0 + s * spO * rnd(0.64, 0.68), rO), SB = side(ph1 + s * spM * rnd(0.27, 0.3), rM);
-    const parA = (SA.ph - phO1) * s < 0 ? 1 : 2, parC = (SC.ph - phO2) * s < 0 ? 2 : 3, parB = (SB.ph - phM1) * s < 0 ? 4 : 5; // 旁支挂在哪个环带房间上
-    const eliteK = Math.floor(R() * 3); // 三个旁支里哪个是精英坑（0 = A、1 = B、2 = C）
+    const SA = side(ph0 + s * spO * rnd(0.31, 0.35), rO), SC = side(ph0 + s * spO * rnd(0.64, 0.68), rO), SB = side(ph1 + s * spM * rnd(0.27, 0.3), rM, true);
+    const parOf = (ph, ringR) => (ringR === rO ? ((ph - phO1) * s < 0 ? 1 : (ph - phO2) * s < 0 ? 2 : 3) : (ph - phM1) * s < 0 ? 4 : (ph - phM2) * s < 0 ? 5 : 6);
+    // V 形颈口：坑心角度两侧各 δ，先到的那道（ph − s·δ）进、后到的那道出。从 9° 往下试，颈口（环带外沿到坑沿那段）离鼓包、别的坑 ≥ 颈口半宽 + 1.5，
+    // 两道颈口在环带外沿夹着的岩石 ≥ 2.5 m
+    const bulgePrims = [B1, B2, B3, B4, B5, B6].flatMap((b) => b.prims);
+    const vNeck = (S, others) => {
+      for (const dd of [9, 8, 7, 6]) {
+        const d = dd * D, rE = S.ringR + hw;
+        if (2 * d * rE - 2 * K.sideHw < 2.5) break;
+        const roots = [P(S.ph - s * d, S.ringR), P(S.ph + s * d, S.ringR)];
+        // 颈口对着坑里偏向自己那一侧的点（坑心沿切向 ±0.55·rad）：两道颈口在坑沿上分开，进坑、出坑不走同一段
+        const tx = Math.cos(S.ph), tz = -Math.sin(S.ph);
+        let ok = true;
+        const necks = roots.map((rt, i) => {
+          const sg = (i ? 1 : -1) * s, c = { x: S.x + tx * sg * S.rad * 0.55, z: S.z + tz * sg * S.rad * 0.55 };
+          const L = Math.hypot(c.x - rt.x, c.z - rt.z), ux = (c.x - rt.x) / L, uz = (c.z - rt.z) / L;
+          let t0 = 0;
+          while (t0 < L && Math.hypot(rt.x + ux * t0 - O.x, rt.z + uz * t0 - O.z) < rE) t0 += 0.1;
+          let t1 = L;
+          while (t1 > t0 && Math.hypot(rt.x + ux * t1 - S.x, rt.z + uz * t1 - S.z) < S.rad * 0.95) t1 -= 0.1;
+          for (let t = t0 + 0.5; t < t1 && ok; t += 0.75) {
+            const x = rt.x + ux * t, z = rt.z + uz * t;
+            for (const p of bulgePrims) if (primSd(p, x, z) > -(K.sideHw + 1.5)) ok = false;
+            for (const o of others) if (Math.hypot(o.x - x, o.z - z) < o.rad + K.sideHw + 1.5) ok = false;
+          }
+          return { root: rt, end: c, door0: { x: rt.x + ux * t0, z: rt.z + uz * t0 }, door1: { x: rt.x + ux * t1, z: rt.z + uz * t1 } };
+        });
+        if (!ok || t1Bad(necks)) continue;
+        S.root = necks[0].root;
+        S.end = necks[0].end;
+        S.door0 = necks[0].door0;
+        S.door1 = necks[0].door1;
+        S.loop = necks[1];
+        S.parIn = parOf(S.ph - s * d, S.ringR);
+        S.parOut = parOf(S.ph + s * d, S.ringR);
+        return true;
+      }
+      return false;
+    };
+    const t1Bad = (necks) => necks.some((n) => Math.hypot(n.door1.x - n.door0.x, n.door1.z - n.door0.z) < 2);
+    if (!vNeck(SA, [SB, SC]) || !vNeck(SC, [SA, SB])) return null;
+    const parA = SA.parIn, parC = SC.parIn, parB = (SB.ph - phM1) * s < 0 ? 4 : 5; // 旁支挂在哪个环带房间上（回路的坑：进去那道颈口所在的房间）
+    const eliteK = R() < 0.5 ? 0 : 2; // 三个旁支里哪个是精英坑（0 = A、1 = B、2 = C）；map-loops：只在有两道颈口的 A / C 里挑
     // 外圈内侧的虚空：环带 [rV0, 外圈内沿 + 0.25]（一串胶囊，两端是圆头）。起点那头让开中圈的末尾（转回来的那一段 + 封口 + 坑壁），坡道那头留足岩壁。
     // 同一串胶囊既是一个单独的「垫底」房间（不在关键路径上、没有门；sdShot 为正，子弹和视线能飞过），又是 VOID 挖空（不可走）。
     // 不放进外圈的房间：校验第 4 条按房间图元的外接框逐格量距离，图元多了很慢
@@ -9548,8 +10064,16 @@
     const ramp1a = P(ph1, rO), ramp1b = P(ph1, rM), ramp2a = P(ph2, rM), ramp2b = P(ph2, rA - 2);
     const lRamp1 = room('link', 3, true, [capsule(ramp1a, ramp1b, K.rampHw)], Object.assign(P(ph1, (rO + rM) / 2), { r: K.rampHw }), { axis: [xz(ramp1a), xz(ramp1b)] });
     const lRamp2 = room('link', 6, true, [capsule(ramp2a, ramp2b, K.neckHw)], Object.assign(P(ph2, (rM - hw + rA) / 2), { r: K.neckHw }), { axis: [xz(ramp2a), xz(P(ph2, rA))] });
-    const neck = (S, par, rs) => room('link', par.order, false, [capsule(S.root, { x: S.x, z: S.z }, K.sideHw)], { x: (S.door0.x + S.door1.x) / 2, z: (S.door0.z + S.door1.z) / 2, r: K.sideHw }, { axis: [xz(S.root), [S.x, S.z]], ends: [par.id, rs.id] });
+    const neck = (S, par, rs) => room('link', par.order, false, [capsule(S.root, S.end || { x: S.x, z: S.z }, K.sideHw)], { x: (S.door0.x + S.door1.x) / 2, z: (S.door0.z + S.door1.z) / 2, r: K.sideHw }, { axis: [xz(S.root), S.end ? xz(S.end) : [S.x, S.z]], ends: [par.id, rs.id] });
     const lSA = neck(SA, ringRooms[parA], rSA), lSB = neck(SB, ringRooms[parB], rSB), lSC = neck(SC, ringRooms[parC], rSC);
+    // 回路坑的第二道颈口（出去的那道）
+    const neck2 = (S, rs) => {
+      const N = S.loop, par = ringRooms[S.parOut];
+      return room('link', par.order, false, [capsule(N.root, N.end, K.sideHw)], { x: (N.door0.x + N.door1.x) / 2, z: (N.door0.z + N.door1.z) / 2, r: K.sideHw }, { axis: [xz(N.root), xz(N.end)], ends: [par.id, rs.id], tags: ['loop'] });
+    };
+    const lSA2 = neck2(SA, rSA), lSC2 = neck2(SC, rSC);
+    rSA.tags.push('loop');
+    rSC.tags.push('loop');
     // 虚空的垫底房间：axis 放在外圈中线上（通用外观的污斑沿 axis 撒，撒在外圈路面上，不会浮在深渊上）
     const rVoid = room('room', 2, false, cover, Object.assign(P((vA + vB) / 2, rO), { r: 1 }), { axis: arcAxis(rO, vA, vB), tags: ['void'] });
     lStart.ends = [rStart.id, r1.id];
@@ -9577,6 +10101,10 @@
       link(ringRooms[par], ls, S.door0, 'neck');
       link(ls, rs, S.door1, 'neck');
     }
+    for (const [S, ls, rs] of [[SA, lSA2, rSA], [SC, lSC2, rSC]]) {
+      link(rs, ls, S.loop.door1, 'neck');
+      link(ls, ringRooms[S.parOut], S.loop.door0, 'neck');
+    }
     for (const p of cover) cuts.push({ prim: p, mat: MAT.VOID });
 
     // 本地 sd（只用于摆放：怪群、碎块、地标），和光栅化同一个合成规则
@@ -9600,7 +10128,7 @@
       for (let k = 0; k < 10; k++) {
         const rm = rr(K.meteor), ph = at(pa, pb, R()), rc = outerEdge ? ringR + hw - rm + 0.7 : ringR - hw + rm - 0.7, c = P(ph, rc);
         if (avoid.some((b) => Math.hypot(b.x - c.x, b.z - c.z) < b.rad + rm + 2.5)) continue;
-        if (sides.some((q) => segD(c.x, c.z, q.root.x, q.root.z, q.x, q.z) < K.sideHw + rm + 2.5)) continue;
+        if (sides.some((q) => segD(c.x, c.z, q.root.x, q.root.z, q.x, q.z) < K.sideHw + rm + 2.5 || (q.loop && segD(c.x, c.z, q.loop.root.x, q.loop.root.z, q.loop.end.x, q.loop.end.z) < K.sideHw + rm + 2.5))) continue;
         if (nearDoor(c.x, c.z, rm + 4.5) || Math.hypot(c.x - join.x, c.z - join.z) < K.linkHw + rm + 4) continue;
         cuts.push({ prim: { t: 'circle', x: c.x, z: c.z, r: rm }, mat: MAT.WALL });
         feats.push({ kind: 'meteor', x: c.x, z: c.z, ang: ph, s: rm });
@@ -9617,7 +10145,7 @@
     if (R() < 0.6) placeMeteor(rM, ph1 + s * spM * 0.7, ph1 + s * spM * 0.9, false);
     // 撞击坑里的陨石（精英坑在坑底后方，宝箱坑在宝箱后面）
     for (const S of sides) {
-      const ox = (S.x - S.root.x), oz = (S.z - S.root.z), ol = Math.hypot(ox, oz), rm = rnd(1.4, 1.8), back = S.rad * 0.5;
+      const ox = (S.x - S.mid.x), oz = (S.z - S.mid.z), ol = Math.hypot(ox, oz), rm = rnd(1.4, 1.8), back = S.rad * 0.5; // map-loops：按坑心的径向（回路坑的 root 偏在一侧）
       const mx = S.x + (ox / ol) * back + (-oz / ol) * rnd(-1.5, 1.5), mz = S.z + (oz / ol) * back + (ox / ol) * rnd(-1.5, 1.5);
       cuts.push({ prim: { t: 'circle', x: mx, z: mz, r: rm }, mat: MAT.WALL });
       feats.push({ kind: 'meteor', x: mx, z: mz, ang: Math.atan2(ox, oz), s: rm, big: true });
@@ -11693,9 +12221,11 @@
                 }
               }
             }
-            // 顶点色：纯色或竖向渐变，再按位置做一点明暗抖动，免得大色块发平
-            const grad = Array.isArray(p.c);
+            // 顶点色：纯色或竖向渐变，再按位置做一点明暗抖动，免得大色块发平。
+            // c = null：用几何体自己的顶点色（线性，AI 武器的逐面颜色，见 aiwSplit）
+            const grad = Array.isArray(p.c), vc = !isGlow && p.c === null ? s.attributes.color : null;
             if (isGlow) cA.setScalar(p.k);
+            else if (vc) cA.setScalar(1);
             else if (grad) {
               cA.set(p.c[0]).convertSRGBToLinear();
               cB.set(p.c[1]).convertSRGBToLinear();
@@ -11704,6 +12234,9 @@
             for (let k = v0; k < v; k++) {
               const px = pos[k * 3], py = pos[k * 3 + 1], pz = pos[k * 3 + 2];
               let r = cA.r, g = cA.g, bl = cA.b;
+              if (vc) {
+                r = vc.getX(k - v0); g = vc.getY(k - v0); bl = vc.getZ(k - v0);
+              }
               if (grad && !isGlow) {
                 const t = (py - y0) / span;
                 r += (cB.r - r) * t; g += (cB.g - g) * t; bl += (cB.b - bl) * t;
@@ -11968,9 +12501,15 @@
     return (CM[key] = m);
   }
   // 这副骨架要不要换成 C 模型：有配置、模型解析成功、没有被关掉（window.CA_PROCEDURAL_CHARS = true 时全部用程序化外观）
-  function cSpec(key) {
-    const sp = CSPEC[key];
+  function cSpec(key, noAi) {
+    let sp = CSPEC[key];
     if (!sp || window.CA_PROCEDURAL_CHARS) return null;
+    // 主角默认用 AI 生成的模型（ai3d-hero，chars 包里的 aihero_hi / aihero_lo，低画质用低档）；包里没有、解析失败、
+    // 或者套用时出错（见 cTry），退回 Adventurer。window.CA_OLD_HERO = true 时直接用 Adventurer（对比用）
+    if (key === 'player' && !noAi && !window.CA_OLD_HERO) {
+      const mk = qualId === 'low' ? 'aihero_lo' : 'aihero_hi';
+      if (cModel(mk)) sp = Object.assign({}, CSPEC.playerAI, { model: mk, aiHero: true });
+    }
     const md = cModel(sp.model);
     if (!md) return null;
     const cs = Object.assign({ key, md }, sp);
@@ -11990,7 +12529,16 @@
       try {
         return make(cs);
       } catch (e) {
-        if (window.console) console.warn('[角色] ' + key + ' 套用模型失败，改用程序化外观', e);
+        if (window.console) console.warn('[角色] ' + key + ' 套用模型失败，改用' + (cs.aiHero ? ' Adventurer' : '程序化外观'), e);
+      }
+      // AI 主角套用失败：退回 Adventurer，再不行才用程序化外观
+      const c2 = cs.aiHero ? cSpec(key, true) : null;
+      if (c2) {
+        try {
+          return make(c2);
+        } catch (e) {
+          if (window.console) console.warn('[角色] ' + key + ' 套用模型失败，改用程序化外观', e);
+        }
       }
     }
     return make(null);
@@ -13491,6 +14039,231 @@
   // 卡通：手持武器整体缩小一点（近镜头下原尺寸的武器比人还抢眼）。按握点缩放武器关节（playerPost），
   // 挂点（刀光、光晕、枪口）都经关节矩阵换算，跟着一起缩；双手武器的左手握点、弓弦在 playerIK 里按这个比例换算
   const GEAR_K = 0.88;
+  // ---------- AI 生成的武器 / 装备（ai3d-weapons，默认开；&aiwpn=0 关掉，照旧用脚本件）----------
+  // 剑 / 长杖 / 战锤 / 机炮四种换成 AI 生成、脚本处理过的模型（art/ai/weapon.py，kit-aiwpn 包）。只换外观，不碰数值和存档。
+  // 手里：lo 档烘进主角骨架，挂在和原来同一个武器关节上（脚本件不再建），draw 和三角形都不比原来多；
+  // 掉在地上：高 / 中画质 hi 档、低画质 lo 档，同样是本体 + 发光两份几何体（按稀有度着色），启动时预热。
+  // 包要在建主角骨架之前就到：index.html 看到 &aiwpn=1 时同步引入 js/assets/kit-aiwpn.js；没到（或解码失败）就照旧用脚本件。
+  const AIW = !!window.CA_AIWPN;
+  // 有 AI 模型的种类（LOOT_MODEL 的名字）：前面是武器（手里 + 掉落），后面是装备（只有掉落）。包里缺了哪一种，那一种照旧用脚本件
+  const AIW_TYPES = ['blade', 'staff', 'hammer', 'gatling', 'wand', 'katana', 'revolver', 'flamer', 'huntbow', 'runebow', 'emberbow', 'eagle', 'daggers', 'lantern', 'banner', 'helm', 'body', 'gloves', 'boots', 'belt', 'ring', 'amulet'];
+  // 摆放。武器坐标（包里）：x = 刃宽 / 枪背方向，y = 长轴（刃尖 / 枪口），z = 厚度，原点在握把中心，尺寸按手里的。
+  // hand：手里，武器关节的绑定坐标里握把中心 = (WX + dx, WY + dy, dz)，武器坐标 (x, y, z) → 关节 (z, x, y)（和脚本件一样：握把沿 +z、刃宽 / 枪背沿 +y）；
+  // loot：掉落模型，缩放 s、握把中心放到 y（脚本件掉落模型的握把高度），gun = 枪背朝 +z（和脚本件机炮的掉落模型一样）；
+  // grip2h：双手武器左手能握的范围（同 GRIP_2H，AI 战锤的握把比脚本件低）；fore：机炮左手托的位置 [z, y 偏移]（AI 机炮没有前握把，托在机匣下面）
+  const AIW_FIT = {
+    blade: { hand: [0, 0, 0.03], loot: { s: 0.63, y: -0.24 } },
+    staff: { hand: [0, 0, 0], loot: { s: 0.5, y: -0.25 } },
+    hammer: { hand: [0, 0, 0.03], loot: { s: 0.73, y: -0.405 }, grip2h: [-0.2, 0.62, 0.15] },
+    gatling: { hand: [0, -0.01, 0.035], loot: { s: 0.75, y: -0.05, gun: true }, fore: [0.3, 0.06] },
+    wand: { hand: [0, 0, 0], loot: { s: 0.9, y: -0.29 } },
+    katana: { hand: [0, 0, -0.04], loot: { s: 0.74, y: -0.25 } },
+    revolver: { hand: [0, -0.015, 0.0], loot: { s: 0.8, y: -0.1, gun: true } },
+    flamer: { hand: [0, -0.01, 0.035], loot: { s: 0.75, y: -0.1, gun: true }, fore: [0.22, 0.06] },
+    // 弓：手里按弓梢对到弦的挂点（aiwBowMap），掉落按脚本件的弓（弓梢 ±0.54、弦在 +z）
+    huntbow: { bow: true, loot: { s: 0.76, y: 0, gun: true } },
+    runebow: { bow: true, loot: { s: 0.76, y: 0, gun: true } },
+    emberbow: { bow: true, glowG: true, loot: { s: 0.76, y: 0, gun: true } }, // 冰弓的冰裂纹是固定的冰蓝（VAR_GLOW），不随稀有度
+    eagle: { bow: true, loot: { s: 0.76, y: 0, gun: true } },
+    // 只做掉落模型的武器：手里照旧是脚本件（双匕要两手各一把、包里是交叉熔在一起的一对；提灯手里是 kit-gear 的自产件；魂幡的幡布要随关节摆）。
+    // loScripted：lo 档减到脚本件的面数时形状散掉，低画质掉落照旧用脚本件
+    daggers: { loot: { s: 0.9, y: -0.03 } },
+    lantern: { loot: { s: 0.85, y: -0.26 }, loScripted: true },
+    banner: { loot: { s: 0.55, y: -0.32 } },
+    // 装备：只有掉落，包里已经是掉落模型的尺寸和摆法（原点在中心）
+    helm: { loot: { s: 1, y: 0 } },
+    body: { loot: { s: 1, y: 0 } },
+    gloves: { loot: { s: 1, y: 0 } },
+    boots: { loot: { s: 1, y: 0 } },
+    belt: { loot: { s: 1, y: 0 }, loScripted: true }, // 体素重建后的 lo 档读不出是一圈腰带，低画质照旧用脚本件
+    ring: { loot: { s: 1, y: 0 } },
+    amulet: { loot: { s: 1.5, y: 0 } }, // 去掉链子和挂环以后只剩坠子，放大到原来护身符在地上的大小
+  };
+  let aiwSt = 0; // 0 还没看 / 1 可以用 / 2 不用（开关关着、包没引入或解码失败）
+  function aiwOn(type) {
+    if (!aiwSt) {
+      aiwSt = 2;
+      if (AIW && G.assets && G.assets.known && G.assets.known('kit-aiwpn')) {
+        // 包已经由 index.html 同步引入：need 里解码几何体那一段是同步跑完的（assets.js 的 decodePack 在第一个 await 之前），这里马上就能取到
+        G.assets.need(['kit-aiwpn']);
+        for (const t of AIW_TYPES) if (G.assets.geo('ca/aiwpn_' + t) && G.assets.geo('ca/aiwpn_' + t + '_lo')) aiwHas[t] = true;
+        if (aiwHas.gatling && !G.assets.geo('ca/aiwpn_gatling_barrel_lo')) aiwHas.gatling = false;
+        if (Object.keys(aiwHas).length) aiwSt = 1;
+      }
+    }
+    return aiwSt === 1 && (!type || !!aiwHas[type]);
+  }
+  const aiwHas = Object.create(null);
+  W.aiwState = () => (aiwSt === 1 ? 'on' : AIW ? 'fallback' : 'off');
+  // 面色 → 骨架上的表面（粗糙度 / 金属感）：金 / 黄铜、木头 / 皮革、其余当金属
+  function aiwSurf(r, g, b) {
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b), sat = mx > 1e-4 ? (mx - mn) / mx : 0;
+    if (sat < 0.35 || mx < 0.012) return 'metal';
+    const h = mx === r ? (((g - b) / (mx - mn)) % 6) * 60 : mx === g ? ((b - r) / (mx - mn) + 2) * 60 : ((r - g) / (mx - mn) + 4) * 60;
+    const hh = h < 0 ? h + 360 : h;
+    return hh >= 34 && hh <= 70 && sat > 0.5 ? 'gold' : hh < 40 || hh > 330 ? 'leather' : 'metal';
+  }
+  // 包里的一件 → { metal / gold / leather / glow: 几何体 }（不带索引，法线按面算）。map(x, y, z, out) 把武器坐标换算过去（旋转 + 平移 + 均匀缩放，不能镜像）。
+  // surf = false：本体不按表面分（掉落模型只要本体一份）
+  const _aw = [0, 0, 0];
+  function aiwSplit(key, map, surf) {
+    const src = G.assets.geo(key);
+    const P = src.attributes.position.array, C = src.attributes.color.array, GA = src.attributes.aGlow ? src.attributes.aGlow.array : null;
+    const out = Object.create(null);
+    for (let v0 = 0; v0 + 2 < P.length / 3; v0 += 3) {
+      const nm = GA && GA[v0] > 0.5 ? 'glow' : surf ? aiwSurf(C[v0 * 3], C[v0 * 3 + 1], C[v0 * 3 + 2]) : 'body';
+      const o = out[nm] || (out[nm] = { P: [], C: [] });
+      for (let v = v0; v < v0 + 3; v++) {
+        map(P[v * 3], P[v * 3 + 1], P[v * 3 + 2], _aw);
+        o.P.push(_aw[0], _aw[1], _aw[2]);
+        o.C.push(C[v * 3], C[v * 3 + 1], C[v * 3 + 2]);
+      }
+    }
+    const res = Object.create(null);
+    for (const nm in out) {
+      const g = new T.BufferGeometry();
+      g.setAttribute('position', new T.Float32BufferAttribute(out[nm].P, 3));
+      g.setAttribute('color', new T.Float32BufferAttribute(out[nm].C, 3));
+      g.computeVertexNormals();
+      res[nm] = g;
+    }
+    return res;
+  }
+  // 手里那件的换算（武器关节的绑定坐标）
+  const aiwHandMap = (t) => {
+    if (AIW_FIT[t].bow) return aiwBowMap(t);
+    const h = AIW_FIT[t].hand;
+    return (x, y, z, o) => {
+      o[0] = -0.39 + z + h[0];
+      o[1] = 0.84 + x + h[1];
+      o[2] = h[2] + y;
+    };
+  };
+  // 弓：左手的 wBo，握把在 (0.39, 0.84, BOW_GZ)，弓臂沿 ±z、弦在 +y 一侧。包里的弓（长轴 y、弦在 +x）按两个弓梢对到弦的挂点 BOW_TIP：
+  // 长轴的跨度缩放到两个挂点之间，弓梢的横向位置放到挂点的 y；挂点比握把往 -x 偏一点（tx），按离握把的距离平方慢慢偏过去
+  function aiwBowMap(t) {
+    const P = G.assets.geo('ca/aiwpn_' + t + '_lo').attributes.position.array;
+    let y0 = 1e9, y1 = -1e9;
+    for (let i = 1; i < P.length; i += 3) {
+      if (P[i] < y0) y0 = P[i];
+      if (P[i] > y1) y1 = P[i];
+    }
+    let xs = 0, n = 0;
+    for (let i = 0; i < P.length; i += 3) if (P[i + 1] > y1 - 0.03 * (y1 - y0)) { xs += P[i]; n++; }
+    const xt = n ? xs / n : 0, yc = (y0 + y1) / 2, half = (y1 - y0) / 2;
+    const LX = 0.39, tz = BOW_TIP[2] - BOW_GZ, k = tz / half, tx = BOW_TIP[0] - LX;
+    return (x, y, z, o) => {
+      const u = (y - yc) / half;
+      o[0] = LX + z * k + tx * u * u;
+      o[1] = BOW_TIP[1] + (x - xt) * k;
+      o[2] = BOW_GZ + (y - yc) * k;
+    };
+  }
+  // 把一件烘进骨架当前关节：本体按表面分组（顶点色用件自己的，c = null），发光件进稀有度着色的那一份（b.x）；glowG：进固定颜色的那一份（b.g，冰弓）
+  function aiwRig(b, key, t) {
+    const parts = aiwSplit(key, aiwHandMap(t), true);
+    for (const nm of ['metal', 'gold', 'leather']) if (parts[nm]) b.surf(SURF[nm], true).p(parts[nm], null, 0, 0, 0);
+    if (parts.glow) {
+      if (AIW_FIT[t].glowG) b.g(parts.glow, 1, 0, 0, 0);
+      else b.x(parts.glow, 1, 0, 0, 0);
+    }
+  }
+  // 枪口（武器关节绑定坐标里的 [x, y, z]）：包里这件最前端 8% 的顶点的横向平均，换算到手里
+  function aiwMuzzle(t, key) {
+    const P = G.assets.geo(key || 'ca/aiwpn_' + t + '_lo').attributes.position.array, h = AIW_FIT[t].hand;
+    let y1 = -1e9, y0 = 1e9;
+    for (let i = 1; i < P.length; i += 3) {
+      if (P[i] > y1) y1 = P[i];
+      if (P[i] < y0) y0 = P[i];
+    }
+    let xs = 0, zs = 0, n = 0;
+    for (let i = 0; i < P.length; i += 3) if (P[i + 1] > y1 - 0.08 * (y1 - y0)) { xs += P[i]; zs += P[i + 2]; n++; }
+    return [-0.39 + (n ? zs / n : 0) + h[0], 0.84 + (n ? xs / n : 0) + h[1], h[2] + y1];
+  }
+  // 机炮枪管束的转轴（武器关节的绑定坐标里的 x, y）和枪口（z）：按包里枪管那一件的包围盒
+  function aiwBarrel() {
+    const g = G.assets.geo('ca/aiwpn_gatling_barrel_lo'), bb = g.boundingBox, h = AIW_FIT.gatling.hand;
+    return { x: -0.39 + (bb.min.z + bb.max.z) / 2 + h[0], y: 0.84 + (bb.min.x + bb.max.x) / 2 + h[1], muz: h[2] + bb.max.y };
+  }
+  // 换成 AI 模型以后跟着改的挂点：机炮枪口（GEAR_TIP，只给枪口火光 / 弹道特效用，不进模拟）、左手托在哪（GRIP_2H 第 4 项是 y 偏移），战锤左手的范围
+  function aiwGear() {
+    if (aiwOn('gatling')) {
+      const gb = aiwBarrel(), F = AIW_FIT.gatling.fore;
+      GEAR_TIP[G_GAT] = [gb.x + 0.39, gb.y - 0.84, gb.muz - 0.05];
+      GRIP_2H[G_GAT] = [F[0], F[0], 0.1, F[1]];
+    }
+    if (aiwOn('hammer')) GRIP_2H[G_HAM] = AIW_FIT.hammer.grip2h;
+    if (aiwOn('revolver')) {
+      const m = aiwMuzzle('revolver');
+      GEAR_TIP[G_REV] = [m[0] + 0.39, m[1] - 0.84, m[2] - 0.05];
+    }
+    if (aiwOn('flamer')) {
+      const m = aiwMuzzle('flamer'), F = AIW_FIT.flamer.fore;
+      GEAR_TIP[G_FLM] = [m[0] + 0.39, m[1] - 0.84, m[2] - 0.05];
+      GRIP_2H[G_FLM] = [F[0], F[0], 0.1, F[1]];
+    }
+  }
+  // 主角骨架（手里的 lo 档）和两档掉落模型都建好以后，包里解码出来的源几何体就用不着了（约 0.4 MB）：放掉。之后不再读它们
+  function aiwRelease() {
+    if (!G.assets.dropGeo) return;
+    for (const t of AIW_TYPES) if (aiwHas[t]) for (const sfx of ['', '_lo']) G.assets.dropGeo('ca/aiwpn_' + t + sfx);
+    for (const sfx of ['', '_lo']) G.assets.dropGeo('ca/aiwpn_gatling_barrel' + sfx);
+  }
+  // 掉落的弓补一根弦：两个弓梢（长轴两端 3% 里的顶点的平均位置）之间一根细方棍，米白色，和脚本件的弦一样
+  function aiwBowString(g) {
+    const P = g.attributes.position.array;
+    let y0 = 1e9, y1 = -1e9;
+    for (let i = 1; i < P.length; i += 3) {
+      if (P[i] < y0) y0 = P[i];
+      if (P[i] > y1) y1 = P[i];
+    }
+    const tip = (top) => {
+      let x = 0, z = 0, n = 0;
+      for (let i = 0; i < P.length; i += 3) if (top ? P[i + 1] > y1 - 0.03 * (y1 - y0) : P[i + 1] < y0 + 0.03 * (y1 - y0)) { x += P[i]; z += P[i + 2]; n++; }
+      return new T.Vector3(x / n, top ? y1 : y0, z / n);
+    };
+    const a = tip(false), b = tip(true), d = b.clone().sub(a), len = d.length();
+    const s = new T.BoxGeometry(0.008, len, 0.008).toNonIndexed();
+    s.applyMatrix4(new T.Matrix4().compose(a.clone().add(b).multiplyScalar(0.5), new T.Quaternion().setFromUnitVectors(new T.Vector3(0, 1, 0), d.normalize()), new T.Vector3(1, 1, 1)));
+    s.deleteAttribute('uv');
+    const c = new T.Color(0xe8e0c8).convertSRGBToLinear(), n = s.attributes.position.count, C = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) { C[i * 3] = c.r; C[i * 3 + 1] = c.g; C[i * 3 + 2] = c.b; }
+    s.setAttribute('color', new T.BufferAttribute(C, 3));
+    return s;
+  }
+  // 掉落模型（LOOT_MODEL 的格式：[本体, 发光]）
+  function aiwLoot(t, lo) {
+    const F = AIW_FIT[t].loot, sfx = lo ? '_lo' : '';
+    const map = F.gun
+      ? (x, y, z, o) => { o[0] = -z * F.s; o[1] = y * F.s + F.y; o[2] = x * F.s; }
+      : (x, y, z, o) => { o[0] = x * F.s; o[1] = y * F.s + F.y; o[2] = z * F.s; };
+    const keys = ['ca/aiwpn_' + t + sfx].concat(t === 'gatling' ? ['ca/aiwpn_gatling_barrel' + sfx] : []);
+    const bodies = [], glows = [];
+    for (const k of keys) {
+      const p = aiwSplit(k, map, false);
+      if (p.body) bodies.push(p.body);
+      if (p.glow) glows.push(p.glow);
+    }
+    const cat = (list) => {
+      if (list.length === 1) return list[0];
+      const n = list.reduce((a, g) => a + g.attributes.position.count, 0), P = new Float32Array(n * 3), C = new Float32Array(n * 3), N = new Float32Array(n * 3);
+      let o = 0;
+      for (const g of list) {
+        P.set(g.attributes.position.array, o);
+        C.set(g.attributes.color.array, o);
+        N.set(g.attributes.normal.array, o);
+        o += g.attributes.position.array.length;
+      }
+      const g = new T.BufferGeometry();
+      g.setAttribute('position', new T.BufferAttribute(P, 3));
+      g.setAttribute('normal', new T.BufferAttribute(N, 3));
+      g.setAttribute('color', new T.BufferAttribute(C, 3));
+      return g;
+    };
+    if (AIW_FIT[t].bow) bodies.push(aiwBowString(cat(bodies))); // 弓：弦在导入时删掉了（手里另有弦的关节），掉落模型补一根
+    return [cat(bodies), cat(glows)];
+  }
+
   // 武器底材的 type → 序号；弓类都算长弓（旧的 'bow' 即鹰眼长弓）
   const BOW_TYPES = ['huntbow', 'eagle', 'runebow', 'emberbow'];
   const GUN_TYPES = ['gatling', 'flamer', 'revolver'];
@@ -13602,76 +14375,88 @@
   function rangedGuns(b, WX, WY, GOLD, STEEL, STEEL_D) {
     const AY = WY + GUN_AX, GUNM = 0x2b2d33, GUNM2 = 0x4a4d57, OIL = 0x1c1a1d, BRASS = 0xc8963c, COPPER = 0xb0643a;
     // --- 转膛机炮：后握把 + 方正的机匣（顶上一排散热槽）+ 左侧弹鼓 + 六根枪管（挂 wGb，开火时绕轴转）+ 机匣前下方的前握把 ---
-    b.variant('gatling').at('wF').surf(SURF.leather);
-    b.p(gRBox(0.055, 0.15, 0.07, 0.018), OIL, WX, WY - 0.01, 0.035, -0.25);
-    b.surf(SURF.metal, true).p(gRBox(0.15, 0.15, 0.36, 0.03), [GUNM, GUNM2], WX, AY + 0.01, 0.12);
-    b.p(gRBox(0.11, 0.05, 0.3, 0.015), STEEL_D, WX, AY + 0.1, 0.12);
-    b.p(gBox(0.03, 0.06, 0.08), GUNM, WX, WY + 0.05, -0.02); // 扳机护圈
-    b.surf(SURF.gold).p(gCyl(0.085, 0.085, 0.03, 10), BRASS, WX, AY, 0.31, HALF_PI);
-    // 弹鼓 + 一截弹链
-    b.surf(SURF.metal).p(gCyl(0.085, 0.085, 0.09, 10), [STEEL_D, STEEL], WX + 0.12, AY - 0.02, 0.1, 0, 0, HALF_PI);
-    b.surf(SURF.gold).p(gTorus(0.085, 0.01, 4, 12), BRASS, WX + 0.165, AY - 0.02, 0.1, 0, HALF_PI, 0);
-    b.p(gSweep('pl/gatbelt', [[0.12, -0.08, 0.1], [0.07, -0.07, 0.17], [0.03, -0.02, 0.2]], [0.022, 0.02, 0.02], 4), BRASS, WX, AY, 0);
-    // 前握把：竖直的一截，挂在机匣前端下面，左手握着、和右手同一高度
-    const FG = GUN_FORE.gatling;
-    b.surf(SURF.leather).p(gCyl(0.026, 0.03, 0.17, 6), OIL, WX, WY + 0.02, FG).p(gRBox(0.07, 0.04, 0.09, 0.012), GUNM, WX, AY - 0.06, FG);
-    b.surf(SURF.metal).p(gCyl(0.06, 0.06, 0.05, 8), GUNM2, WX, AY, 0.35, HALF_PI); // 枪管箍：留在原处（前握把挪走了）
-    // 稀有度光：机匣顶上三道散热槽 + 弹鼓中心
-    for (const zz of [0.04, 0.12, 0.2]) b.x(gBox(0.09, 0.012, 0.018), 1, WX, AY + 0.127, zz);
-    b.x(gOct(0.026), 1, WX + 0.17, AY - 0.02, 0.1);
-    // 枪管束（wGb：枢轴在轴线上 z = 0.3）
-    b.at('wGb').surf(SURF.metal);
-    for (let k = 0; k < 6; k++) {
-      const a = (k / 6) * TAU, cx = Math.cos(a) * 0.046, cy = Math.sin(a) * 0.046;
-      b.p(gCyl(0.017, 0.017, 0.64, 6), [STEEL_D, STEEL], WX + cx, AY + cy, 0.64, HALF_PI);
+    // &aiwpn=1：换成 AI 生成的机炮（本体挂 wF、枪管束挂 wGb，转轴在 playerRig 里按 AI 模型挪过）
+    if (aiwOn('gatling')) {
+      aiwRig(b.variant('gatling').at('wF'), 'ca/aiwpn_gatling_lo', 'gatling');
+      aiwRig(b.at('wGb'), 'ca/aiwpn_gatling_barrel_lo', 'gatling');
+    } else {
+      b.variant('gatling').at('wF').surf(SURF.leather);
+      b.p(gRBox(0.055, 0.15, 0.07, 0.018), OIL, WX, WY - 0.01, 0.035, -0.25);
+      b.surf(SURF.metal, true).p(gRBox(0.15, 0.15, 0.36, 0.03), [GUNM, GUNM2], WX, AY + 0.01, 0.12);
+      b.p(gRBox(0.11, 0.05, 0.3, 0.015), STEEL_D, WX, AY + 0.1, 0.12);
+      b.p(gBox(0.03, 0.06, 0.08), GUNM, WX, WY + 0.05, -0.02); // 扳机护圈
+      b.surf(SURF.gold).p(gCyl(0.085, 0.085, 0.03, 10), BRASS, WX, AY, 0.31, HALF_PI);
+      // 弹鼓 + 一截弹链
+      b.surf(SURF.metal).p(gCyl(0.085, 0.085, 0.09, 10), [STEEL_D, STEEL], WX + 0.12, AY - 0.02, 0.1, 0, 0, HALF_PI);
+      b.surf(SURF.gold).p(gTorus(0.085, 0.01, 4, 12), BRASS, WX + 0.165, AY - 0.02, 0.1, 0, HALF_PI, 0);
+      b.p(gSweep('pl/gatbelt', [[0.12, -0.08, 0.1], [0.07, -0.07, 0.17], [0.03, -0.02, 0.2]], [0.022, 0.02, 0.02], 4), BRASS, WX, AY, 0);
+      // 前握把：竖直的一截，挂在机匣前端下面，左手握着、和右手同一高度
+      const FG = GUN_FORE.gatling;
+      b.surf(SURF.leather).p(gCyl(0.026, 0.03, 0.17, 6), OIL, WX, WY + 0.02, FG).p(gRBox(0.07, 0.04, 0.09, 0.012), GUNM, WX, AY - 0.06, FG);
+      b.surf(SURF.metal).p(gCyl(0.06, 0.06, 0.05, 8), GUNM2, WX, AY, 0.35, HALF_PI); // 枪管箍：留在原处（前握把挪走了）
+      // 稀有度光：机匣顶上三道散热槽 + 弹鼓中心
+      for (const zz of [0.04, 0.12, 0.2]) b.x(gBox(0.09, 0.012, 0.018), 1, WX, AY + 0.127, zz);
+      b.x(gOct(0.026), 1, WX + 0.17, AY - 0.02, 0.1);
+      // 枪管束（wGb：枢轴在轴线上 z = 0.3）
+      b.at('wGb').surf(SURF.metal);
+      for (let k = 0; k < 6; k++) {
+        const a = (k / 6) * TAU, cx = Math.cos(a) * 0.046, cy = Math.sin(a) * 0.046;
+        b.p(gCyl(0.017, 0.017, 0.64, 6), [STEEL_D, STEEL], WX + cx, AY + cy, 0.64, HALF_PI);
+      }
+      b.p(gCyl(0.024, 0.024, 0.66, 6), OIL, WX, AY, 0.62, HALF_PI);
+      b.surf(SURF.gold).p(gTorus(0.066, 0.014, 4, 12), BRASS, WX, AY, 0.58).p(gTorus(0.066, 0.016, 4, 12), BRASS, WX, AY, 0.93);
+      b.surf(SURF.metal).p(gCyl(0.07, 0.07, 0.04, 8), GUNM, WX, AY, 0.76, HALF_PI);
+      b.x(gTorus(0.07, 0.006, 3, 12), 1, WX, AY, 0.955);
     }
-    b.p(gCyl(0.024, 0.024, 0.66, 6), OIL, WX, AY, 0.62, HALF_PI);
-    b.surf(SURF.gold).p(gTorus(0.066, 0.014, 4, 12), BRASS, WX, AY, 0.58).p(gTorus(0.066, 0.016, 4, 12), BRASS, WX, AY, 0.93);
-    b.surf(SURF.metal).p(gCyl(0.07, 0.07, 0.04, 8), GUNM, WX, AY, 0.76, HALF_PI);
-    b.x(gTorus(0.07, 0.006, 3, 12), 1, WX, AY, 0.955);
 
     // --- 焚炉喷枪：后握把，一根粗输焰管通到前端的喇叭喷嘴，管上骑着一只铜燃料罐（压力表），喷嘴下一点常燃的引火 ---
-    b.variant('flamer').at('wF').surf(SURF.leather);
-    b.p(gRBox(0.055, 0.15, 0.07, 0.018), OIL, WX, WY - 0.01, 0.035, -0.25);
-    b.surf(SURF.metal).p(gRBox(0.11, 0.11, 0.26, 0.025), [GUNM, GUNM2], WX, AY - 0.01, 0.1);
-    b.p(gCyl(0.036, 0.04, 0.6, 8), [STEEL_D, STEEL], WX, AY, 0.52, HALF_PI);
-    for (const zz of [0.36, 0.52, 0.68]) b.surf(SURF.gold).p(gTorus(0.043, 0.01, 4, 10), BRASS, WX, AY, zz);
-    // 喷嘴：外翻的喇叭口 + 里面一圈暗色的焰口
-    b.surf(SURF.metal).p(gCyl(0.075, 0.042, 0.13, 10), STEEL_D, WX, AY, 0.86, HALF_PI);
-    b.surf(SURF.gold).p(gTorus(0.074, 0.012, 4, 12), COPPER, WX, AY, 0.925);
-    b.p(gCyl(0.008, 0.008, 0.14, 4), COPPER, WX, AY - 0.06, 0.84, HALF_PI);
-    // 燃料罐：横骑在机身上方，两道铜箍、前端一只压力表
-    b.surf(SURF.gold).p(gCyl(0.07, 0.07, 0.34, 10), [0x7a3e20, COPPER], WX, AY + 0.11, 0.2, HALF_PI);
-    b.p(gDome(0.07, 10, 4), COPPER, WX, AY + 0.11, 0.37, HALF_PI).p(gDome(0.07, 10, 4), 0x7a3e20, WX, AY + 0.11, 0.03, -HALF_PI);
-    b.surf(SURF.metal).p(gTorus(0.072, 0.012, 4, 12), STEEL_D, WX, AY + 0.11, 0.1).p(gTorus(0.072, 0.012, 4, 12), STEEL_D, WX, AY + 0.11, 0.3);
-    b.p(gCyl(0.03, 0.03, 0.02, 8), STEEL, WX - 0.05, AY + 0.17, 0.31, 0, 0, 0.6);
-    b.p(gSweep('pl/flmhose', [[0, 0.06, 0.37], [0, 0.03, 0.44], [0, 0.0, 0.48]], [0.014, 0.014, 0.014], 4), OIL, WX, AY, 0);
-    // 前握把
-    b.surf(SURF.leather).p(gCyl(0.026, 0.03, 0.16, 6), OIL, WX, WY + 0.03, GUN_FORE.flamer).p(gRBox(0.06, 0.04, 0.08, 0.012), GUNM, WX, AY - 0.055, GUN_FORE.flamer);
-    // 发光：压力表盘（稀有度色）、引火（元素色，常燃）、管上一道烧红的焰纹
-    b.x(gCyl(0.022, 0.022, 0.024, 8), 1, WX - 0.054, AY + 0.175, 0.31, 0, 0, 0.6);
-    b.x(gBox(0.012, 0.012, 0.3), 1, WX, AY + 0.038, 0.55);
-    b.g(gOct(0.024), 1, WX, AY - 0.06, 0.93, 0, 0, 0, 1, 1, 1.6);
+    if (aiwOn('flamer')) aiwRig(b.variant('flamer').at('wF'), 'ca/aiwpn_flamer_lo', 'flamer'); // &aiwpn：AI 生成的焚炉喷枪
+    else {
+      b.variant('flamer').at('wF').surf(SURF.leather);
+      b.p(gRBox(0.055, 0.15, 0.07, 0.018), OIL, WX, WY - 0.01, 0.035, -0.25);
+      b.surf(SURF.metal).p(gRBox(0.11, 0.11, 0.26, 0.025), [GUNM, GUNM2], WX, AY - 0.01, 0.1);
+      b.p(gCyl(0.036, 0.04, 0.6, 8), [STEEL_D, STEEL], WX, AY, 0.52, HALF_PI);
+      for (const zz of [0.36, 0.52, 0.68]) b.surf(SURF.gold).p(gTorus(0.043, 0.01, 4, 10), BRASS, WX, AY, zz);
+      // 喷嘴：外翻的喇叭口 + 里面一圈暗色的焰口
+      b.surf(SURF.metal).p(gCyl(0.075, 0.042, 0.13, 10), STEEL_D, WX, AY, 0.86, HALF_PI);
+      b.surf(SURF.gold).p(gTorus(0.074, 0.012, 4, 12), COPPER, WX, AY, 0.925);
+      b.p(gCyl(0.008, 0.008, 0.14, 4), COPPER, WX, AY - 0.06, 0.84, HALF_PI);
+      // 燃料罐：横骑在机身上方，两道铜箍、前端一只压力表
+      b.surf(SURF.gold).p(gCyl(0.07, 0.07, 0.34, 10), [0x7a3e20, COPPER], WX, AY + 0.11, 0.2, HALF_PI);
+      b.p(gDome(0.07, 10, 4), COPPER, WX, AY + 0.11, 0.37, HALF_PI).p(gDome(0.07, 10, 4), 0x7a3e20, WX, AY + 0.11, 0.03, -HALF_PI);
+      b.surf(SURF.metal).p(gTorus(0.072, 0.012, 4, 12), STEEL_D, WX, AY + 0.11, 0.1).p(gTorus(0.072, 0.012, 4, 12), STEEL_D, WX, AY + 0.11, 0.3);
+      b.p(gCyl(0.03, 0.03, 0.02, 8), STEEL, WX - 0.05, AY + 0.17, 0.31, 0, 0, 0.6);
+      b.p(gSweep('pl/flmhose', [[0, 0.06, 0.37], [0, 0.03, 0.44], [0, 0.0, 0.48]], [0.014, 0.014, 0.014], 4), OIL, WX, AY, 0);
+      // 前握把
+      b.surf(SURF.leather).p(gCyl(0.026, 0.03, 0.16, 6), OIL, WX, WY + 0.03, GUN_FORE.flamer).p(gRBox(0.06, 0.04, 0.08, 0.012), GUNM, WX, AY - 0.055, GUN_FORE.flamer);
+      // 发光：压力表盘（稀有度色）、引火（元素色，常燃）、管上一道烧红的焰纹
+      b.x(gCyl(0.022, 0.022, 0.024, 8), 1, WX - 0.054, AY + 0.175, 0.31, 0, 0, 0.6);
+      b.x(gBox(0.012, 0.012, 0.3), 1, WX, AY + 0.038, 0.55);
+      b.g(gOct(0.024), 1, WX, AY - 0.06, 0.93, 0, 0, 0, 1, 1, 1.6);
+    }
 
     // --- 烬铸左轮：发黑的长管左轮，八棱枪管、粗转轮，枪身上烧着余烬的裂纹，握把是焦黑的骨木；转轮挂在 wGb 上（不转，只是位置） ---
     const BLK = 0x221c1c, BLK2 = 0x3a2e2a, EMBG = 0xd09048;
-    b.variant('revolver').at('wF').surf(SURF.bone);
-    b.p(gRBox(0.05, 0.16, 0.075, 0.02), [0x2a1a14, 0x5a3426], WX, WY - 0.015, 0.0, -0.32);
-    b.surf(SURF.gold).p(gBox(0.054, 0.02, 0.08), EMBG, WX, WY - 0.09, -0.02, -0.32);
-    b.surf(SURF.metal, true).p(gRBox(0.06, 0.1, 0.17, 0.016), [BLK, BLK2], WX, AY - 0.03, 0.06);
-    b.p(gBox(0.022, 0.05, 0.05), BLK, WX, AY + 0.03, -0.035, 0.5); // 击锤
-    b.p(gTorus(0.03, 0.007, 4, 8), BLK2, WX, WY + 0.06, 0.06, 0, HALF_PI, 0); // 扳机护圈
-    b.p(gCyl(0.026, 0.026, 0.36, 8), [BLK, BLK2], WX, AY, 0.33, HALF_PI, Math.PI / 8, 0);
-    b.p(gBox(0.03, 0.03, 0.3), BLK, WX, AY - 0.032, 0.3);
-    b.surf(SURF.gold).p(gTorus(0.027, 0.008, 4, 8), EMBG, WX, AY, 0.505).p(gBox(0.01, 0.022, 0.03), EMBG, WX, AY + 0.03, 0.48);
-    b.p(gTorus(0.027, 0.006, 4, 8), EMBG, WX, AY, 0.17);
-    // 余烬裂纹（稀有度色：烬铸是余烬橙）
-    b.x(gBox(0.006, 0.008, 0.26), 1, WX + 0.027, AY + 0.004, 0.33, 0, 0.06, 0).x(gBox(0.006, 0.008, 0.2), 1, WX - 0.027, AY - 0.004, 0.36, 0, -0.08, 0);
-    b.x(gBox(0.062, 0.008, 0.008), 1, WX, AY - 0.03, 0.1, 0, 0, 0.3);
-    b.at('wGb').surf(SURF.metal, true).p(gCyl(0.05, 0.05, 0.1, 8), [BLK, BLK2], WX, AY - 0.005, 0.1, HALF_PI);
-    for (let k = 0; k < 6; k++) {
-      const a = (k / 6) * TAU + 0.5;
-      b.x(gOct(0.011), 1, WX + Math.cos(a) * 0.033, AY - 0.005 + Math.sin(a) * 0.033, 0.152);
+    if (aiwOn('revolver')) aiwRig(b.variant('revolver').at('wF'), 'ca/aiwpn_revolver_lo', 'revolver'); // &aiwpn：AI 生成的左轮（整把挂 wF，转轮本来就不转）
+    else {
+      b.variant('revolver').at('wF').surf(SURF.bone);
+      b.p(gRBox(0.05, 0.16, 0.075, 0.02), [0x2a1a14, 0x5a3426], WX, WY - 0.015, 0.0, -0.32);
+      b.surf(SURF.gold).p(gBox(0.054, 0.02, 0.08), EMBG, WX, WY - 0.09, -0.02, -0.32);
+      b.surf(SURF.metal, true).p(gRBox(0.06, 0.1, 0.17, 0.016), [BLK, BLK2], WX, AY - 0.03, 0.06);
+      b.p(gBox(0.022, 0.05, 0.05), BLK, WX, AY + 0.03, -0.035, 0.5); // 击锤
+      b.p(gTorus(0.03, 0.007, 4, 8), BLK2, WX, WY + 0.06, 0.06, 0, HALF_PI, 0); // 扳机护圈
+      b.p(gCyl(0.026, 0.026, 0.36, 8), [BLK, BLK2], WX, AY, 0.33, HALF_PI, Math.PI / 8, 0);
+      b.p(gBox(0.03, 0.03, 0.3), BLK, WX, AY - 0.032, 0.3);
+      b.surf(SURF.gold).p(gTorus(0.027, 0.008, 4, 8), EMBG, WX, AY, 0.505).p(gBox(0.01, 0.022, 0.03), EMBG, WX, AY + 0.03, 0.48);
+      b.p(gTorus(0.027, 0.006, 4, 8), EMBG, WX, AY, 0.17);
+      // 余烬裂纹（稀有度色：烬铸是余烬橙）
+      b.x(gBox(0.006, 0.008, 0.26), 1, WX + 0.027, AY + 0.004, 0.33, 0, 0.06, 0).x(gBox(0.006, 0.008, 0.2), 1, WX - 0.027, AY - 0.004, 0.36, 0, -0.08, 0);
+      b.x(gBox(0.062, 0.008, 0.008), 1, WX, AY - 0.03, 0.1, 0, 0, 0.3);
+      b.at('wGb').surf(SURF.metal, true).p(gCyl(0.05, 0.05, 0.1, 8), [BLK, BLK2], WX, AY - 0.005, 0.1, HALF_PI);
+      for (let k = 0; k < 6; k++) {
+        const a = (k / 6) * TAU + 0.5;
+        b.x(gOct(0.011), 1, WX + Math.cos(a) * 0.033, AY - 0.005 + Math.sin(a) * 0.033, 0.152);
+      }
     }
   }
   // 四种弓：弓臂从握把（LX, WY, GZ）弯到弓梢（相对握把 tx, ty, ±tz），弓梢位置一样（弓弦挂在本体的 bsU / bsL 上）
@@ -13680,67 +14465,76 @@
     // --- 追猎弓：短而狠的反曲猎弓，乌木弓臂，梢头骨质外卷，握把缠青绿猎绳，弓背一枚「猎眼」---
     {
       const limb = (s) => [[0, 0, s * 0.08], [tx * 0.05, -0.05, s * 0.25], [tx * 0.3, -0.065, s * 0.45], [tx * 0.62, -0.01, s * 0.6], [tx * 0.86, ty * 0.6, s * 0.67], [tx, ty, s * tz]];
-      b.variant('huntbow').at('wBo').surf(SURF.leather);
-      b.p(gSweep('pl/hbU', limb(1), [0.032, 0.028, 0.022, 0.016, 0.012, 0.009], 6), [0x1f1a17, 0x4d3c2e], LX, WY, GZ);
-      b.p(gSweep('pl/hbL', limb(-1), [0.032, 0.028, 0.022, 0.016, 0.012, 0.009], 6), [0x1f1a17, 0x4d3c2e], LX, WY, GZ);
-      b.p(gCyl(0.037, 0.037, 0.17, 7), 0x23443e, LX, WY, GZ, HALF_PI);
-      for (const zz of [-0.05, 0, 0.05]) b.p(gTorus(0.038, 0.007, 3, 8), 0x3d8a78, LX, WY, GZ + zz);
-      b.surf(SURF.bone);
-      for (const s of [1, -1]) {
-        const t = tipE(s);
-        b.p(gSweep('pl/hbtip' + s, [[0, 0, 0], [0, -0.015, s * 0.045], [0, -0.06, s * 0.07], [0, -0.09, s * 0.06]], [0.012, 0.011, 0.009, 0.004], 4), 0xd9cfb6, t[0], t[1], t[2]);
+      if (aiwOn('huntbow')) aiwRig(b.variant('huntbow').at('wBo'), 'ca/aiwpn_huntbow_lo', 'huntbow'); // &aiwpn：AI 生成的弓
+      else {
+        b.variant('huntbow').at('wBo').surf(SURF.leather);
+        b.p(gSweep('pl/hbU', limb(1), [0.032, 0.028, 0.022, 0.016, 0.012, 0.009], 6), [0x1f1a17, 0x4d3c2e], LX, WY, GZ);
+        b.p(gSweep('pl/hbL', limb(-1), [0.032, 0.028, 0.022, 0.016, 0.012, 0.009], 6), [0x1f1a17, 0x4d3c2e], LX, WY, GZ);
+        b.p(gCyl(0.037, 0.037, 0.17, 7), 0x23443e, LX, WY, GZ, HALF_PI);
+        for (const zz of [-0.05, 0, 0.05]) b.p(gTorus(0.038, 0.007, 3, 8), 0x3d8a78, LX, WY, GZ + zz);
+        b.surf(SURF.bone);
+        for (const s of [1, -1]) {
+          const t = tipE(s);
+          b.p(gSweep('pl/hbtip' + s, [[0, 0, 0], [0, -0.015, s * 0.045], [0, -0.06, s * 0.07], [0, -0.09, s * 0.06]], [0.012, 0.011, 0.009, 0.004], 4), 0xd9cfb6, t[0], t[1], t[2]);
+        }
+        b.p(gCone(0.02, 0.07, 4), 0xd9cfb6, LX, WY - 0.06, GZ + 0.12, -0.5).p(gCone(0.02, 0.07, 4), 0xd9cfb6, LX, WY - 0.06, GZ - 0.12, Math.PI + 0.5);
+        b.x(gOct(0.022), 1, LX, WY - 0.05, GZ, 0, 0, 0, 1, 0.6, 1.4);
+        b.x(gBox(0.014, 0.014, 0.12), 1, LX + tx * 0.3, WY - 0.08, GZ + 0.42, -0.1).x(gBox(0.014, 0.014, 0.12), 1, LX + tx * 0.3, WY - 0.08, GZ - 0.42, 0.1);
       }
-      b.p(gCone(0.02, 0.07, 4), 0xd9cfb6, LX, WY - 0.06, GZ + 0.12, -0.5).p(gCone(0.02, 0.07, 4), 0xd9cfb6, LX, WY - 0.06, GZ - 0.12, Math.PI + 0.5);
-      b.x(gOct(0.022), 1, LX, WY - 0.05, GZ, 0, 0, 0, 1, 0.6, 1.4);
-      b.x(gBox(0.014, 0.014, 0.12), 1, LX + tx * 0.3, WY - 0.08, GZ + 0.42, -0.1).x(gBox(0.014, 0.014, 0.12), 1, LX + tx * 0.3, WY - 0.08, GZ - 0.42, 0.1);
     }
     // --- 符文弓：灰蓝的石纹弓臂，银色包角，握把外一圈符环，弓臂上各三道发光的符刻 ---
     {
       const limb = (s) => [[0, 0, s * 0.08], [tx * 0.1, -0.05, s * 0.28], [tx * 0.4, -0.035, s * 0.48], [tx * 0.74, ty * 0.38, s * 0.62], [tx, ty, s * tz]];
-      b.variant('runebow').at('wBo').surf(SURF.stone);
-      b.p(gSweep('pl/rbU', limb(1), [0.036, 0.032, 0.026, 0.018, 0.011], 6), [0x262c3a, 0x56637e], LX, WY, GZ);
-      b.p(gSweep('pl/rbL', limb(-1), [0.036, 0.032, 0.026, 0.018, 0.011], 6), [0x262c3a, 0x56637e], LX, WY, GZ);
-      b.surf(SURF.leather).p(gCyl(0.038, 0.038, 0.17, 7), 0x2a2232, LX, WY, GZ, HALF_PI);
-      b.surf(SURF.metal).p(gTorus(0.085, 0.012, 4, 14), 0xb8c4d6, LX, WY - 0.02, GZ, 0, HALF_PI, 0);
-      for (const s of [1, -1]) {
-        const t = tipE(s);
-        b.p(gCone(0.022, 0.08, 5), 0xb8c4d6, t[0], t[1] - 0.01, t[2] - s * 0.02, s > 0 ? HALF_PI : -HALF_PI);
-        b.p(gCyl(0.041, 0.041, 0.024, 7), 0xb8c4d6, LX, WY, GZ + s * 0.095, HALF_PI);
+      if (aiwOn('runebow')) aiwRig(b.variant('runebow').at('wBo'), 'ca/aiwpn_runebow_lo', 'runebow'); // &aiwpn：AI 生成的弓
+      else {
+        b.variant('runebow').at('wBo').surf(SURF.stone);
+        b.p(gSweep('pl/rbU', limb(1), [0.036, 0.032, 0.026, 0.018, 0.011], 6), [0x262c3a, 0x56637e], LX, WY, GZ);
+        b.p(gSweep('pl/rbL', limb(-1), [0.036, 0.032, 0.026, 0.018, 0.011], 6), [0x262c3a, 0x56637e], LX, WY, GZ);
+        b.surf(SURF.leather).p(gCyl(0.038, 0.038, 0.17, 7), 0x2a2232, LX, WY, GZ, HALF_PI);
+        b.surf(SURF.metal).p(gTorus(0.085, 0.012, 4, 14), 0xb8c4d6, LX, WY - 0.02, GZ, 0, HALF_PI, 0);
+        for (const s of [1, -1]) {
+          const t = tipE(s);
+          b.p(gCone(0.022, 0.08, 5), 0xb8c4d6, t[0], t[1] - 0.01, t[2] - s * 0.02, s > 0 ? HALF_PI : -HALF_PI);
+          b.p(gCyl(0.041, 0.041, 0.024, 7), 0xb8c4d6, LX, WY, GZ + s * 0.095, HALF_PI);
+        }
+        b.x(gTorus(0.085, 0.006, 3, 14), 1, LX - 0.01, WY - 0.02, GZ, 0, HALF_PI, 0);
+        for (const s of [1, -1]) for (const f of [0.22, 0.34, 0.46]) b.x(gBox(0.03, 0.01, 0.022), 1, LX + tx * f, WY - 0.06 + f * 0.04, GZ + s * f * 1.15, 0, 0, s * 0.3);
       }
-      b.x(gTorus(0.085, 0.006, 3, 14), 1, LX - 0.01, WY - 0.02, GZ, 0, HALF_PI, 0);
-      for (const s of [1, -1]) for (const f of [0.22, 0.34, 0.46]) b.x(gBox(0.03, 0.01, 0.022), 1, LX + tx * f, WY - 0.06 + f * 0.04, GZ + s * f * 1.15, 0, 0, s * 0.3);
     }
     // --- 冰弓（凛羽）：霜钢弓臂棱角分明（握把处发暗、往梢头渐渐结霜发白），弓背伸出几枚淡蓝的冰晶尖刺，
     // 弓臂上一路冷蓝的冰裂纹，握把前托着一颗发冷光的冰核。裂纹和冰核走这把弓自己的冰蓝自发光（见 VAR_GLOW），
     // 不吃玩家的元素色；握把两头的细环是稀有度色（凛羽的烬铸档在 applyGear 里换成冰蓝，见 GEAR_GLOW_VAR）---
     {
       const limb = (s) => [[0, 0, s * 0.08], [tx * 0.1, -0.06, s * 0.24], [tx * 0.3, -0.075, s * 0.42], [tx * 0.56, -0.035, s * 0.56], [tx * 0.82, ty * 0.5, s * 0.66], [tx, ty, s * tz]];
-      const ICE_LO = 0x3d86c4, ICE_HI = 0xc8ecff, FROST = 0xa9c6de;
-      // 弓臂用低金属度的面：高金属度在俯视镜头下只反射出暗色的天空下半截，霜色会被吃成一片黑
-      b.variant('emberbow').at('wBo').surf(SURF.bone, true);
-      b.p(gSweep('pl/ebU', limb(1), [0.04, 0.036, 0.03, 0.022, 0.015, 0.01], 5), [0x2a4460, 0x9cc4e6], LX, WY, GZ);
-      b.p(gSweep('pl/ebL', limb(-1), [0.04, 0.036, 0.03, 0.022, 0.015, 0.01], 5), [0x2a4460, 0x9cc4e6], LX, WY, GZ);
-      b.surf(SURF.leather).p(gCyl(0.04, 0.04, 0.18, 7), 0x1b2838, LX, WY, GZ, HALF_PI);
-      // 冰晶尖刺：拉长的八面体，硬朗的面
-      b.surf(SURF.ice, true);
-      for (const s of [1, -1]) {
-        b.p(gOct(1), [ICE_LO, ICE_HI], LX + tx * 0.3, WY - 0.12, GZ + s * 0.4, -HALF_PI - s * 0.5, 0, 0, 0.026, 0.085, 0.026);
-        b.p(gOct(1), [ICE_LO, ICE_HI], LX + tx * 0.6, WY - 0.06, GZ + s * 0.58, -HALF_PI - s * 0.8, 0, 0, 0.02, 0.06, 0.02);
-        const t = tipE(s);
-        b.p(gOct(1), [ICE_LO, ICE_HI], t[0], t[1] + 0.02, t[2] + s * 0.03, s > 0 ? HALF_PI - 0.4 : -HALF_PI + 0.4, 0, 0, 0.018, 0.065, 0.018);
-        // 冰核两侧各一根托住它的霜钢爪
-        b.surf(SURF.metal, true).p(gCone(0.012, 0.07, 4), FROST, LX, WY - 0.075, GZ + s * 0.035, -HALF_PI + s * 0.5).surf(SURF.ice, true);
+      if (aiwOn('emberbow')) aiwRig(b.variant('emberbow').at('wBo'), 'ca/aiwpn_emberbow_lo', 'emberbow'); // &aiwpn：AI 生成的弓
+      else {
+        const ICE_LO = 0x3d86c4, ICE_HI = 0xc8ecff, FROST = 0xa9c6de;
+        // 弓臂用低金属度的面：高金属度在俯视镜头下只反射出暗色的天空下半截，霜色会被吃成一片黑
+        b.variant('emberbow').at('wBo').surf(SURF.bone, true);
+        b.p(gSweep('pl/ebU', limb(1), [0.04, 0.036, 0.03, 0.022, 0.015, 0.01], 5), [0x2a4460, 0x9cc4e6], LX, WY, GZ);
+        b.p(gSweep('pl/ebL', limb(-1), [0.04, 0.036, 0.03, 0.022, 0.015, 0.01], 5), [0x2a4460, 0x9cc4e6], LX, WY, GZ);
+        b.surf(SURF.leather).p(gCyl(0.04, 0.04, 0.18, 7), 0x1b2838, LX, WY, GZ, HALF_PI);
+        // 冰晶尖刺：拉长的八面体，硬朗的面
+        b.surf(SURF.ice, true);
+        for (const s of [1, -1]) {
+          b.p(gOct(1), [ICE_LO, ICE_HI], LX + tx * 0.3, WY - 0.12, GZ + s * 0.4, -HALF_PI - s * 0.5, 0, 0, 0.026, 0.085, 0.026);
+          b.p(gOct(1), [ICE_LO, ICE_HI], LX + tx * 0.6, WY - 0.06, GZ + s * 0.58, -HALF_PI - s * 0.8, 0, 0, 0.02, 0.06, 0.02);
+          const t = tipE(s);
+          b.p(gOct(1), [ICE_LO, ICE_HI], t[0], t[1] + 0.02, t[2] + s * 0.03, s > 0 ? HALF_PI - 0.4 : -HALF_PI + 0.4, 0, 0, 0.018, 0.065, 0.018);
+          // 冰核两侧各一根托住它的霜钢爪
+          b.surf(SURF.metal, true).p(gCone(0.012, 0.07, 4), FROST, LX, WY - 0.075, GZ + s * 0.035, -HALF_PI + s * 0.5).surf(SURF.ice, true);
+        }
+        b.surf(SURF.metal).p(gCyl(0.044, 0.044, 0.026, 7), FROST, LX, WY, GZ + 0.1, HALF_PI).p(gCyl(0.044, 0.044, 0.026, 7), FROST, LX, WY, GZ - 0.1, HALF_PI);
+        // 冰裂纹：顺着弓臂一路的几段（冰蓝自发光）
+        for (const s of [1, -1]) {
+          b.g(gBox(0.012, 0.012, 0.16), 1, LX + tx * 0.15, WY - 0.075, GZ + s * 0.3, s * -0.1);
+          b.g(gBox(0.012, 0.012, 0.13), 1, LX + tx * 0.45, WY - 0.065, GZ + s * 0.49, s * 0.15);
+          b.g(gBox(0.01, 0.01, 0.1), 1, LX + tx * 0.75, WY + ty * 0.25, GZ + s * 0.62, s * 0.6);
+        }
+        b.g(gOct(0.038), 1.2, LX, WY - 0.075, GZ, 0, 0.6, 0, 1, 1.5, 1);
+        // 稀有度色：握把两头的细环
+        b.x(gTorus(0.046, 0.006, 3, 10), 1, LX, WY, GZ + 0.115).x(gTorus(0.046, 0.006, 3, 10), 1, LX, WY, GZ - 0.115);
       }
-      b.surf(SURF.metal).p(gCyl(0.044, 0.044, 0.026, 7), FROST, LX, WY, GZ + 0.1, HALF_PI).p(gCyl(0.044, 0.044, 0.026, 7), FROST, LX, WY, GZ - 0.1, HALF_PI);
-      // 冰裂纹：顺着弓臂一路的几段（冰蓝自发光）
-      for (const s of [1, -1]) {
-        b.g(gBox(0.012, 0.012, 0.16), 1, LX + tx * 0.15, WY - 0.075, GZ + s * 0.3, s * -0.1);
-        b.g(gBox(0.012, 0.012, 0.13), 1, LX + tx * 0.45, WY - 0.065, GZ + s * 0.49, s * 0.15);
-        b.g(gBox(0.01, 0.01, 0.1), 1, LX + tx * 0.75, WY + ty * 0.25, GZ + s * 0.62, s * 0.6);
-      }
-      b.g(gOct(0.038), 1.2, LX, WY - 0.075, GZ, 0, 0.6, 0, 1, 1.5, 1);
-      // 稀有度色：握把两头的细环
-      b.x(gTorus(0.046, 0.006, 3, 10), 1, LX, WY, GZ + 0.115).x(gTorus(0.046, 0.006, 3, 10), 1, LX, WY, GZ - 0.115);
     }
     b.variant(null);
   }
@@ -13806,6 +14600,18 @@
   };
   // 上臂静止时比程序化骨架多张开一点（这个模型肩窄、胸厚，垂直放下会插进躯干）
   const PL_ARM = [0.3, -1, 0.0], PL_FORE = [0.06, -1, 0.1];
+  // AI 生成的主角（ai3d-hero）：UE / UAL 骨骼名 → 程序化关节（和现网主角 PL_MAP 同一套对应：腹部并到 root，胸口两节分给 spine / chest）；
+  // 贴地压暗的强度；围巾结扣按 neck_01 算（同 plKnot）
+  const AI_MAP = {
+    pelvis: 'root', spine_01: 'root', spine_02: 'spine', spine_03: 'chest', clavicle_l: 'chest', clavicle_r: 'chest', neck_01: 'head', Head: 'head', head_leaf: 'head',
+    upperarm_l: 'uaL', lowerarm_l: 'faL', hand_l: 'hL', upperarm_r: 'uaR', lowerarm_r: 'faR', hand_r: 'hR',
+    thigh_l: 'thL', calf_l: 'shL', foot_l: 'ftL', ball_l: 'ftL', thigh_r: 'thR', calf_r: 'shR', foot_r: 'ftR', ball_r: 'ftR',
+  };
+  const AI_SHADE = 0.12;
+  const aiKnot = (side) => (pos, piv0) => {
+    const n = pos('neck_01'), o = piv0('sf' + side + '1');
+    return [n[0] + PL_KNOT[0] + (o[0] - SF.kx), n[1] + PL_KNOT[1], n[2] + PL_KNOT[2]];
+  };
   // 卡通配色（设计稿 2.3）：模型贴图调色板的几种颜色各换成游魂自己的一套——灰烬灰的冷皮肤、两种暗紫褐的破衣，
   // 贴图里的血污换成余烬裂纹（自发光，见 vglow），眼白压成深眼窝、瞳孔发光。比地面亮一档、比主角暗、饱和度低。
   // 每项：[贴图里的原色（最近的那个算数）, 下端色, 上端色]；渐变按静止姿态的高度（0.2 → 1.95）
@@ -14108,6 +14914,52 @@
       sock: { head: ['head', 0, 0.2, 0.02], chest: ['chest', 0, 0.06, 0.12] },
       ankle: (rig) => rig.joints[rig.JI.ftL].py,
     },
+    // AI 生成的主角（ai3d-hero）：cSpec 默认用它顶替 player（Adventurer 留作退路）。同一副程序化骨架、同样的动作 / 挂点 / 模拟，只换外观：
+    // 模型是 art/ai/hero_rig.py 出的 GLB（assets/ai/hero/，UE / UAL 骨骼名、A 字站姿、COLOR_0 一角一色），按 Adventurer 的对应关系并到程序化关节上，
+    // aim 摆成游戏的静止姿态（拳头在 GLB 里已经卷好）；模型里已经有的围巾圈、护腕、腰带扣、后摆不再加程序化的，
+    // 围巾的两条尾巴、左肩护肩、左手的余烬照旧
+    playerAI: {
+      model: 'aihero_hi', height: 1.9, yaw: 0, center: 'pelvis',
+      map: (n) => {
+        const m = STD_FINGER.exec(n);
+        return m ? 'h' + m[3].toUpperCase() : AI_MAP[n] || null;
+      },
+      pivot: {
+        root: 'pelvis', spine: 'spine_02', chest: 'spine_03', head: 'neck_01',
+        uaL: 'upperarm_l', faL: 'lowerarm_l', hL: 'hand_l', uaR: 'upperarm_r', faR: 'lowerarm_r', hR: 'hand_r',
+        thL: 'thigh_l', shL: 'calf_l', thR: 'thigh_r', shR: 'calf_r',
+        ftL: (pos) => { const k = pos('calf_l'); return [k[0], 0.1, k[2]]; },
+        ftR: (pos) => { const k = pos('calf_r'); return [k[0], 0.1, k[2]]; },
+        sfL1: aiKnot('L'), sfR1: aiKnot('R'),
+      },
+      drive: { ftL: 'foot_l', ftR: 'foot_r' },
+      aim: (n) => {
+        const sd = n.slice(-2), s = sd === '_l' ? 1 : -1, j = sd === '_l' ? 'L' : 'R';
+        if (n === 'upperarm' + sd) return ['lowerarm' + sd, [s * PL_ARM[0], PL_ARM[1], PL_ARM[2]]];
+        if (n === 'lowerarm' + sd) return ['hand' + sd, [s * PL_FORE[0], PL_FORE[1], PL_FORE[2]]];
+        if (n === 'hand' + sd) return ['middle_01' + sd, [s * PL_FORE[0], PL_FORE[1], PL_FORE[2]]];
+        if (n === 'thigh' + sd) return ['calf' + sd, ['th' + j, 'sh' + j]];
+        return null;
+      },
+      // 拳头已经烘进模型的绑定姿态（hero_rig.py 的 bake_fist：按量出来的掌心朝向卷，和现网主角同样的角度），这里不再卷
+      keep: (j) => !PL_BODY[j],
+      extra: (b, pos) => {
+        const ua = pos('upperarm_l');
+        b.at('uaL').surf(SURF.leather).p(gDome(0.1, 9, 3, 1.3), [PL_LEA[0], PL_LEA[1]], ua[0] + 0.025, ua[1] + 0.02, ua[2], 0, 0, -0.5, 1.05, 0.72, 1.12);
+        b.surf(SURF.gold).p(gTorus(0.1, 0.011, 4, 12), PL_GOLD, ua[0] + 0.025, ua[1] + 0.02, ua[2], HALF_PI, -0.5, 0, 1.05, 1.12, 1);
+        const wl = pos('hand_l'), md = pos('middle_01_l');
+        const ex = wl[0] + (md[0] - wl[0]) * 0.8, ey = wl[1] + (md[1] - wl[1]) * 0.8 - 0.05, ez = wl[2] + (md[2] - wl[2]) * 0.8 + 0.07;
+        b.at('hL').g(gOct(0.042), 1.35, ex, ey, ez, 0, 0.6, 0, 1, 1.4, 1).g(gSph(0.05, 7, 5), 0.55, ex, ey + 0.01, ez, 0, 0, 0, 1, 1.25, 1);
+      },
+      color: (mat, prim, base, vc, y, out) => {
+        const c = vc || base;
+        out[0] = c[0]; out[1] = c[1]; out[2] = c[2];
+        return cShade(out, out, y, 1.9, AI_SHADE);
+      },
+      surf: () => SURF.cloth,
+      sock: { head: ['head', 0, 0.2, 0.02], chest: ['chest', 0, 0.06, 0.12] },
+      ankle: (rig) => rig.joints[rig.JI.ftL].py,
+    },
     // 游魂：Zombie（Animated Zombie）。贴图调色板的颜色去饱和、压向灰烬的灰褐；驼背、双臂前伸（对齐程序化游魂的静止姿态）；眼窝两点元素火
     husk: {
       // 人形标准骨架：骨骼名换成标准名（STD_ALIAS.mixamo），蒙皮按 STD_JOINT（游魂没有胸口和手：并到 spine / 小臂），枢轴按 STD_PIVOT
@@ -14246,7 +15098,9 @@
       b.j('bnF1', 'wBn', -0.39 - BAN_X, 0.84, BAN_Z).j('bnF2', 'bnF1', -0.39 - BAN_X, 0.84, BAN_Z - BAN_L1);
       b.j('bnC1', 'wBn', -0.39 - 0.48, 0.84, BAN_Z).j('bnC2', 'wBn', -0.39 + 0.15, 0.84, BAN_Z - 0.1);
       // 火器挂右手（三把枪各是一组变体零件）；wGb 是机炮的转膛（枪管束绕自身轴转）/ 左轮的转轮
-      b.j('wF', 'hR', -0.39, 0.84, 0.05).j('wGb', 'wF', -0.39, 0.84 + GUN_AX, 0.3);
+      // AI 机炮（&aiwpn=1）：枪管束的转轴挪到 AI 模型枪管的中心（只是绕哪根轴转；左轮的转轮也挂这里，但不转）
+      const aiGb = aiwOn('gatling') ? aiwBarrel() : null;
+      b.j('wF', 'hR', -0.39, 0.84, 0.05).j('wGb', 'wF', aiGb ? aiGb.x : -0.39, aiGb ? aiGb.y : 0.84 + GUN_AX, 0.3);
       b.j('thL', 'root', 0.14, 0.97, 0).j('shL', 'thL', 0.15, 0.53, 0.01).j('ftL', 'shL', 0.15, 0.12, 0);
       b.j('thR', 'root', -0.14, 0.97, 0).j('shR', 'thR', -0.15, 0.53, 0.01).j('ftR', 'shR', -0.15, 0.12, 0);
       b.j('tab', 'root', 0, 1.0, 0.19);
@@ -14327,26 +15181,35 @@
 
       // --- 武器：三把都挂在右手上，握把沿 +z；没装备的那两把缩到 0 ---
       const WX = -0.39, WY = 0.84;
-      // 刃：宽刃，血槽发光
-      b.at('wB').surf(SURF.leather).p(gCyl(0.026, 0.028, 0.22, 6), 0x3a2a20, WX, WY, 0.03, HALF_PI);
-      b.surf(SURF.gold).p(gSph(0.04, 6, 4), GOLD, WX, WY, -0.1);
-      b.p(gPlate('pl/guard', [[-0.17, 0.03], [-0.11, -0.04], [0.11, -0.04], [0.17, 0.03], [0.08, 0.035], [-0.08, 0.035]], 0.055, 0.014), GOLD, WX, WY, 0.15, HALF_PI, HALF_PI, 0);
-      b.surf(SURF.metal).p(gPlate('pl/blade', [[-0.06, 0], [0.06, 0], [0.075, 0.7], [0, 1.0], [-0.075, 0.7]], 0.012, 0.016), [0xa3acbb, BLADE], WX, WY, 0.17, HALF_PI, HALF_PI, 0);
-      b.x(gBox(0.046, 0.02, 0.66), 1, WX, WY, 0.53);
-      // 长杖：握在下三分之一处，杖头是一弯月牙托着晶体
-      b.at('wS').surf(SURF.leather).p(gCyl(0.026, 0.032, 1.6, 6), [0x4a3222, WOOD], WX, WY, 0.35, HALF_PI);
-      b.surf(SURF.gold).p(gCyl(0.04, 0.04, 0.06, 6), GOLD, WX, WY, 1.0, HALF_PI).p(gCyl(0.036, 0.02, 0.08, 6), GOLD, WX, WY, -0.46, HALF_PI);
-      b.p(gSweep('pl/cres', [[0, -0.02, 1.12], [0, 0.13, 1.2], [0, 0.18, 1.36], [0, 0.08, 1.52]], [0.034, 0.032, 0.025, 0.004], 5), GOLD, WX, WY, 0);
-      b.p(gSweep('pl/cres2', [[0, 0.02, 1.12], [0, -0.13, 1.2], [0, -0.18, 1.36], [0, -0.08, 1.52]], [0.034, 0.032, 0.025, 0.004], 5), GOLD, WX, WY, 0);
-      b.x(gOct(0.09), 1, WX, WY, 1.36, 0, 0, 0, 0.8, 0.8, 1.5);
-      // 短杖：骨柄、三根爪托着晶体
-      b.at('wW').surf(SURF.bone).p(gCyl(0.02, 0.03, 0.52, 6), [0xa89c84, BONE], WX, WY, 0.16, HALF_PI);
-      b.p(gSph(0.036, 6, 4), BONE, WX, WY, -0.1);
-      for (let k = 0; k < 3; k++) {
-        const a = (k / 3) * TAU, cx = Math.cos(a), sy = Math.sin(a);
-        b.p(gSweep('pl/prong' + k, [[cx * 0.02, sy * 0.02, 0.4], [cx * 0.075, sy * 0.075, 0.5], [cx * 0.04, sy * 0.04, 0.64]], [0.018, 0.015, 0.003], 4), BONE, WX, WY, 0);
+      // 刃：宽刃，血槽发光（&aiwpn=1：换成 AI 生成的剑，见 AIW_FIT）
+      if (aiwOn('blade')) aiwRig(b.at('wB'), 'ca/aiwpn_blade_lo', 'blade');
+      else {
+        b.at('wB').surf(SURF.leather).p(gCyl(0.026, 0.028, 0.22, 6), 0x3a2a20, WX, WY, 0.03, HALF_PI);
+        b.surf(SURF.gold).p(gSph(0.04, 6, 4), GOLD, WX, WY, -0.1);
+        b.p(gPlate('pl/guard', [[-0.17, 0.03], [-0.11, -0.04], [0.11, -0.04], [0.17, 0.03], [0.08, 0.035], [-0.08, 0.035]], 0.055, 0.014), GOLD, WX, WY, 0.15, HALF_PI, HALF_PI, 0);
+        b.surf(SURF.metal).p(gPlate('pl/blade', [[-0.06, 0], [0.06, 0], [0.075, 0.7], [0, 1.0], [-0.075, 0.7]], 0.012, 0.016), [0xa3acbb, BLADE], WX, WY, 0.17, HALF_PI, HALF_PI, 0);
+        b.x(gBox(0.046, 0.02, 0.66), 1, WX, WY, 0.53);
       }
-      b.x(gOct(0.062), 1, WX, WY, 0.55, 0, 0, 0, 0.8, 0.8, 1.5);
+      // 长杖：握在下三分之一处，杖头是一弯月牙托着晶体（&aiwpn=1：换成 AI 生成的长杖）
+      if (aiwOn('staff')) aiwRig(b.at('wS'), 'ca/aiwpn_staff_lo', 'staff');
+      else {
+        b.at('wS').surf(SURF.leather).p(gCyl(0.026, 0.032, 1.6, 6), [0x4a3222, WOOD], WX, WY, 0.35, HALF_PI);
+        b.surf(SURF.gold).p(gCyl(0.04, 0.04, 0.06, 6), GOLD, WX, WY, 1.0, HALF_PI).p(gCyl(0.036, 0.02, 0.08, 6), GOLD, WX, WY, -0.46, HALF_PI);
+        b.p(gSweep('pl/cres', [[0, -0.02, 1.12], [0, 0.13, 1.2], [0, 0.18, 1.36], [0, 0.08, 1.52]], [0.034, 0.032, 0.025, 0.004], 5), GOLD, WX, WY, 0);
+        b.p(gSweep('pl/cres2', [[0, 0.02, 1.12], [0, -0.13, 1.2], [0, -0.18, 1.36], [0, -0.08, 1.52]], [0.034, 0.032, 0.025, 0.004], 5), GOLD, WX, WY, 0);
+        b.x(gOct(0.09), 1, WX, WY, 1.36, 0, 0, 0, 0.8, 0.8, 1.5);
+      }
+      // 短杖：骨柄、三根爪托着晶体
+      if (aiwOn('wand')) aiwRig(b.at('wW'), 'ca/aiwpn_wand_lo', 'wand'); // &aiwpn：AI 生成的短杖
+      else {
+        b.at('wW').surf(SURF.bone).p(gCyl(0.02, 0.03, 0.52, 6), [0xa89c84, BONE], WX, WY, 0.16, HALF_PI);
+        b.p(gSph(0.036, 6, 4), BONE, WX, WY, -0.1);
+        for (let k = 0; k < 3; k++) {
+          const a = (k / 3) * TAU, cx = Math.cos(a), sy = Math.sin(a);
+          b.p(gSweep('pl/prong' + k, [[cx * 0.02, sy * 0.02, 0.4], [cx * 0.075, sy * 0.075, 0.5], [cx * 0.04, sy * 0.04, 0.64]], [0.018, 0.015, 0.003], 4), BONE, WX, WY, 0);
+        }
+        b.x(gOct(0.062), 1, WX, WY, 0.55, 0, 0, 0, 0.8, 0.8, 1.5);
+      }
 
       // 双匕：短而带钩的叶形刃（单侧开刃、刃尖斜削），黑钢底色，刃脊一道光；护手只有向前弯的一侧
       const dagger = (J, X) => {
@@ -14358,54 +15221,63 @@
       };
       dagger('wD', WX);
       dagger('wDL', -WX);
-      // 战锤：长柄两段缠皮、金箍；锤头是一块厚重的方砧，两端包钢、顶上一根短刺，两侧开一道发光的符槽
-      b.at('wH').surf(SURF.leather).p(gCyl(0.03, 0.034, 1.3, 7), [0x3b2a1e, WOOD], WX, WY, 0.31, HALF_PI);
-      b.p(gCyl(0.039, 0.039, 0.2, 7), 0x2c211a, WX, WY, 0.03, HALF_PI).p(gCyl(0.039, 0.039, 0.16, 7), 0x2c211a, WX, WY, -0.22, HALF_PI);
-      b.surf(SURF.gold).p(gCyl(0.043, 0.043, 0.03, 7), GOLD, WX, WY, 0.16, HALF_PI).p(gCyl(0.043, 0.043, 0.03, 7), GOLD, WX, WY, 0.72, HALF_PI);
-      b.p(gOct(0.05), GOLD, WX, WY, -0.37, HALF_PI, 0, 0, 1, 1.3, 1);
-      b.surf(SURF.metal, true).p(gRBox(0.21, 0.4, 0.26, 0.035), [STEEL_D, STEEL], WX, WY, 0.98);
-      b.p(gCyl(0.125, 0.135, 0.07, 8), STEEL, WX, WY + 0.225, 0.98).p(gCyl(0.135, 0.125, 0.07, 8), STEEL, WX, WY - 0.225, 0.98);
-      b.p(gCone(0.055, 0.2, 5), STEEL, WX, WY, 1.2, HALF_PI);
-      b.surf(SURF.gold).p(gBox(0.225, 0.03, 0.27), GOLD, WX, WY + 0.15, 0.98).p(gBox(0.225, 0.03, 0.27), GOLD, WX, WY - 0.15, 0.98);
-      b.x(gBox(0.218, 0.2, 0.034), 1, WX, WY, 0.98);
+      // 战锤：长柄两段缠皮、金箍；锤头是一块厚重的方砧，两端包钢、顶上一根短刺，两侧开一道发光的符槽（&aiwpn=1：换成 AI 生成的战锤）
+      if (aiwOn('hammer')) aiwRig(b.at('wH'), 'ca/aiwpn_hammer_lo', 'hammer');
+      else {
+        b.at('wH').surf(SURF.leather).p(gCyl(0.03, 0.034, 1.3, 7), [0x3b2a1e, WOOD], WX, WY, 0.31, HALF_PI);
+        b.p(gCyl(0.039, 0.039, 0.2, 7), 0x2c211a, WX, WY, 0.03, HALF_PI).p(gCyl(0.039, 0.039, 0.16, 7), 0x2c211a, WX, WY, -0.22, HALF_PI);
+        b.surf(SURF.gold).p(gCyl(0.043, 0.043, 0.03, 7), GOLD, WX, WY, 0.16, HALF_PI).p(gCyl(0.043, 0.043, 0.03, 7), GOLD, WX, WY, 0.72, HALF_PI);
+        b.p(gOct(0.05), GOLD, WX, WY, -0.37, HALF_PI, 0, 0, 1, 1.3, 1);
+        b.surf(SURF.metal, true).p(gRBox(0.21, 0.4, 0.26, 0.035), [STEEL_D, STEEL], WX, WY, 0.98);
+        b.p(gCyl(0.125, 0.135, 0.07, 8), STEEL, WX, WY + 0.225, 0.98).p(gCyl(0.135, 0.125, 0.07, 8), STEEL, WX, WY - 0.225, 0.98);
+        b.p(gCone(0.055, 0.2, 5), STEEL, WX, WY, 1.2, HALF_PI);
+        b.surf(SURF.gold).p(gBox(0.225, 0.03, 0.27), GOLD, WX, WY + 0.15, 0.98).p(gBox(0.225, 0.03, 0.27), GOLD, WX, WY - 0.15, 0.98);
+        b.x(gBox(0.218, 0.2, 0.034), 1, WX, WY, 0.98);
+      }
       // 太刀：长柄缠着菱形绳结，方圆的铁镡镶金边，刃身细长、向刃背一侧微弯，刃口一道刃纹光
-      b.at('wK').surf(SURF.cloth).p(gCyl(0.026, 0.028, 0.3, 6), 0x1e1a22, WX, WY, -0.04, HALF_PI);
-      for (const zz of [-0.15, -0.08, -0.01, 0.06]) b.p(gOct(0.028), 0x7a2e24, WX, WY + 0.024, zz, 0, 0, 0, 1, 0.5, 1).p(gOct(0.028), 0x7a2e24, WX, WY - 0.024, zz, 0, 0, 0, 1, 0.5, 1);
-      b.surf(SURF.gold).p(gCyl(0.031, 0.031, 0.03, 6), GOLD, WX, WY, -0.2, HALF_PI);
-      b.surf(SURF.metal).p(gCyl(0.08, 0.08, 0.02, 8), 0x2a2a30, WX, WY, 0.12, HALF_PI, Math.PI / 8, 0);
-      b.surf(SURF.gold).p(gTorus(0.079, 0.008, 4, 8), GOLD, WX, WY, 0.12, 0, 0, Math.PI / 8).p(gBox(0.022, 0.06, 0.03), GOLD, WX, WY, 0.145);
-      {
-        const L = 0.98, K = 0.055, n = 7, pts = [], edge = [];
-        const cx = (t) => K * t * t, wd = (t) => 0.033 - 0.01 * t;
-        pts.push([-0.033, 0], [0.033, 0]);
-        for (let i = 1; i <= n; i++) {
-          const t = (i / n) * 0.9;
-          pts.push([cx(t) + wd(t), L * t]);
+      if (aiwOn('katana')) aiwRig(b.at('wK'), 'ca/aiwpn_katana_lo', 'katana'); // &aiwpn：AI 生成的太刀
+      else {
+        b.at('wK').surf(SURF.cloth).p(gCyl(0.026, 0.028, 0.3, 6), 0x1e1a22, WX, WY, -0.04, HALF_PI);
+        for (const zz of [-0.15, -0.08, -0.01, 0.06]) b.p(gOct(0.028), 0x7a2e24, WX, WY + 0.024, zz, 0, 0, 0, 1, 0.5, 1).p(gOct(0.028), 0x7a2e24, WX, WY - 0.024, zz, 0, 0, 0, 1, 0.5, 1);
+        b.surf(SURF.gold).p(gCyl(0.031, 0.031, 0.03, 6), GOLD, WX, WY, -0.2, HALF_PI);
+        b.surf(SURF.metal).p(gCyl(0.08, 0.08, 0.02, 8), 0x2a2a30, WX, WY, 0.12, HALF_PI, Math.PI / 8, 0);
+        b.surf(SURF.gold).p(gTorus(0.079, 0.008, 4, 8), GOLD, WX, WY, 0.12, 0, 0, Math.PI / 8).p(gBox(0.022, 0.06, 0.03), GOLD, WX, WY, 0.145);
+        {
+          const L = 0.98, K = 0.055, n = 7, pts = [], edge = [];
+          const cx = (t) => K * t * t, wd = (t) => 0.033 - 0.01 * t;
+          pts.push([-0.033, 0], [0.033, 0]);
+          for (let i = 1; i <= n; i++) {
+            const t = (i / n) * 0.9;
+            pts.push([cx(t) + wd(t), L * t]);
+          }
+          pts.push([cx(1) + 0.012, L]);
+          for (let i = n; i >= 1; i--) {
+            const t = (i / n) * 0.9;
+            pts.push([cx(t) - wd(t) + (t > 0.85 ? 0.01 : 0), L * t]);
+            edge.unshift([0, cx(t) - wd(t) * 0.55, 0.15 + L * t]);
+          }
+          edge.unshift([0, -0.018, 0.16]);
+          b.surf(SURF.metal).p(gPlate('pl/katana', pts, 0.012, 0.007), [0x8d96a6, 0xe6ebf2], WX, WY, 0.15, HALF_PI, HALF_PI, 0);
+          b.x(gSweep('pl/hamon', edge, [0.008, 0.009, 0.009, 0.006], 4), 1, WX, WY, 0);
         }
-        pts.push([cx(1) + 0.012, L]);
-        for (let i = n; i >= 1; i--) {
-          const t = (i / n) * 0.9;
-          pts.push([cx(t) - wd(t) + (t > 0.85 ? 0.01 : 0), L * t]);
-          edge.unshift([0, cx(t) - wd(t) * 0.55, 0.15 + L * t]);
-        }
-        edge.unshift([0, -0.018, 0.16]);
-        b.surf(SURF.metal).p(gPlate('pl/katana', pts, 0.012, 0.007), [0x8d96a6, 0xe6ebf2], WX, WY, 0.15, HALF_PI, HALF_PI, 0);
-        b.x(gSweep('pl/hamon', edge, [0.008, 0.009, 0.009, 0.006], 4), 1, WX, WY, 0);
       }
       // 长弓：两片弓臂沿 ±z 弯成一张弓，弓背朝手心外（-y），弓弦在 +y 一侧；握把缠皮、两端金箍，弓臂上各一道光纹
       {
         const LX = -WX, GZ = BOW_GZ, tx = BOW_TIP[0] - LX, ty = BOW_TIP[1] - WY, tz = BOW_TIP[2] - GZ;
         const limb = (s) => [[0, 0, s * 0.08], [tx * 0.1, -0.035, s * 0.3], [tx * 0.35, -0.012, s * 0.5], [tx * 0.7, ty * 0.45, s * 0.63], [tx, ty, s * tz]];
         // 鹰眼长弓（旧存档里的长弓都是它）：弓身是变体零件，弓弦留在本体上，四张弓共用
-        b.variant('eagle').at('wBo').surf(SURF.leather);
-        b.p(gSweep('pl/bowU', limb(1), [0.03, 0.026, 0.02, 0.014, 0.009], 6), [0x3a2618, 0x7a5236], LX, WY, GZ);
-        b.p(gSweep('pl/bowL', limb(-1), [0.03, 0.026, 0.02, 0.014, 0.009], 6), [0x3a2618, 0x7a5236], LX, WY, GZ);
-        b.p(gCyl(0.036, 0.036, 0.17, 7), 0x2c211a, LX, WY, GZ, HALF_PI);
-        b.surf(SURF.gold).p(gCyl(0.04, 0.04, 0.025, 7), GOLD, LX, WY, GZ + 0.095, HALF_PI).p(gCyl(0.04, 0.04, 0.025, 7), GOLD, LX, WY, GZ - 0.095, HALF_PI);
-        b.p(gOct(0.022), GOLD, BOW_TIP[0], BOW_TIP[1], BOW_TIP[2]).p(gOct(0.022), GOLD, BOW_TIP[0], BOW_TIP[1], 2 * GZ - BOW_TIP[2]);
-        b.x(gBox(0.018, 0.018, 0.17), 1, LX + tx * 0.2, WY - 0.05, GZ + 0.33, -0.08).x(gBox(0.018, 0.018, 0.17), 1, LX + tx * 0.2, WY - 0.05, GZ - 0.33, 0.08);
-        // 鹰眼：握把上方一根白羽饰（长弓的远射意味）
-        b.surf(SURF.cloth).p(gPlate('pl/eaglefe', [[0, 0], [0.03, 0.03], [0.028, 0.15], [0, 0.17], [-0.012, 0.08]], 0.006, 0.003), 0xe8e0cc, LX + 0.02, WY - 0.06, GZ + 0.13, HALF_PI + 0.3, 0, 0.2);
+        if (aiwOn('eagle')) aiwRig(b.variant('eagle').at('wBo'), 'ca/aiwpn_eagle_lo', 'eagle'); // &aiwpn：AI 生成的鹰眼长弓（弦照旧挂在 bsU / bsL 上）
+        else {
+          b.variant('eagle').at('wBo').surf(SURF.leather);
+          b.p(gSweep('pl/bowU', limb(1), [0.03, 0.026, 0.02, 0.014, 0.009], 6), [0x3a2618, 0x7a5236], LX, WY, GZ);
+          b.p(gSweep('pl/bowL', limb(-1), [0.03, 0.026, 0.02, 0.014, 0.009], 6), [0x3a2618, 0x7a5236], LX, WY, GZ);
+          b.p(gCyl(0.036, 0.036, 0.17, 7), 0x2c211a, LX, WY, GZ, HALF_PI);
+          b.surf(SURF.gold).p(gCyl(0.04, 0.04, 0.025, 7), GOLD, LX, WY, GZ + 0.095, HALF_PI).p(gCyl(0.04, 0.04, 0.025, 7), GOLD, LX, WY, GZ - 0.095, HALF_PI);
+          b.p(gOct(0.022), GOLD, BOW_TIP[0], BOW_TIP[1], BOW_TIP[2]).p(gOct(0.022), GOLD, BOW_TIP[0], BOW_TIP[1], 2 * GZ - BOW_TIP[2]);
+          b.x(gBox(0.018, 0.018, 0.17), 1, LX + tx * 0.2, WY - 0.05, GZ + 0.33, -0.08).x(gBox(0.018, 0.018, 0.17), 1, LX + tx * 0.2, WY - 0.05, GZ - 0.33, 0.08);
+          // 鹰眼：握把上方一根白羽饰（长弓的远射意味）
+          b.surf(SURF.cloth).p(gPlate('pl/eaglefe', [[0, 0], [0.03, 0.03], [0.028, 0.15], [0, 0.17], [-0.012, 0.08]], 0.006, 0.003), 0xe8e0cc, LX + 0.02, WY - 0.06, GZ + 0.13, HALF_PI + 0.3, 0, 0.2);
+        }
         rangedBows(b, LX, WY, GZ, tx, ty, tz, GOLD);
         b.variant(null);
         const half = BOW_TIP[2] - GZ;
@@ -14496,6 +15368,7 @@
       rig.post = playerPost;
       rig.late = playerLate;
       rig.gearJ = GEAR_JOINT.map((n) => rig.J[n]);
+      if (aiwOn()) aiwGear(); // AI 武器（&aiwpn=1）：机炮的枪口挂点、左手托的位置，战锤左手能握的范围
       // 手臂两节的绑定数据（双手武器的左手 / 动作里给定手的位置时用解析 IK 求肩肘角度）
       const pv = (n) => rig.joints[rig.JI[n]];
       const armData = (ua, fa, h, w) => {
@@ -16478,7 +17351,7 @@
       hand: { k: [0, 0.06, 0.2, 1], p: [hp, kick(hp, 0.035, 0.01), hp, hp], d: [hd, [hd[0], hd[1] + 0.05, hd[2]], hd, hd], e: [he, he, he, he] },
       keys: brace(Object.assign({ 'chest.rx': [0, -0.08, 0.06, -0.12, 0.3, -0.08, 1, -0.08] }, hipTwist), 0.9),
     });
-    // 熔光射线：双脚扎稳、上身后仰顶住，枪口对准（长按 ~3 秒；射线由 rangedFx 画）
+    // r_gatling（原熔光射线，laser-beam 之后熔光炮台不再用它）：双脚扎稳、上身后仰顶住，枪口对准（长按 ~3 秒；射线由 rangedFx 画）
     defClip(rig, 'r_gatling', {
       dur: 3.2, k0: 0.06, lower: null, fade: 0.12, out: 0.35,
       hand: { k: [0, 0.08, 1], p: [hp, kick(hp, -0.02, 0.03), kick(hp, -0.02, 0.03)], d: [hd, hd, hd], e: [he, he, he] },
@@ -21533,6 +22406,21 @@
     lootWarm = true;
     for (const k of Object.keys(LOOT_MODEL)) if (!lootModels[k]) loots.push(W.makeLoot('item', 0xffffff, false, 0, 2, { slot: 'weapon', type: k }));
     lootWarm = false;
+    // AI 武器（&aiwpn=1）：另一档画质的掉落模型也先建好（换画质档以后不再新建几何体）
+    // 两档画质的掉落模型都在这一帧里画一次（都上传到显卡）：开场的画质档和之后换的不一样时（测试、玩家改设置），
+    // 第一次掉到某一种才上传的话，几何体数会按掉落顺序一圈圈往上涨（内存一步）
+    lootWarm = true; // 提灯：预热时不去要 kit-gear 包
+    if (aiwOn())
+      for (const t of AIW_TYPES)
+        if (aiwHas[t])
+          for (const lo of [false, true]) {
+            aiwLoForce = lo;
+            const gear = G.SLOTS.indexOf(t) >= 0;
+            loots.push(W.makeLoot('item', 0xffffff, false, 0, 2, gear ? t : { slot: 'weapon', type: t }));
+            aiwLoForce = null;
+          }
+    lootWarm = false;
+    if (aiwOn()) aiwRelease();
     allyFxVisible(true); // 召唤法阵 / 聚焦标记平时是隐藏的：预热这一帧让它们露个面，着色器一并编译
     warmWeaponFx(true);
     if (ghosts.length) ghosts[0].mesh.visible = true; // 残影（亮度 0）：第一次冲刺 / 一闪时不再现编译着色器
@@ -21758,6 +22646,7 @@
   }
   const lootModels = Object.create(null);
   let lootWarm = false; // warmEntities 正在预热掉落模型
+  let aiwLoForce = null; // AI 掉落模型：预热时强制用哪一档（true = 低画质的 lo），null = 按当前画质
   const WEAPON_MODEL = GEAR_KEYS; // 掉落模型的名字和武器种类同名
   let lootBody = null;
   let lootBodyU = null; // 烬铸武器掉在地上时的本体：带一点余烬自发光
@@ -21783,7 +22672,10 @@
     }
     if (!LOOT_MODEL[key]) key = 'item';
     if (key === 'lantern' && W.lanternNeed && !lootWarm) W.lanternNeed(); // 地上掉了提灯：先把手持的自产模型要过来（class-d2b1）；启动预热时不要
-    const mdl = lootModels[key] || (lootModels[key] = LOOT_MODEL[key]());
+    // AI 武器（&aiwpn=1）：高 / 中画质 hi 档、低画质 lo 档，各缓存一份（启动时两档都在 warmEntities 里建好）
+    const aiLo = aiwLoForce !== null ? aiwLoForce : W.quality() === 'low', aiT = key === 'bow' ? 'eagle' : key; // 旧的 'bow' 就是鹰眼长弓
+    const aiK = aiwOn(aiT) && !(aiLo && AIW_FIT[aiT].loScripted) ? aiT + (aiLo ? '~lo' : '~hi') : null;
+    const mdl = aiK ? lootModels[aiK] || (lootModels[aiK] = aiwLoot(aiT, aiLo)) : lootModels[key] || (lootModels[key] = LOOT_MODEL[key]());
     if (!lootBody) lootBody = new T.MeshStandardMaterial({ vertexColors: true, roughness: 0.42, metalness: 0.45, envMap: rigEnvMap(), envMapIntensity: 0.9, flatShading: true });
     const grp = new T.Group();
     grp.position.set(x, 0, z);
@@ -23258,7 +24150,7 @@
       vsEmit(x + Math.sin(a) * d, 0, z + Math.cos(a) * d, Math.sin(a) * 1e-3, 0, Math.cos(a) * 1e-3, vr(0.5, 0.65), vr(0.42, 0.52), vr(0.5, 0.68), vr(0.15, 0.4));
     }
     if (qualId !== 'low') {
-      vsBrush(VSH.chip, 3, 0, 0xcfeeff, 0xcfeeff, 0.3, 0.45);
+      vsBrush(VSH.ichip, 3, 0, 0xcfeeff, 0xcfeeff, 0.3, 0.45); // ai3d-skills：冰碴用 AI 的冰块
       for (let i = 0; i < 2; i++) {
         const a = vr(0, TAU), v = vr(0.8, 1.8);
         vsEmit(x + Math.sin(a) * r * 0.6, 0.35, z + Math.cos(a) * r * 0.6, Math.sin(a) * v, vr(1, 2.2), Math.cos(a) * v, vr(0.5, 0.7), vr(0.05, 0.08), undefined, vr(0, TAU), vr(6, 10), 16);
@@ -24680,6 +25572,53 @@
       return facetShade(g, 0.3, 1, 0.4, 0.45);
     });
   }
+  // ai3d-skills：AI 生成的技能件（js/assets/skill-pieces.js）→ 几何体：每面三个点（不共用顶点，法线就是面法线）；
+  // s（刻式件的逐面明暗）→ 属性 aS，c（投射物零件的逐面线性 RGB）→ 顶点色。件缺了返回 null（调用方用原来的几何体）。
+  // 建几何体会生成 uuid（three 里调 Math.random）：调用方放在 G.vfx.quiet 里建，不动全局的随机序列
+  function pieceGeo(key) {
+    const r = window.CA_SKILL_PIECES && window.CA_SKILL_PIECES[key];
+    if (!r || !r.p) return null;
+    const g = new T.BufferGeometry();
+    g.setAttribute('position', new T.Float32BufferAttribute(r.p, 3));
+    const n = r.p.length / 9;
+    if (r.s) {
+      const a = new Float32Array(n * 3);
+      for (let i = 0; i < n; i++) a[i * 3] = a[i * 3 + 1] = a[i * 3 + 2] = r.s[i];
+      g.setAttribute('aS', new T.BufferAttribute(a, 1));
+    }
+    if (r.c) {
+      const c = new Float32Array(n * 9);
+      for (let i = 0; i < n; i++) for (let j = 0; j < 3; j++) for (let k = 0; k < 3; k++) c[i * 9 + j * 3 + k] = r.c[i * 3 + k];
+      g.setAttribute('color', new T.BufferAttribute(c, 3));
+    }
+    g.computeVertexNormals();
+    return g;
+  }
+  // 投射物零件 shard（法杖的冰片、凛冬箭的冰棱）：高 / 中画质用 AI 的冰棱（60 面），低画质用它的减面版（36 面，和原来的拼件一样多）。
+  // 原来的拼件照旧先建（建的先后、消耗的随机数不变），AI 的在 quiet 里建；画质切换时 W.pieceLod 换几何体
+  let pfShardHi = null, pfShardLo = null;
+  function pfShardGeo() {
+    const old = shardGeo();
+    G.vfx.quiet(() => {
+      const hi = pieceGeo('shardPf'), lo = pieceGeo('shardPfLo');
+      if (hi && lo) {
+        pfShardHi = facetShade(hi, 0.3, 1, 0.4, 0.45);
+        pfShardLo = facetShade(lo, 0.3, 1, 0.4, 0.45);
+      }
+    });
+    return pfShardHi ? (qualId === 'low' ? pfShardLo : pfShardHi) : old;
+  }
+  // 画质切换：AI 技能件换档（刻式件 shard：低画质用原来的 8 面八面体；投射物零件 shard：低画质 36 面）
+  W.pieceLod = function () {
+    const lo = qualId === 'low';
+    if (pfShardHi && PF.shard) PF.shard.mesh.geometry = lo ? pfShardLo : pfShardHi;
+    const K = kvKinds.shard;
+    if (K && kvShardHi) {
+      const g = lo ? kvShardLo : kvShardHi, ig = K.mesh.geometry;
+      ig.index = g.index;
+      for (const k of ['position', 'normal', 'aS']) ig.setAttribute(k, g.getAttribute(k));
+    }
+  };
   // fx：这个零件用特效着色器（js/vfx.js），几何体复制一份挂上逐实例的 aFx（消融进度、种子、亮度、种类）
   function pfPart(name, geom, mat, cap, order, fx) {
     if (fx) geom = G.vfx.quiet(() => geom.clone());
@@ -24745,7 +25684,7 @@
     pfPart('dart', gOct(1), pfSolid, 64, 0);
     pfPart('ring', geo('projRing', () => new T.TorusGeometry(1.75, 0.2, 5, 14)), pfSolid, 200, 0);
     pfPart('blade', bladeGeo(), vc, 64, 0);
-    pfPart('shard', shardGeo(), vc, 64, 0);
+    pfPart('shard', pfShardGeo(), vc, 64, 0); // ai3d-skills：AI 的冰棱（低画质减面版）
     pfPart('blur', gQuad(), add(swooshTex(), T.DoubleSide), 64, 4);
     // vf-vfx：光晕零件换成特效贴图库的多用途材质（js/vfx.js 的 V.multi），命中的火团 / 烟 / 火花 / 冲击环 / 斩击弧 / 电弧序列帧也画在这里（W.fxFlip），不多占 draw call
     glowTex(); // 光晕贴图照旧在这里先建好（陨石的光晕精灵还用它；建的先后不变，全局随机序列和原来一致）
@@ -24788,7 +25727,7 @@
     rangedPfInit(add, vc, flameQuad, quad);
     vdInit();
     // vf-vfx2：形状批（新加的对象在 quiet 里建，不消耗全局随机数）
-    G.vfx.quiet(() => pfPart('vShape', G.vfx.shapeGeo(), G.vfx.shapeMat(), 400, 0, true));
+    G.vfx.quiet(() => pfPart('vShape', G.vfx.shapeGeo(renderer), G.vfx.shapeMat(), 400, 0, true));
 
     // vf-vfx3：掉落物的地面细环 / 光柱 / 柱顶菱形（见 W.makeLoot、lootPfDraw）。实色、不受光、不进雾；光柱的明暗用顶点色画死（下暗、中段最亮、尖上收暗）
     G.vfx.quiet(() => {
@@ -26129,6 +27068,15 @@
       _b3q.setFromEuler(_b3e);
       _pm.compose(_b3p.set(x, y, z), _b3q, _b3s.set(sx, sy, sz));
     };
+    if (G.vfx.shapeSlots) {
+      // ai3d-skills：AI 的雷桩（晶柱 + 底座两个形状，各一个实例；原来是三根晶柱 + 三块暗石 = 六个）。形状高 0.9、xz 按米，y 乘柱高：
+      // 柱尖在 0.9 × 柱高，顶上发光的小球（刻式件 orb，y = 2.35）和柱尖之间留一道缝
+      pose(h.x, 0, h.z, 0, 0.4, 0, 1, hgt, 1);
+      vsNow(VSH.pylon, _b3c.r, _b3c.g, _b3c.b, 0.12, 0.45, 0);
+      pose(h.x, 0, h.z, 0, 0.4, 0, 1, Math.min(hgt, 2.3), 1); // 底座不跟着柱子长高（收起时一起缩回地里）
+      vsNow(VSH.pylonBase, 0.07, 0.065, 0.07, 0, 0.4, 0);
+      return;
+    }
     pose(h.x, 0, h.z, 0, 0.4, 0, 0.62, hgt, 0.62);
     vsNow(VSH.crystal, _b3c.r, _b3c.g, _b3c.b, 0.12, 0.45, 0);
     if (!lo) {
@@ -26807,7 +27755,7 @@
       vsEmit(px, 0, pz, ox * 1e-3, 0, oz * 1e-3, vr(0.5, 0.62), vr(0.34, 0.44) * k, vr(0.8, 1.05) * k, vr(0.25, 0.55));
     }
     if (!lo) {
-      vsBrush(VSH.chip, 3, 0, 0xcfeeff, 0x8cc4e0, 0.2, 0.45);
+      vsBrush(VSH.ichip, 3, 0, 0xcfeeff, 0x8cc4e0, 0.2, 0.45);
       for (let j = 0; j < 2; j++) {
         const a = vr(0, TAU), v = vr(0.8, 1.6);
         vsEmit(cx + Math.sin(a) * half * 0.5, 0.5, cz + Math.cos(a) * half * 0.5, Math.sin(a) * v, vr(1.2, 2.2), Math.cos(a) * v, vr(0.55, 0.75), vr(0.05, 0.08), undefined, vr(0, TAU), vr(6, 10), 16);
@@ -26836,21 +27784,23 @@
   // 一根冰凌从 6 米高斜着落下（细长的冰晶顺着速度拉长），fall 秒到地
   W.icicleFall = function (px, pz, hr, fall) {
     const H = 6, dx = 0.9, vx = -dx / fall, vy = -H / fall;
-    vsBrush(VSH.crystal, 0, 2, 0xb8e4f8, 0x86c4e2, 0.25, 0.5, 0.7);
+    vsBrush(VSH.icicle, 0, 2, 0xb8e4f8, 0x86c4e2, 0.25, 0.5, 0.7); // ai3d-skills：AI 的冰凌（尖朝本地 +y，顺着速度往下）
     vsEmit(px + dx, H, pz, vx, vy, 0, fall, 0.24, 1.05); // 看图后加粗加长：原来在游戏镜头里几乎看不见
   };
   // 冰凌落地：一颗很小的亮芯（≤ 0.6 米、40 毫秒）+ 4 块冰碴弹开（低画质 2 块）+ 脚边一根矮冰晶；地上冻痕（低画质不铺）
   W.icicleLand = function (px, pz, hr) {
     const lo = qualId === 'low';
     tChunk(1, px, 0.35, pz, 0, 0, 0, 0.04, 0.5, 0xe8f8ff, 0xb8e4f8, 0);
-    vsBrush(VSH.chip, 3, 0, 0xcfeeff, 0x7fb4cc, 0.25, 0.45);
+    vsBrush(VSH.ichip, 3, 0, 0xcfeeff, 0x7fb4cc, 0.25, 0.45);
     for (let i = 0, n = lo ? 2 : 4; i < n; i++) {
       const a = vr(0, TAU), v = vr(1.4, 2.8);
       vsEmit(px, 0.3, pz, Math.sin(a) * v, vr(1.5, 3), Math.cos(a) * v, vr(0.45, 0.65), vr(0.05, 0.09), undefined, vr(0, TAU), vr(6, 12), 18);
     }
-    vsBrush(VSH.crystal, 6, 0, 0x8ccbea, 0x5aa6d2, 0.2, 0.55, 0.6);
+    // ai3d-skills：脚边那根矮冰晶换成 AI 的冰簇（半径是冰晶的 1.4 倍，宽度乘 0.7 保持原来的占地）；退回合并几何体时 cluster = 冰晶，宽度照旧
+    const cl = G.vfx.shapeSlots ? 0.7 : 1;
+    vsBrush(VSH.cluster, 6, 0, 0x8ccbea, 0x5aa6d2, 0.2, 0.55, 0.6);
     const a = vr(0, TAU);
-    vsEmit(px, 0, pz, Math.sin(a) * 1e-3, 0, Math.cos(a) * 1e-3, vr(0.45, 0.6), 0.3, vr(0.45, 0.6), vr(0.2, 0.45));
+    vsEmit(px, 0, pz, Math.sin(a) * 1e-3, 0, Math.cos(a) * 1e-3, vr(0.45, 0.6), 0.3 * cl, vr(0.45, 0.6), vr(0.2, 0.45));
     if (!lo) W.vDecal(VVD.frost, px, pz, hr * 0.8, 1.6, 0x7fb4cc, { a: 0.5 });
   };
   // 迸电：胸口一颗很小的亮芯（≤ 1 米、50 毫秒）；8 根折线从身上往外放射到 R（低画质 5 根），隔帧闪灭；外沿只是折线的尽头，没有圆盘；
@@ -26910,7 +27860,7 @@
   // 冰枪扎中：一颗很小的亮芯（≤ 0.45 米、40 毫秒）+ 两块冰碴（低画质 1 块）
   W.lanceTip = function (x, z, hex) {
     tChunk(1, x, 0.7, z, 0, 0, 0, 0.04, 0.45, 0xe8f8ff, 0xb8e4f8, 0);
-    vsBrush(VSH.chip, 3, 0, 0xcfeeff, 0x7fb4cc, 0.2, 0.45);
+    vsBrush(VSH.ichip, 3, 0, 0xcfeeff, 0x7fb4cc, 0.2, 0.45);
     for (let i = 0, n = qualId === 'low' ? 1 : 2; i < n; i++) {
       const a = vr(0, TAU), v = vr(1.2, 2.2);
       vsEmit(x, 0.6, z, Math.sin(a) * v, vr(1.5, 2.6), Math.cos(a) * v, vr(0.45, 0.6), vr(0.05, 0.08), undefined, vr(0, TAU), vr(6, 12), 18);
@@ -26920,7 +27870,7 @@
   W.icicleSlamFall = function (x, z, R, fall) {
     const H = 7, dx = 1.2;
     // 看图后：整根浅色冰晶压在怪身上太亮 → 中间调的冰蓝、亮芯比例压低（落下只有 0.3 秒）
-    vsBrush(VSH.crystal, 0, 2, 0x8cc4e0, 0x6aa2c4, 0.12, 0.6, 0.7);
+    vsBrush(VSH.icicle, 0, 2, 0x8cc4e0, 0x6aa2c4, 0.12, 0.6, 0.7);
     vsEmit(x + dx, H, z, -dx / fall, -H / fall, 0, fall, 0.5, 2.3);
   };
   // 重凌落地：中间一颗小亮芯（≤ 0.6 米、50 毫秒）；冰晶只沿外沿一圈朝外斜立（只画边，低画质 6 根），冰碴往外弹；
@@ -26934,7 +27884,7 @@
       const a = a0 + (i / n) * TAU, sa = Math.sin(a), ca = Math.cos(a), r = R * vr(0.75, 0.92);
       vsEmit(x + sa * r, 0, z + ca * r, sa * 1e-3, 0, ca * 1e-3, vr(0.6, 0.8), vr(0.3, 0.4), vr(0.7, 0.95), vr(0.35, 0.6));
     }
-    vsBrush(VSH.chip, 3, 0, 0xcfeeff, 0x7fb4cc, 0.2, 0.45);
+    vsBrush(VSH.ichip, 3, 0, 0xcfeeff, 0x7fb4cc, 0.2, 0.45);
     for (let i = 0, m = lo ? 4 : 8; i < m; i++) {
       const a = vr(0, TAU), v = vr(2, 4);
       vsEmit(x, 0.4, z, Math.sin(a) * v, vr(2, 3.5), Math.cos(a) * v, vr(0.5, 0.7), vr(0.06, 0.1), undefined, vr(0, TAU), vr(6, 12), 18);
@@ -27564,6 +28514,26 @@
     }
     L.w = L.charge >= 0 ? 0 : w;
   };
+  // 熔光炮台（laser-beam）：game.js 放下炮台时调 W.turret 拿一个画面句柄，每帧往里写 ang（炮管朝向）/ len（射线长，0 = 没目标）/ on / t（剩余秒数）；
+  // 收起时调 W.turretOff。炮台身子画进形状批（不占 draw call），射线和 drawLaser 同一套余烬色分层，只是细得多（两道同时在场）
+  const TUR = [];
+  W.turret = function (x, z, ang, dur, o) {
+    o = o || {};
+    const h = { x, z, ang, dur, t: dur, len: 0, on: false, y: o.y || 0.95, side: o.side || 1, born: wtime, k: 0, rel: -9, scorch: 0 };
+    TUR.push(h);
+    // 落地：脚下一圈细环（玩家色调的余烬橙）+ 几块碎石弹起
+    if (PF.vShape) b2Ring(x, z, 0.9, 0xff9a40, 0x5a2410, 0.25);
+    else W.ring(x, z, 0.9, 0xffb36a, 0.25);
+    W.burst(x, 0.3, z, 0x8a6a50, qualId === 'low' ? 4 : 7, 1.6, 0.35);
+    return h;
+  };
+  W.turretOff = function (h) {
+    const i = TUR.indexOf(h);
+    if (i < 0) return;
+    TUR.splice(i, 1);
+    W.burst(h.x, h.y, h.z, 0xff9a40, qualId === 'low' ? 3 : 6, 1.4, 0.3);
+  };
+  W.turretCount = () => TUR.length;
   W.rangedBuff = function (type, dur) {
     const B = RF.buff;
     B.type = type && BUFF_HEX[type] ? type : type === 'bow' ? 'eagle' : null;
@@ -28099,6 +29069,7 @@
     // --- 熔光射线 ---
     const L = RF.laser, lzOn = L.ext >= wtime || (ent && nm === 'w_gatling');
     if (lzOn && ent) drawLaser(ent, L, dt);
+    for (let i = 0; i < TUR.length; i++) drawTurret(TUR[i], dt); // 熔光炮台
     // --- 乱射：game.js 没打出弹丸时，自动朝附近的敌人 / 四面八方甩出弹道 ---
     if (ent && (nm === 'r_revolver' || nm === 'w_revolver') && dt > 0) {
       RF.spray += dt * 13;
@@ -28231,6 +29202,120 @@
       F.acc -= 1;
       const ang = rand(0, TAU), d = Math.sqrt(vrnd()) * F.r;
       spawnP(F.x + Math.sin(ang) * d, 0.2, F.z + Math.cos(ang) * d, rand(-0.3, 0.3), rand(1, 2.6), rand(-0.3, 0.3), rand(0.4, 0.9), rand(0.07, 0.13), 1, rand(0.45, 0.75), 0.12, -1, 0.8);
+    }
+  }
+  const _tuQ = new T.Quaternion(), _tuE = new T.Euler(), _tuP = new T.Vector3(), _tuS = new T.Vector3(), _tuC = new T.Color();
+  // 熔光炮台：三条短腿 + 矮六棱炮座 + 一根横着的炮管（形状批）、炮口一小团余烬光；有目标时沿炮管喷一道细射线
+  // ai3d-turret：AI 生成的炮台（形状批的 turret 炮座 + 腿、turretHead 炮头、turretBarrel 炮管，三个实例；原来的拼件是 9 个，低画质 7 个）。整座跟着 ang 转（炮管朝 +z）。
+  // 看图后（编排者）：炮管要一眼看出指向哪里 → 炮管单独一块、余烬色（和原来拼件的橙色炮管一样当方向提示），炮头两侧的凸耳和后面的长筒在导入时削掉；
+  // 身子是暗铁，靠受光的棱（亮芯量）和余烬色炮管跟地面拉开，不整体提亮。射线从炮管口起（CA_SKILL_PIECES.turretBarrel.muzzle，炮台本地坐标）；
+  // 退回合并几何体（没有槽位布局）时照旧画拼件
+  const SP_ = window.CA_SKILL_PIECES || {};
+  const TU_AI = SP_.turret && SP_.turretHead && SP_.turretBarrel && SP_.turretBarrel.muzzle ? SP_.turretBarrel.muzzle : null;
+  const TU_BK = 1.8; // 炮管沿炮管方向拉长的倍数（从炮管根部拉，根部不动）：游戏镜头 1.0× 下要读得出指向
+  function drawTurretAI(h, dt, sc, sn, cs, lo, kl) {
+    const fire = h.on && h.len > 0, B = SP_.turretBarrel, z0 = B.z0;
+    tuPose(h.x, 0, h.z, 0, h.ang, 0, sc, sc, sc);
+    _tuC.set(0x7e7064).convertSRGBToLinear(); // 铁灰（比原来那版的沙色暗，靠受光的棱和余烬色炮管跟地面拉开）
+    vsNow(VSH.turret, _tuC.r, _tuC.g, _tuC.b, 0.4, 0.45, 0); // 亮芯量给受光的棱（色阶 1 的面）
+    vsNow(VSH.turretHead, _tuC.r, _tuC.g, _tuC.b, 0.4, 0.45, 0);
+    const back = -z0 * (TU_BK - 1) * sc; // 拉长以后把根部挪回原位
+    tuPose(h.x + sn * back, 0, h.z + cs * back, 0, h.ang, 0, sc, sc, sc * TU_BK);
+    _tuC.set(0xb0561e).convertSRGBToLinear(); // 余烬色的炮管：开火时亮芯更热（射线仍是最亮的东西）
+    vsNow(VSH.turretBarrel, _tuC.r * kl, _tuC.g * kl, _tuC.b * kl, fire ? 0.38 : 0.18, 0.4, 0);
+    // 炮口：拉长后的炮管口再往前 0.04 米
+    const mz0 = ((TU_AI[2] - z0) * TU_BK + z0 + 0.04) * sc, mx0 = TU_AI[0] * sc;
+    return turretBeam(h, dt, sc, sn, cs, lo, kl, h.x + mx0 * cs + mz0 * sn, TU_AI[1] * sc, h.z - mx0 * sn + mz0 * cs);
+  }
+  function tuPose(x, y, z, rx, ry, rz, sx, sy, sz) {
+    _tuE.set(rx, ry, rz, 'YXZ');
+    _tuQ.setFromEuler(_tuE);
+    _pm.compose(_tuP.set(x, y, z), _tuQ, _tuS.set(sx, sy, sz));
+  }
+  function drawTurret(h, dt) {
+    const lo = qualId === 'low', kl = lo ? 0.8 : 1;
+    const age = wtime - h.born, rise = Math.min(1, age / 0.2), sink = Math.min(1, Math.max(0, h.t / 0.3)), sc = rise * sink;
+    if (sc <= 0.01) return;
+    const sn = Math.sin(h.ang), cs = Math.cos(h.ang);
+    const pose = tuPose;
+    // 脚下一圈细环（你的余烬色，很暗）：一眼认得出是自己放的
+    if (PF.vShape) {
+      pose(h.x, 0.05, h.z, -HALF_PI, 0, 0, 0.62 * sc, 0.62 * sc, 1);
+      vsNow(VSH.ring, 0.42 * kl, 0.14 * kl, 0.03 * kl, 0.2, 0.3, 0.75);
+    }
+    if (G.vfx.shapeSlots && TU_AI) return drawTurretAI(h, dt, sc, sn, cs, lo, kl);
+    // 腿：三块压扁的碎石（暗铁），往外撇
+    for (let i = 0; i < 3; i++) {
+      const a = (i / 3) * TAU + h.ang + 0.5;
+      pose(h.x + Math.sin(a) * 0.4 * sc, 0.09, h.z + Math.cos(a) * 0.4 * sc, 0.35, a, 0.3, 0.17 * sc, 0.13 * sc, 0.3 * sc);
+      vsNow(VSH.chip, 0.07, 0.058, 0.05, 0, 0.45, 0);
+    }
+    // 炮座：矮胖的六棱座（铁灰带一点暖），顶上一块盖
+    _tuC.set(0x7a6656).convertSRGBToLinear();
+    pose(h.x, 0, h.z, 0, h.ang, 0, 1.4 * sc, h.y * 0.95 * sc, 1.4 * sc);
+    vsNow(VSH.crystal, _tuC.r, _tuC.g, _tuC.b, 0.12, 0.5, 0);
+    pose(h.x, h.y * 0.62 * sc, h.z, 0.2, h.ang, 0, 0.2 * sc, 0.12 * sc, 0.2 * sc);
+    vsNow(VSH.chip, 0.12, 0.09, 0.07, 0.1, 0.45, 0);
+    // 炮管：横着朝 ang（冰晶件的尖当炮口），亮面偏余烬橙，开火时亮芯更热
+    const fire = h.on && h.len > 0;
+    _tuC.set(0xb07a4a).convertSRGBToLinear();
+    const bx = h.x - sn * 0.22 * sc, bz = h.z - cs * 0.22 * sc, by = h.y * sc, bl = 1.0 * sc;
+    pose(bx, by, bz, HALF_PI, h.ang, 0, 0.46 * sc, bl, 0.46 * sc);
+    vsNow(VSH.crystal, _tuC.r, _tuC.g, _tuC.b, fire ? 0.32 : 0.15, 0.45, 0);
+    if (!lo) {
+      // 炮管根上一圈箍（两块小碎石）
+      for (const sd of [1, -1]) {
+        pose(bx + cs * 0.15 * sd * sc, by, bz - sn * 0.15 * sd * sc, 0, h.ang, 0, 0.1 * sc, 0.13 * sc, 0.13 * sc);
+        vsNow(VSH.chip, 0.08, 0.065, 0.055, 0, 0.45, 0);
+      }
+    }
+    // 炮口：小团余烬光（开火时亮一些、一跳一跳）
+    return turretBeam(h, dt, sc, sn, cs, lo, kl, bx + sn * bl * 0.9, by, bz + cs * bl * 0.9);
+  }
+  // 炮口的光团 + 射线（拼件炮台和 AI 炮台共用；mx / by / mz 是炮口的世界坐标）
+  function turretBeam(h, dt, sc, sn, cs, lo, kl, mx, by, mz) {
+    const fire = h.on && h.len > 0;
+    h.k += ((fire ? 1 : 0) - h.k) * Math.min(1, dt * 12);
+    const fl = 0.85 + 0.15 * Math.sin(wtime * 41 + h.side * 2);
+    mBill(mx, by, mz, (0.22 + 0.18 * h.k) * fl * sc);
+    pfPut('glow', (0.45 + 0.35 * h.k) * kl, (0.13 + 0.1 * h.k) * kl, 0.025 * kl);
+    if (!fire) {
+      h.wasOn = false;
+      return;
+    }
+    if (!h.wasOn) h.rel = wtime; // 射线亮起的那一下：炮口一点近白，只亮 60 毫秒
+    h.wasOn = true;
+    // 射线：比玩家那道细一半多（两道同时在场），外焰 → 内焰 → 细热芯，全是暗一档的余烬红，不混白
+    const len = h.len, x0 = mx, z0 = mz, y0 = by, x1 = h.x + sn * len, z1 = h.z + cs * len, y1 = 0.7;
+    const L = Math.max(0.3, Math.hypot(x1 - x0, z1 - z0)), dy = (y1 - y0) / L, cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, cz = (z0 + z1) / 2;
+    const ddx = (x1 - x0) / L, ddz = (z1 - z0) / L;
+    const pulse = (1 + 0.1 * Math.sin(wtime * 47 + h.side) + 0.05 * Math.sin(wtime * 83)) * h.k;
+    mStretch(cx, cy, cz, ddx, dy, ddz, 0.3 * pulse, L);
+    pfPut('beam', 0.16 * kl, 0.016 * kl, 0.003 * kl);
+    mStretch(cx, cy, cz, ddx, dy, ddz, 0.13 * pulse, L);
+    pfPut('beam', 0.14 * kl, 0.018 * kl, 0.003 * kl);
+    mStretch(cx, cy, cz, ddx, dy, ddz, 0.04, L);
+    pfPut('beam', 0.3 * kl, 0.06 * kl, 0.011 * kl);
+    if (wtime - h.rel < 0.06) {
+      const cl = Math.min(0.8, L);
+      mStretch(x0 + ddx * cl * 0.5, y0 + dy * cl * 0.5, z0 + ddz * cl * 0.5, ddx, dy, ddz, 0.07, cl);
+      pfPut('beam', 1.6, 1.4, 1.1);
+    }
+    // 缠在射线上的几道短电弧（雷），比玩家那道稀；低画质不画（电弧件常常整场只有它在用，省一次 draw call）
+    const nArc = lo ? 0 : Math.max(2, Math.round(L / 2.6));
+    for (let i = 0; i < nArc; i++) {
+      if (hash2(Math.floor(wtime * 24) + i * 5, i + (h.side > 0 ? 3 : 11)) < 0.45) continue;
+      const f = (i + hash2(Math.floor(wtime * 18), i + 17)) / nArc;
+      _pq.copy(camQ).multiply(_pq2.setFromAxisAngle(Z_AXIS, Math.atan2(ddz, ddx) + rand(-0.5, 0.5)));
+      mPose(x0 + ddx * L * f, y0 + dy * L * f, z0 + ddz * L * f, _pq, rand(0.6, 1.0), rand(0.2, 0.3), 1);
+      pfPut('arc', 0.36 * kl, 0.085 * kl, 0.02 * kl);
+    }
+    // 尽头：一小团光（不放大成亮团），偶尔一两颗火星
+    mBill(x1, y1, z1, 0.5 * Math.min(1.2, pulse));
+    pfPut('glow', 0.5 * kl, 0.14 * kl, 0.025 * kl);
+    if (dt > 0 && !lo && vrnd() < dt * 14) {
+      const a = rand(0, TAU), v = rand(1.5, 4);
+      spawnP(x1, y1, z1, Math.sin(a) * v - ddx * 1.5, rand(1, 3), Math.cos(a) * v - ddz * 1.5, rand(0.12, 0.25), rand(0.06, 0.1), 1, 0.5, 0.12, 8, 2);
     }
   }
   function drawLaser(ent, L, dt) {
@@ -30423,6 +31508,7 @@
   // =====================================================================
   const KV_MAX = 40;
   const kvKinds = {};
+  let kvShardHi = null, kvShardLo = null; // ai3d-skills：刻式件 shard 的两档几何体（W.pieceLod 换）
   const KV_SOLID = { spike: 1, blade: 1, orb: 1, shard: 1, rock: 1 };
   function kvGeo(kind) {
     let g;
@@ -30449,6 +31535,15 @@
     else if (kind === 'shard') {
       g = new T.OctahedronGeometry(0.5, 0);
       g.scale(0.55, 1.6, 0.55);
+      // ai3d-skills：高 / 中画质换成 AI 的冰棱（60 面，同样中心在原点、长轴 ±0.8、横向半径约 0.3，每面带明暗倍数 aS）；
+      // 低画质还是这个八面体（aS 全是 1）。AI 的在 quiet 里建（原来的照旧先建，随机序列不变）
+      const ai = G.vfx.quiet(() => pieceGeo('shardKv'));
+      if (ai) {
+        g.setAttribute('aS', new T.BufferAttribute(new Float32Array(g.getAttribute('position').count).fill(1), 1));
+        kvShardLo = g;
+        kvShardHi = ai;
+        g = qualId === 'low' ? g : ai;
+      }
     } else if (kind === 'rock') {
       g = new T.DodecahedronGeometry(0.5, 0);
       const p = g.getAttribute('position');
@@ -30466,8 +31561,14 @@
     return g;
   }
   const KV_VERT = [
-    'attribute vec3 aC; attribute float aA; attribute float aK; varying vec3 vC; varying float vA; varying float vK; varying vec3 vN; varying vec3 vV; varying vec2 vUv; varying float vY;',
-    'void main(){ vC = aC; vA = aA; vK = aK; vUv = uv; vY = position.y;',
+    'attribute vec3 aC; attribute float aA; attribute float aK; varying vec3 vC; varying float vA; varying float vK; varying vec3 vN; varying vec3 vV; varying vec2 vUv; varying float vY; varying float vS;',
+    '#ifdef KV_SHADE',
+    'attribute float aS;', // ai3d-skills：AI 件的逐面明暗倍数
+    '#endif',
+    'void main(){ vC = aC; vA = aA; vK = aK; vUv = uv; vY = position.y; vS = 1.0;',
+    '#ifdef KV_SHADE',
+    '  vS = aS;',
+    '#endif',
     '  vec4 wp = modelMatrix * instanceMatrix * vec4(position, 1.0);',
     '  vN = normalize(mat3(modelMatrix * instanceMatrix) * normal); vV = normalize(cameraPosition - wp.xyz);',
     '  gl_Position = projectionMatrix * viewMatrix * wp; }',
@@ -30475,10 +31576,10 @@
   const KV_FRAG = {
     // 实心件：两档明暗（亮面 / 暗面）+ 边光，k 往白里提
     solid: [
-      'varying vec3 vC; varying float vA; varying float vK; varying vec3 vN; varying vec3 vV;',
+      'varying vec3 vC; varying float vA; varying float vK; varying vec3 vN; varying vec3 vV; varying float vS;',
       'void main(){ vec3 n = normalize(vN); float l = dot(n, normalize(vec3(0.35, 0.85, 0.4)));',
       '  float band = l > 0.25 ? 1.0 : 0.62; float rim = 1.0 - abs(dot(n, normalize(vV))); rim = rim > 0.62 ? 0.35 : 0.0;',
-      '  vec3 c = vC * band + vec3(rim); c = mix(c, vec3(1.0), clamp(vK, 0.0, 1.0) * 0.75);',
+      '  vec3 c = vC * vS * band + vec3(rim); c = mix(c, vec3(1.0), clamp(vK, 0.0, 1.0) * 0.75);',
       '  gl_FragColor = vec4(c, 1.0); }',
     ].join('\n'),
     // 护域的罩子：菲涅尔的边 + 顶上稀疏的经线，越往下越亮（贴地的一圈最亮）
@@ -30527,14 +31628,14 @@
     const g = kvGeo(kind);
     const ig = new T.InstancedBufferGeometry();
     ig.index = g.index;
-    for (const k of ['position', 'normal', 'uv']) if (g.getAttribute(k)) ig.setAttribute(k, g.getAttribute(k));
+    for (const k of ['position', 'normal', 'uv', 'aS']) if (g.getAttribute(k)) ig.setAttribute(k, g.getAttribute(k));
     const aC = new T.InstancedBufferAttribute(new Float32Array(KV_MAX * 3), 3), aA = new T.InstancedBufferAttribute(new Float32Array(KV_MAX), 1), aK = new T.InstancedBufferAttribute(new Float32Array(KV_MAX), 1);
     ig.setAttribute('aC', aC);
     ig.setAttribute('aA', aA);
     ig.setAttribute('aK', aK);
     const solid = !!KV_SOLID[kind];
     const mat = new T.ShaderMaterial({
-      uniforms: G.vfx.uni({ uTime }), vertexShader: KV_VERT, fragmentShader: solid ? KV_FRAG.solid : KV_FRAG[kind],
+      uniforms: G.vfx.uni({ uTime }), vertexShader: KV_VERT, fragmentShader: solid ? KV_FRAG.solid : KV_FRAG[kind], defines: g.getAttribute('aS') ? { KV_SHADE: '' } : {},
       transparent: !solid, depthWrite: solid, toneMapped: false, fog: false, side: solid ? T.FrontSide : T.DoubleSide,
       blending: solid ? T.NormalBlending : T.AdditiveBlending,
     });
@@ -32015,6 +33116,16 @@
       if (G.ui && G.ui.refresh && G.ui.isOpen && G.ui.isOpen()) G.ui.refresh();
     }
   }
+  // ai3d-skills：形状批第一次画过以后查一次槽位布局的着色器（js/vfx.js 的 shapeProbe），不行就换回合并几何体（实例属性 aFx 挂到新几何体上）
+  let vshChecked = false;
+  function vshCheck() {
+    vshChecked = true;
+    const g = G.vfx.quiet(() => G.vfx.shapeProbe(renderer, PF.vShape.mesh));
+    if (g) {
+      g.setAttribute('aFx', PF.vShape.fx);
+      PF.vShape.mesh.geometry = g;
+    }
+  }
   W.render = function () {
     zoneFrames++;
     autoQualityWatch();
@@ -32022,6 +33133,7 @@
     if (post.ok && qual.post) post.composer.render();
     else if (post.fx && qual.fxaa) post.fx.render();
     else renderer.render(scene, camera);
+    if (!vshChecked && PF.vShape && PF.vShape.mesh.visible) vshCheck();
     // 画面测试开着、标题画面盖着时（t45，style.css 的 html.title-on.t-probe-on）叠加层只画色带：小地图、血条这些标题画面本来就不显示
     if (W.probe && document.documentElement.classList.contains('title-on')) {
       octx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -32566,7 +33678,7 @@
     if (model) {
       // 模型上的琥珀小灯：上膛前暗（灯窝里一点暗橙），上膛那一下闪一次，之后一直亮着一点（不闪个不停）
       const armK = m.arm > 0 ? 0 : Math.max(0, 1 - (-m.arm) / 0.25);
-      mPose(m.x, 0.155, m.z, _pqI, 0.065, 0.04, 0.065);
+      mPose(m.x, 0.21, m.z, _pqI, 0.065, 0.04, 0.065); // ai3d-skills：AI 的绊雷中间的灯钮顶在 0.218 米（原来的脚本件灯窝在 0.155）
       d2bLin(m.arm > 0 ? 0x5a2808 : 0xff9a28, (m.arm > 0 ? 0.6 : 0.9) * fade);
       vsNow(VSH.chip, _dc.r, _dc.g, _dc.b, m.arm > 0 ? 0 : 0.12 + armK * 0.6, 0, 0); // 琥珀色：平时只留一点亮芯，上膛那 0.25 秒闪亮一下
       if (m.arm <= 0) {
