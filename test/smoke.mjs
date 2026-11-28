@@ -1073,6 +1073,7 @@ const FUNC_BLOCKS = [
       await d2b2Steps(); // 职业 D2b-2（class-d2b2）
       await imbueSteps(); // 装填 / 散钉 / 反冲弹 / 绊雷（imbue 批）
       await lootWarmStep(); // 掉落模型都在启动预热里建好（列车 2）
+      await labSteps(); // 设置 → 实验：像素画面 / 开放式荒原（style-pixel / map-open）
     },
   },
 ];
@@ -1215,9 +1216,15 @@ async function mainBody() {
 
   // tex-t1：第 0 区的路面 / 粗糙地面 / 虚空地面 / 岩石三向投影都是脚本画的贴图；高 / 中档 512² 带法线贴图，低档换 256² 的一套、不传法线贴图（平的法线）
   // tex-t3：第 1 区（霜骨沼泽）也换成脚本画的贴图，两个区各查一遍；第 1 区不再要照片的 rock-grey 包
+  // tex-rest：第 2～4 区也换了，每区各查一遍
   const PAINT_ZONES = [
     { zi: 0, pack: 'zone-ash', ids: ['p_mud', 'p_burn', 'p_rock'], old: ['mud_cracked_dry_03', 'burned_ground_01'], noPack: 'rock-dark' },
     { zi: 1, pack: 'zone-frost', ids: ['p_ice', 'p_snow', 'p_frock'], old: ['Ice002', 'Snow013'], noPack: 'rock-grey' },
+    // tex-rest：第 2 区（雷鸣遗迹）石板 / 砂砾 / 岩石
+    { zi: 2, pack: 'zone-storm', ids: ['p_slab', 'p_grit', 'p_srock'], old: ['monastery_stone_floor', 'rocky_trail'], noPack: 'rock-grey' },
+    // tex-rest：第 3 区（烬渊深处，余烛殿沿用）岩台 / 熔渣壳 / 柱状岩；第 4 区（坠星裂谷）琉璃板 / 月岩碎屑 / 板岩
+    { zi: 3, pack: 'zone-abyss', ids: ['p_basalt', 'p_cinder', 'p_drock'], old: ['dark_rock_02', 'dark_rock', 'Lava001'], noPack: 'rock-dark' },
+    { zi: 4, pack: 'zone-rift', ids: ['p_glass', 'p_regol', 'p_slate'], old: ['slate_floor', 'moon_01', 'Rock035'], noPack: 'rock-grey' },
   ];
   for (const PZ of PAINT_ZONES) {
     await step('贴图：第 ' + PZ.zi + ' 区地面和岩石用脚本画的贴图，高档 512² 带法线贴图，低档 256²、不传法线贴图（进区和原地换档都对）', async () => {
@@ -1537,24 +1544,33 @@ async function mainBody() {
         pack: pk ? { names: pk.names, clips: Object.keys(pk.clips), prims: pk.prims.length } : null,
         // 手指并到手；骨架没有手关节（游魂）就再并到小臂；没有胸口关节就并到 spine
         fingerHk: S.joint('index_02_l', hk.rig.JI), fingerTh: S.joint('thumb_01_r', th.rig.JI), clavHk: S.joint('clavicle_l', hk.rig.JI), clavTh: S.joint('clavicle_l', th.rig.JI),
-        driveHk: S.drive(hk.rig), tris: [hk.rig.tris, th.rig.tris],
+        driveHk: S.drive(hk.rig), tris: [hk.rig.tris, th.rig.tris], q: W.quality(),
+        // 退路（Quaternius 的 Zombie / Skeleton）：骨骼名照旧按 STD_ALIAS 的 Mixamo / Animated Monster 表换成标准名
+        oldHk: S.old('husk'), oldTh: S.old('thrall'),
       };
       W.removeEnt(hk);
       W.removeEnt(th);
       return out;
     });
-    assert(r.hkModel === 'zombie' && r.thModel === 'skeleton', '游魂 / 仆从没有用模型：' + r.hkModel + ' / ' + r.thModel);
-    assert(r.hkStd === 'mixamo' && r.thStd === 'monster', '骨骼名没有换成标准名：' + r.hkStd + ' / ' + r.thStd);
-    for (const n of ['pelvis', 'spine_01', 'spine_03', 'neck_01', 'Head', 'clavicle_l', 'upperarm_l', 'lowerarm_r', 'hand_l', 'thigh_l', 'calf_r', 'foot_l', 'ball_r', 'index_01_l']) assert(r.hkNames.includes(n), '游魂缺标准骨骼 ' + n);
-    assert(!r.hkNames.some((n) => /^(Hips|Spine\d?|Neck|Left|Right)/.test(n)), '游魂还留着 Mixamo 骨骼名：' + r.hkNames.filter((n) => /^(Hips|Spine|Left|Right)/.test(n)).join(' '));
-    for (const n of ['pelvis', 'spine_03', 'neck_01', 'Head', 'upperarm_l', 'lowerarm_l', 'upperarm_r', 'lowerarm_r', 'thigh_l', 'calf_l', 'thigh_r', 'calf_r']) assert(r.thNames.includes(n), '仆从缺标准骨骼 ' + n);
+    // ai3d-enemies：默认用 AI 生成的模型（chars 包的 aihusk_* / aithrall_*，按画质挑一档），骨骼已经是标准名（alias 'std'），骨骼集合和退路的模型一样
+    const lo = r.q === 'low' ? '_lo' : '_hi';
+    assert(r.hkModel === 'aihusk' + lo && r.thModel === 'aithrall' + lo, '游魂 / 仆从没有用 AI 模型：' + r.hkModel + ' / ' + r.thModel + '（画质 ' + r.q + '）');
+    assert(r.hkStd === 'std' && r.thStd === 'std', 'AI 模型的骨骼应当已是标准名（alias std）：' + r.hkStd + ' / ' + r.thStd);
+    assert(r.oldHk && r.oldHk.model === 'zombie' && r.oldTh && r.oldTh.model === 'skeleton', '退路的模型不对：' + JSON.stringify([r.oldHk && r.oldHk.model, r.oldTh && r.oldTh.model]));
+    assert(r.oldHk.std === 'mixamo' && r.oldTh.std === 'monster', '退路的骨骼名没有换成标准名：' + r.oldHk.std + ' / ' + r.oldTh.std);
+    for (const [who, names] of [['游魂', r.hkNames], ['游魂（退路）', r.oldHk.names]]) {
+      for (const n of ['pelvis', 'spine_01', 'spine_03', 'neck_01', 'Head', 'clavicle_l', 'upperarm_l', 'lowerarm_r', 'hand_l', 'thigh_l', 'calf_r', 'foot_l', 'ball_r', 'index_01_l']) assert(names.includes(n), who + '缺标准骨骼 ' + n);
+      assert(!names.some((n) => /^(Hips|Spine\d?|Neck|Left|Right)/.test(n)), who + '还留着 Mixamo 骨骼名：' + names.filter((n) => /^(Hips|Spine|Left|Right)/.test(n)).join(' '));
+    }
+    for (const [who, names] of [['仆从', r.thNames], ['仆从（退路）', r.oldTh.names]]) for (const n of ['pelvis', 'spine_03', 'neck_01', 'Head', 'upperarm_l', 'lowerarm_l', 'upperarm_r', 'lowerarm_r', 'thigh_l', 'calf_l', 'thigh_r', 'calf_r']) assert(names.includes(n), who + '缺标准骨骼 ' + n);
+    assert(r.hkNames.slice().sort().join() === r.oldHk.names.slice().sort().join() && r.thNames.slice().sort().join() === r.oldTh.names.slice().sort().join(), 'AI 模型的骨骼集合应和退路的模型一样（AI_ENEMY 沿用同一套关节和动作）');
     assert(r.pack && r.pack.names.length === 23 && r.pack.prims === 0, '动作包应是 23 根骨骼、没有网格：' + JSON.stringify(r.pack && [r.pack.names.length, r.pack.prims]));
     assert(!r.pack.names.some((n) => /^(index|middle|ring|pinky|thumb)_|_leaf/.test(n)), '动作包里还有手指 / 末端骨骼');
     assert(['Zombie_Idle', 'Zombie_Walk', 'Hit_Chest', 'Death01', 'Sprint'].every((c) => r.pack.clips.includes(c)) && r.pack.clips.length === 5, '动作包的动作不对：' + r.pack.clips);
     assert(r.fingerHk === 'faL' && r.fingerTh === 'hR', '手指没有并到手 / 小臂：' + r.fingerHk + ' / ' + r.fingerTh);
     assert(r.clavHk === 'spine' && r.clavTh === 'chest', '锁骨的关节不对：' + r.clavHk + ' / ' + r.clavTh);
     assert(r.driveHk.spine === 'spine_03' && r.driveHk.head === 'Head' && r.driveHk.thL === 'thigh_l', '游魂的带动骨骼不对：' + JSON.stringify(r.driveHk));
-    // 面数预算（模型没换，两档同一份网格）：游魂是成群的杂兵（低画质 ≤ 2500），仆从按精英一档（≤ 4000，带剑和盾）
+    // 面数预算（这一步跑在测试默认的低画质：AI 模型的低档）：游魂是成群的杂兵（≤ 2500），仆从按精英一档（≤ 4000，带剑和盾）
     assert(r.tris[0] <= 2500 && r.tris[1] <= 4000, '面数超预算：' + r.tris);
     return '游魂 ' + r.hkNames.length + ' 根、仆从 ' + r.thNames.length + ' 根骨骼；三角形 ' + r.tris.join(' / ');
   });
@@ -4381,7 +4397,7 @@ async function mainBody() {
         P.gauge.heat = 0;
         RW.hold(150, tg);
         const h1 = P.gauge.heat;
-        RW.run(60 * 4);
+        RW.run(Math.round(60 * (G.RANGED.heat.hold + 2))); // gun-gauge：停火 hold 秒（4）之后才回落
         out.heat = { fire: Math.round(h1), after: Math.round(P.gauge.heat) };
         // 满了不掉
         G.debug.gauge();
@@ -4443,7 +4459,76 @@ async function mainBody() {
     return '热度 开火 ' + r.heat.fire + ' → 停火 ' + r.heat.after + ' · 专注 普通 ' + f.normal + ' / 暴击 ' + f.crit + ' / 挨打 −' + f.hurt;
   });
 
-  await step('枪械的 R：熔光炮台一按就在身体两侧落下两座炮台、右键扫射不断，自动打最近的敌人（有集火目标时先打它，转向有上限、目标死了重新挑），射线贯穿一条线、同时累积火与雷的异常值，6 秒后收起、再放顶掉旧的；焚天炎爆炸开一大圈并留下火场；乱射 3 秒自动打身边的敌人、翻滚也不断、照常走动', async () => {
+  await step('热度的节奏（gun-gauge）：停火 hold 秒以内热度一点不掉（两群怪之间走过去不丢热度），过了才回落；机炮边扫射边翻滚，枪管不停转、滚完接着按住还是原来的射速；不按右键时照常停转', async () => {
+    const r = await ev((code) => {
+      eval(code);
+      const save = G.save, P = G.player, S = G.state, out = {};
+      const keepW = save.equip.weapon;
+      const H = G.RANGED.heat;
+      try {
+        // 停火 hold − 0.5 秒：热度不变；再过 2 秒（停火 hold + 1.5 秒）：回落约 1.5 秒的 decay
+        T.lane();
+        RW.arm(8);
+        const tg = T.mob('brute', 8, 0);
+        P.gauge.heat = 0;
+        RW.hold(120, tg);
+        const h0 = P.gauge.heat;
+        RW.run(Math.round(60 * (H.hold - 0.5)));
+        const hHold = P.gauge.heat;
+        RW.run(60 * 2);
+        out.heat = { h0: +h0.toFixed(2), hold: +hHold.toFixed(2), after: +P.gauge.heat.toFixed(2), decay: H.decay };
+        // 边扫射边翻滚：转满、射速最快之后侧滚，一直按着右键
+        const roll = (keep) => {
+          T.lane();
+          RW.arm(8);
+          const t2 = T.mob('brute', 8, 0);
+          const o = {};
+          let s0 = 0, spinMin = 1;
+          for (let i = 0; i < 60 * 3.2; i++) {
+            T.aim(t2.x, t2.z);
+            G.input.mouse.b[2] = true;
+            G.tick(1 / 60);
+          }
+          o.spin0 = +P.gun.spin.toFixed(2);
+          o.ramp0 = +P.gun.ramp.toFixed(2);
+          G.input.move = { x: 0, z: 1, k: 1 };
+          o.rolled = G.dodge();
+          G.input.move = null;
+          for (let i = 0; i < 60 * 1.5; i++) {
+            T.aim(t2.x, t2.z);
+            G.input.mouse.b[2] = keep;
+            G.tick(1 / 60);
+            spinMin = Math.min(spinMin, P.gun.spin);
+            if (i === 24) s0 = S.stats.rShots || 0;
+          }
+          o.spinMin = +spinMin.toFixed(2);
+          o.spin = +P.gun.spin.toFixed(2);
+          o.shots = (S.stats.rShots || 0) - s0; // 翻滚结束之后约 1.1 秒的发数（转满、射速最快时约 13 发）
+          G.input.mouse.b[2] = false;
+          return o;
+        };
+        out.keep = roll(true);
+        out.drop = roll(false);
+        RW.run(60);
+      } finally {
+        G.input.mouse.b[2] = false;
+        G.input.move = null;
+        save.equip.weapon = keepW;
+        G.computeStats();
+        T.arena();
+      }
+      return out;
+    }, rangedSetup);
+    const h = r.heat;
+    assert(h.h0 > 15 && h.hold === h.h0, '停火 hold 秒以内热度不该掉：' + JSON.stringify(h));
+    assert(h.after < h.hold - h.decay && h.after > h.hold - h.decay * 2.2, '停火超过 hold 秒后热度应按 decay 回落：' + JSON.stringify(h));
+    const k = r.keep, d = r.drop;
+    assert(k.rolled && k.spin0 === 1 && k.spinMin === 1 && k.spin === 1 && k.shots >= 11, '边扫射边翻滚，枪管不该停转、滚完接着按住应是原来的射速：' + JSON.stringify(k));
+    assert(d.rolled && d.spin0 === 1 && d.spin < 0.2 && d.shots === 0, '翻滚后松开右键，枪管应照常停转：' + JSON.stringify(d));
+    return '热度 ' + h.h0 + ' → 停火 ' + h.hold + ' → ' + h.after + ' · 翻滚接扫射 ' + k.shots + ' 发 / 1.1 秒';
+  });
+
+  await step('枪械的 R：熔光炮台一按就在身体两侧落下两座炮台、右键扫射不断，自动打最近的敌人（有集火目标时先打它，转向有上限、目标死了重新挑），射线贯穿一条线、同时累积火与雷的异常值，3 秒后收起、再放顶掉旧的；焚天炎爆炸开一大圈并留下火场；乱射 2 秒自动打身边的敌人、翻滚也不断、照常走动', async () => {
     const r = await ev((code) => {
       eval(code);
       const save = G.save, P = G.player, S = G.state, out = {};
@@ -4475,9 +4560,10 @@ async function mainBody() {
         G.input.mouse.b[2] = false;
         const L0 = G.turretList();
         out.cast = { n: L0.length, casts: (S.stats.turretCasts || 0) - casts0, heat: +heatAt.toFixed(2), heatNow: +P.gauge.heat.toFixed(1), rangedAfter, spinMin: +spinMin.toFixed(2), side: L0.map((t) => Math.sign(+(t.z - P.z).toFixed(2))).sort().join(','), near: L0.every((t) => Math.hypot(t.x - P.x, t.z - P.z) < 2.2) };
-        // 3 秒：没有集火目标 → 打最近的（一排木桩的头一个），射线贯穿整排
+        // 0.6 秒：没有集火目标 → 打最近的（一排木桩的头一个），射线贯穿整排（gun-gauge：炮台只活 3 秒，各段缩短）
         S.focusT = 0;
-        RW.run(60 * 2.5, aimR);
+        const TD = G.SKILLS.meltray.turret.dur;
+        RW.run(60 * 0.6, aimR);
         out.line = line.map((e) => Math.round(e.maxHp - e.hp));
         out.offPre = Math.round(off.maxHp - off.hp);
         out.far = Math.round(far.maxHp - far.hp);
@@ -4490,16 +4576,16 @@ async function mainBody() {
         const t0 = L0[0], want = Math.atan2(off.x - t0.x, off.z - t0.z);
         out.turnGap = +Math.abs(Math.atan2(Math.sin(want - t0.ang), Math.cos(want - t0.ang))).toFixed(2);
         const offA = off.hp;
-        RW.run(60 * 1.0, aimR);
+        RW.run(60 * 0.8, aimR);
         out.tgtOff = L0.every((t) => t.tgt === off);
         out.offHit = Math.round(offA - off.hp);
         // 目标死了：重新挑（回到那排木桩）
         off.hp = 1;
         const l0A = line[0].hp;
-        RW.run(60 * 1.0, aimR);
+        RW.run(60 * 0.8, aimR);
         out.reTarget = { offDead: !!off.dead, line0: Math.round(l0A - line[0].hp) };
-        // 6 秒到：收起，不再出伤害
-        RW.run(60 * 1.8, aimR);
+        // 到时间（turret.dur，从放下算起）：收起，不再出伤害
+        RW.run(Math.round(60 * (TD - 2.4)), aimR);
         out.after = G.turretList().length;
         const l0B = line[0].hp;
         RW.run(60 * 0.6, aimR);
@@ -4513,7 +4599,7 @@ async function mainBody() {
         G.input.tap[4] = 0.3;
         RW.run(30, aimR);
         const L1 = G.turretList();
-        out.recast = { n: L1.length, fresh: L1.every((t) => t.t > 5.2) };
+        out.recast = { n: L1.length, fresh: L1.every((t) => t.t > TD - 0.8) };
         // 重生 / 换区域：收起
         G.respawn();
         out.reset = G.turretList().length;
@@ -4571,15 +4657,15 @@ async function mainBody() {
     assert(r.bu.fire > 0 && r.bu.light > 0, '炮台的射线应同时累积火与雷的异常值：' + JSON.stringify(r.bu));
     assert(r.turnGap > 0.5 && r.tgtOff && r.offHit > 0, '有集火目标时炮台应转过去打它（转向有上限、不瞬间对准）：' + JSON.stringify(r));
     assert(r.reTarget.offDead && r.reTarget.line0 > 0, '目标死了炮台应重新挑：' + JSON.stringify(r.reTarget));
-    assert(r.after === 0 && r.afterDmg === 0, '6 秒后炮台应收起、不再出伤害：' + JSON.stringify(r));
+    assert(r.after === 0 && r.afterDmg === 0, '到时间后炮台应收起、不再出伤害：' + JSON.stringify(r));
     assert(r.recast.n === 2 && r.recast.fresh && r.reset === 0, '再放应顶掉旧的（始终 2 座）、重生时收起：' + JSON.stringify(r));
     assert(r.nova.hit.every((v) => v > 0) && r.nova.far === 0 && r.nova.heat === 0 && r.nova.fields === 1 && r.nova.burn > 0, '焚天炎爆不对：' + JSON.stringify(r.nova));
-    assert(r.wsU === 'wildfire' && r.wild.on && r.wild.heat === 0 && r.wild.during && !r.wild.end && r.wild.moved > 3, '乱射应开启、翻滚不断、照常走动、3 秒后结束：' + JSON.stringify(r.wild));
-    assert(r.wild.hit.filter((v) => v > 0).length >= 2 && r.wild.shots >= 30 && r.wild.splash > 0 && r.wild.pair > 0, '乱射应自动打身边的敌人、弹片波及旁边的：' + JSON.stringify(r.wild));
+    assert(r.wsU === 'wildfire' && r.wild.on && r.wild.heat === 0 && r.wild.during && !r.wild.end && r.wild.moved > 3, '乱射应开启、翻滚不断、照常走动、2 秒后结束：' + JSON.stringify(r.wild));
+    assert(r.wild.hit.filter((v) => v > 0).length >= 2 && r.wild.shots >= 18 && r.wild.splash > 0 && r.wild.pair > 0, '乱射应自动打身边的敌人、弹片波及旁边的：' + JSON.stringify(r.wild));
     return '炮台 ' + r.line.join('/') + '（转向差 ' + r.turnGap + '，集火 ' + r.offHit + '）· 炎爆 ' + r.nova.hit.join('/') + ' + 火场 ' + r.nova.burn + ' · 乱射 ' + r.wild.shots + ' 发';
   });
 
-  await step('熔光炮台按机炮普攻折算：两座炮台打满 6 秒、都打在同一个木桩上，合计约等于机炮普攻扫射 basicSec 秒（不镶辅助、转满之后的秒伤），物品等级 10 和 40（带上附加伤害与攻速）都成立；技能卡上的「两座合计」和实际打出来的对得上', noRes(async () => {
+  await step('熔光炮台按机炮普攻折算：两座炮台打满 3 秒、都打在同一个木桩上，合计约等于机炮普攻扫射 basicSec 秒（不镶辅助、转满之后的秒伤），物品等级 10 和 40（带上附加伤害与攻速）都成立；技能卡上的「两座合计」和实际打出来的对得上', noRes(async () => {
     const r = await ev((code) => {
       eval(code);
       const save = G.save, P = G.player, S = G.state, out = [];
@@ -4622,14 +4708,14 @@ async function mainBody() {
           G.input.mouse.b[2] = false;
           const basic = (hp3 - d.hp) / 3;
           RW.run(60);
-          // 炮台：正前方 8 米一个木桩（两座炮台都打它），按一下 R、不开火，等两座炮台打满 6 秒收起
+          // 炮台：正前方 8 米一个木桩（两座炮台都打它），按一下 R、不开火，等两座炮台打满 turret.dur 秒收起
           T.lane();
           RW.arm(8, il);
           kit(il);
           const one = stake(8);
           G.debug.gauge();
           G.input.tap[4] = 0.3;
-          RW.run(60 * 6.6, { x: P.x + 20, z: P.z });
+          RW.run(Math.round(60 * (G.SKILLS.meltray.turret.dur + 0.6)), { x: P.x + 20, z: P.z });
           const dmg = [Math.round(1e9 - one.hp)];
           const avg = dmg[0];
           const ctx = G.skillCtx('meltray');
@@ -4647,7 +4733,7 @@ async function mainBody() {
     }, rangedSetup);
     for (const o of r) {
       assert(o.add === (o.il >= 40 ? 50 : 6), '测试设的附加伤害没保持住：' + JSON.stringify(o));
-      assert(o.n === 0 && o.beam[0] > 0, '炮台应打中木桩、6 秒后收起：' + JSON.stringify(o));
+      assert(o.n === 0 && o.beam[0] > 0, '炮台应打中木桩、到时间收起：' + JSON.stringify(o));
       assert(o.secs >= o.sec * 0.9 && o.secs <= o.sec * 1.15, '两座炮台合计应折合约 ' + o.sec + ' 秒机炮普攻（物品等级 ' + o.il + '）：' + JSON.stringify(o));
       assert(Math.abs(o.card - o.avg) <= o.avg * 0.1, '技能卡上「两座合计」应和实际打出来的对得上：' + JSON.stringify(o));
     }
@@ -4655,7 +4741,7 @@ async function mainBody() {
     return r.map((o) => '物品等级 ' + o.il + '：普攻 ' + o.basic + '/s · 炮台 ' + o.avg + '（折合 ' + o.secs + ' 秒）').join(' · ');
   }));
 
-  await step('焚天炎爆按喷枪普攻折算：火浪加 8 秒火场打在木桩上 ≥ 4.5 秒喷枪普攻（不镶辅助、含余烬的秒伤），物品等级 10 和 40（带上附加伤害与攻速）都成立；技能卡上的整招伤害对得上', noRes(async () => {
+  await step('焚天炎爆按喷枪普攻折算：火浪加 8 秒火场打在木桩上约等于 basicSec + 火场（2.7 秒）喷枪普攻（不镶辅助、含余烬的秒伤），物品等级 10 和 40（带上附加伤害与攻速）都成立；技能卡上的整招伤害对得上', noRes(async () => {
     const r = await ev((code) => {
       eval(code);
       const save = G.save, P = G.player, out = [];
@@ -4708,7 +4794,7 @@ async function mainBody() {
           RW.run(60 * 8.6);
           const dmg = 1e9 - e.hp;
           const ctx = G.skillCtx('firestorm');
-          out.push({ il, add: P.S.addFire, basic: Math.round(basic), dmg: Math.round(dmg), secs: +(dmg / basic).toFixed(2), card: Math.round(G.avgHit(ctx)), fields: G.rangedFields().length });
+          out.push({ il, add: P.S.addFire, basic: Math.round(basic), dmg: Math.round(dmg), secs: +(dmg / basic).toFixed(2), card: Math.round(G.avgHit(ctx)), fields: G.rangedFields().length, want: +(G.SKILLS.firestorm.basicSec * G.SKILLS.firestorm.useMult).toFixed(2) });
         }
       } finally {
         T.unfix();
@@ -4721,7 +4807,8 @@ async function mainBody() {
     }, rangedSetup);
     for (const o of r) {
       assert(o.add === (o.il >= 40 ? 50 : 6), '测试设的附加伤害没保持住：' + JSON.stringify(o));
-      assert(o.secs >= 4.5 && o.secs <= 7, '火浪加火场应折合 4.5–7 秒喷枪普攻（物品等级 ' + o.il + '）：' + JSON.stringify(o));
+      // gun-gauge：整招从 5.6 秒普攻调到 2.7 秒（R 来得勤了），区间跟着数据走：want × 0.8–1.25（原来 4.5–7 = 5.6 × 0.8–1.25）
+      assert(o.secs >= o.want * 0.8 && o.secs <= o.want * 1.25, '火浪加火场应折合约 ' + o.want + ' 秒喷枪普攻（物品等级 ' + o.il + '）：' + JSON.stringify(o));
       assert(Math.abs(o.card - o.dmg) <= o.dmg * 0.1, '技能卡上「整招伤害」应和实际打出来的对得上：' + JSON.stringify(o));
     }
     assert(r[1].basic > r[0].basic * 2 && Math.abs(r[1].secs - r[0].secs) <= 0.8, '武器升级后普攻和炎爆应一起涨：' + JSON.stringify(r));
@@ -24791,6 +24878,82 @@ async function d2b2Steps() {
 // 铁水弹 / 雷楔 / 霜霰弹改成开关式的装填；散钉拿枪按右键折算、7 枚；反冲弹命中炸开；绊雷连爆 / 到时炸。设计稿 game-workspace/notes/imbue/design-note.md
 // 列车 2：webkit 内存一步（三圈后几何体数不比第一圈多 3 个以上）偶尔不过——追猎弓 / 冰弓 / 符文弓 / 提灯的掉落模型不在启动预热里，
 // 第一次掉落时才烘焙、从此一直留着，第几圈第一次掉到就在第几圈多出来。现在 warmEntities 把每一种掉落模型都建好画过一帧
+async function labSteps() {
+  // style-pixel / map-open：设置 → 实验 的两个开关（像素画面、开放式荒原）。存在这台设备上（localStorage 'cinder-abyss-lab'），不进存档。
+  // 默认关：没有这个键，两个脚本都不加载；打开后写这个键，重新载入才生效（行里提示）；关掉后键删掉，再载入和开之前一样；存档 / 全局设置自始至终不变
+  await uiStep('设置·实验：「像素画面」「开放式荒原」两个开关默认关（没有键、不加载脚本）；打开后存在这台设备上、提示重新载入，载入后两个脚本都在；关掉后键删掉，载入后和打开前一样；存档和全局设置一字不变', async () => {
+    // 设置在哪：标题画面开着就走标题画面的「设置」（#t-view），否则走暂停菜单（#p-view）
+    let root = '#p-view';
+    const where = () => ev(() => ({ title: G.ui.titleOn(), open: G.ui.isOpen(), paused: G.ui.paused(), story: !!(G.ui.storyOn && G.ui.storyOn()), intro: document.getElementById('intro').classList.contains('on'), cls: document.documentElement.className.slice(0, 160) }));
+    const openLab = async () => {
+      const w = await where();
+      try {
+        if (w.title) {
+          // 标题画面上可能还开着别的页（角色、职业……）：按 Esc 退回主菜单，直到「设置」按钮露出来
+          const vis = () => ev(() => { const b = document.querySelector('#t-menu [data-tact="settings"]'); const r = b && b.getBoundingClientRect(); return !!(r && r.width > 0 && r.height > 0 && getComputedStyle(b).visibility !== 'hidden' && document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) && b.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2))); });
+          for (let k = 0; k < 4 && !(await vis()); k++) {
+            await page.keyboard.press('Escape');
+            await sleep(300);
+          }
+          await page.click('#t-menu [data-tact="settings"]');
+          root = '#t-view';
+        } else {
+          await openSettings();
+          root = '#p-view';
+        }
+      } catch (e) {
+        throw new Error('打不开设置：' + JSON.stringify(w) + ' ' + String(e && e.message).split('\n')[0]);
+      }
+    };
+    const closeLab = async () => (root === '#t-view' ? ev(() => G.ui.close()) : closeSettings());
+    const st = () =>
+      ev((root) => {
+        const g = JSON.parse(localStorage.getItem('cinder-abyss-global') || 'null');
+        const sw = (k) => document.querySelector(root + ' [data-tact="' + k + '"]');
+        const px = sw('labpx'), mp = sw('labmap');
+        return {
+          pxJs: !!document.querySelector('script[src$="js/pixel.js"]'), mapJs: !!document.querySelector('script[src$="js/openmap.js"]'),
+          gpx: !!G.px, pxr: typeof G.world.pxRender, open: !!G.openMap,
+          lab: localStorage.getItem('cinder-abyss-lab'), loaded: Object.assign({}, window.CA_LAB || {}),
+          sw: px && mp ? { px: px.classList.contains('on'), map: mp.classList.contains('on'), grp: px.closest('.m-grp').querySelector('.m-gt').textContent, txt: px.innerText + ' | ' + mp.innerText, tip: px.dataset.tip || '' } : null,
+          note: (document.querySelector(root + ' .lab-note') || { innerText: '' }).innerText, reloadBtn: !!document.querySelector(root + ' [data-tact="labreload"]'), root,
+          optsCanon: T.canon(G.save.opts), gopts: g && g.opts ? T.canon(g.opts) : null, slot: JSON.stringify(JSON.parse(localStorage.getItem(G.slotKey(0)) || 'null') ? T.canon(JSON.parse(localStorage.getItem(G.slotKey(0))).opts) : null),
+        };
+      }, root);
+    const reload = async () => {
+      await ev(() => G.persist());
+      await page.reload({ timeout: 90000 });
+      await install();
+      await ev(() => { G.debug.hold(true); G.debug.god(true); T.hintsSeen(); });
+    };
+    await openLab();
+    const s0 = await st();
+    assert(s0.sw && s0.sw.grp === '实验' && !s0.sw.px && !s0.sw.map && s0.sw.txt.includes('像素画面（实验）') && s0.sw.txt.includes('开放式荒原（实验）') && s0.sw.tip.includes('可能有显示问题'), '「实验」一组应有两个关着的开关：' + JSON.stringify(s0.sw));
+    assert(!s0.loaded.px && !s0.loaded.map && !s0.pxJs && !s0.mapJs && !s0.gpx && s0.pxr === 'undefined' && !s0.open && s0.lab === null && !s0.note, '默认关：不该加载脚本、不该有 cinder-abyss-lab：' + JSON.stringify(s0));
+    cleanText(s0.sw.txt, '实验开关');
+    await page.click(root + ' [data-tact="labpx"]');
+    await page.click(root + ' [data-tact="labmap"]');
+    const s1 = await st();
+    assert(s1.sw.px && s1.sw.map && s1.lab === '{"px":true,"map":true}' && s1.optsCanon === s0.optsCanon && s1.gopts === s0.gopts && s1.slot === s0.slot && s1.note.includes('重新载入后生效') && s1.reloadBtn && !s1.pxJs && !s1.mapJs, '打开后应存在这台设备上（存档 / 全局设置不变）、提示重新载入（这一次还没加载）：' + JSON.stringify(s1));
+    await closeLab();
+    await reload();
+    await openLab();
+    const s2 = await st();
+    assert(s2.loaded.px && s2.loaded.map && s2.pxJs && s2.mapJs && s2.gpx && s2.pxr === 'function' && s2.open && s2.sw.px && s2.sw.map && !s2.note, '载入后两个脚本都应加载、开关开着、不再提示：' + JSON.stringify(s2));
+    await page.click(root + ' [data-tact="labpx"]');
+    await page.click(root + ' [data-tact="labmap"]');
+    const s3 = await st();
+    assert(!s3.sw.px && !s3.sw.map && s3.lab === null && s3.note.includes('重新载入后生效'), '关掉后 cinder-abyss-lab 应删掉、提示重新载入：' + JSON.stringify(s3));
+    await closeLab();
+    await reload();
+    await openLab();
+    const s4 = await st();
+    assert(!s4.loaded.px && !s4.loaded.map && !s4.pxJs && !s4.mapJs && !s4.gpx && s4.pxr === 'undefined' && !s4.open && s4.lab === null && !s4.note && s4.optsCanon === s0.optsCanon && s4.gopts === s0.gopts && s4.slot === s0.slot, '关掉再载入后应和打开前一样（不加载、设置一字不差）：' + JSON.stringify({ s0: s0.optsCanon, s4: s4.optsCanon }));
+    await closeLab();
+    return '默认关 → 打开（存这台设备、提示重新载入）→ 载入后 pixel.js + openmap.js → 关掉 → 载入后和打开前一样，存档 / 全局设置不变';
+  });
+}
+
 async function lootWarmStep() {
   await step('掉落模型（列车 2）：启动预热就建好每一种掉落的模型（含追猎弓 / 冰弓 / 符文弓 / 提灯）——每种掉一次再画，几何体数不涨；换区以后再掉一遍也不涨', async () => {
     const drop = () =>
@@ -27480,6 +27643,9 @@ async function titleSteps() {
     // 重进灰烬荒原：传送门没了 → 不指，追踪条第 3 行「按 M 打开地图选它」
     await ev(() => G.enterZone(0, 0));
     await frames(3);
+    // 重进区域时素材还在载入，追踪条先藏着、第 3 行要等就绪后才写上：按帧等它写上（最多 120 帧，等不到照样走下面的断言报错）。
+    // 原来固定等 3 帧，机器忙时读到空串（和 8d44dd3 的 questReady 同一类）
+    for (let i = 0; i < 120 && !(await ev(() => G.ui.quest().how)); i++) await frames(1);
     const b = await ev(() => ({ t: G.questTarget(), m: G.world.questMark().on, how: G.ui.quest().how }));
     assert(!b.t && !b.m && b.how === '按 M 打开地图选它', '传送门没了应不指、第 3 行让按 M：' + JSON.stringify(b));
     // 地图卡片角标
@@ -28527,6 +28693,41 @@ async function touchSteps() {
     const l2 = await ev(() => ({ alt: G.input.alt, on: G.touch.state().labels }));
     assert(l1.alt && l1.on && !l1.taps && !l2.alt && !l2.on, '「名牌」开关应切换名牌展开：' + JSON.stringify({ l1, l2 }));
     return '兼容 mousedown ' + a.md + ' / ' + b.md;
+  });
+
+  await step('触屏：按钮是图标（touch-icons）——顶栏 7 个、翻滚键、F 键画着 G.icons.ui 的图标、不写字，中文名在 aria-label；首领条里 F 的角标换成图标；帮助页的操作说明画出图标、写着中文名', async () => {
+    const r = await ev(() => {
+      const img = (e) => !!e && /^url\("?data:image\/png/.test(getComputedStyle(e).backgroundImage);
+      const shown = (e) => !!e && getComputedStyle(e).display !== 'none' && e.getClientRects().length > 0;
+      const top = Array.from(document.querySelectorAll('#t-top [data-tt]')).map((b) => ({ k: b.dataset.tt, txt: b.textContent.trim(), aria: b.getAttribute('aria-label') || '', img: img(b.querySelector('.t-ico')), w: Math.round(b.getBoundingClientRect().width), on: shown(b) }));
+      const d = document.getElementById('dodge'), ui = d.querySelector('.d-ui'), glyph = d.querySelector('.d-icon > span');
+      const f = document.getElementById('t-f');
+      return {
+        top,
+        roll: { img: img(ui), on: shown(ui), glyph: shown(glyph), aria: d.getAttribute('aria-label') },
+        f: { txt: f.textContent.trim(), img: img(f.querySelector('.t-ico')), aria: f.getAttribute('aria-label') || '' },
+        fk: { img: img(document.querySelector('#boss-break .t-fk')), kbd: shown(document.querySelector('#boss-break kbd')) },
+        list: G.icons.uiIcons().join(),
+        prewarm: G.icons.keys().filter((k) => /^ui-/.test(k)).length,
+      };
+    });
+    const names = r.top.map((b) => b.aria).join('|');
+    assert(r.top.length === 7 && r.top.every((b) => b.txt === '' && b.img && b.aria) && r.top.filter((b) => b.on).every((b) => b.w >= 44), '顶栏按钮应只有图标、名字在 aria-label、≥ 44 px：' + JSON.stringify(r.top));
+    for (const n of ['背包', '技能', '天赋', '地图', '名牌', '菜单', '方向']) assert(names.includes(n), '顶栏按钮的 aria-label 缺「' + n + '」：' + names);
+    assert(r.roll.img && r.roll.on && !r.roll.glyph && r.roll.aria === '翻滚', '触屏的翻滚键应画图标、不写「翻」：' + JSON.stringify(r.roll));
+    assert(r.f.txt === '' && r.f.img && /互动/.test(r.f.aria), 'F 键应画图标、不写字：' + JSON.stringify(r.f));
+    assert(r.fk.img && !r.fk.kbd, '首领条的破绽提示里 F 角标应换成图标：' + JSON.stringify(r.fk));
+    assert(r.prewarm === 0, '按钮图标不该进图标预热（keys()）：' + r.prewarm);
+    await ev(() => G.ui.open('help', 'keys'));
+    await until(() => document.querySelector('#panel-body .hk'), null, 10000);
+    const h = await ev(() => {
+      const rows = Array.from(document.querySelectorAll('#panel-body .hk'));
+      return { n: rows.length, ico: document.querySelectorAll('#panel-body .hk kbd.kb-ico .ico[class*="ico-ui-"]').length, txt: rows.map((e) => e.innerText.replace(/\s+/g, ' ')).join(' | '), keys: rows.map((e) => e.querySelector('.hk-keys').innerText.trim()).join('|') };
+    });
+    await ev(() => G.ui.close());
+    for (const w of ['翻滚', '互动', '背包 / 技能 / 天赋 / 地图', '名牌', '菜单']) assert(h.txt.includes(w), '触屏操作说明缺「' + w + '」：' + h.txt);
+    assert(h.ico >= 8 && !/(^|\|)(翻|包|F|≡)(\||$)/.test(h.keys), '触屏操作说明里按钮应画成图标（不再写 翻 / 包 / F / ≡）：' + JSON.stringify(h));
+    return '图标 ' + r.list + ' · 操作说明 ' + h.n + ' 行、图标 ' + h.ico + ' 个';
   });
 
   await step('触屏：竖屏时盖上「请横屏游玩」、模拟暂停，转回横屏继续', async () => {
@@ -30048,7 +30249,7 @@ async function touchSteps() {
     return r.lines.length + ' 个画面，共量 ' + r.lines.reduce((n, l) => n + +l.split(' ').pop(), 0) + ' 个框';
   });
 
-  await step('触屏：桌面窗口不开触屏模式（没有 html.touch-ui / t-land / t-rot、没有触屏 DOM、G.touch.on 为假，G.viewW / viewH 就是窗口尺寸），开场卡片的「开始」在 1280×360 / 1024×360 里也在屏内', async () => {
+  await step('触屏：桌面窗口不开触屏模式（没有 html.touch-ui / t-land / t-rot、没有触屏 DOM、G.touch.on 为假，G.viewW / viewH 就是窗口尺寸），开场卡片的「开始」在 1280×360 / 1024×360 里也在屏内；翻滚键画图标（touch-icons），首领条的 F 照旧是按键', async () => {
     if (browser) await browser.close().catch(() => {});
     ({ browser, page, errors } = await launch({ width: 1280, height: 360 }));
     await install();
@@ -30073,12 +30274,15 @@ async function touchSteps() {
             vp: document.querySelector('meta[name=viewport]').content,
             aim: G.input.aim,
             go: go.top >= 0 && go.bottom <= innerHeight && go.left >= 0 && go.right <= innerWidth,
+            // touch-icons：翻滚键桌面也画图标（「翻」字藏起来、键名「空格」照旧）；首领条的 F 照旧是按键，手的图标不画
+            roll: /^url\("?data:image\/png/.test(getComputedStyle(document.querySelector('#dodge .d-ui')).backgroundImage) && getComputedStyle(document.querySelector('#dodge .d-icon > span')).display === 'none' && document.querySelector('#dodge .s-key').textContent === '空格',
+            fk: getComputedStyle(document.querySelector('#boss-break .t-fk')).display === 'none' && getComputedStyle(document.querySelector('#boss-break kbd')).display !== 'none',
           };
         })
       );
     }
-    const bad = out.filter((r) => r.on || r.cls || r.land || !r.view || r.dom || r.mf || r.aim !== null || r.vp !== 'width=device-width, initial-scale=1' || !r.go);
-    assert(!bad.length, '桌面不应开触屏、「开始」应在屏内：' + JSON.stringify(bad));
+    const bad = out.filter((r) => r.on || r.cls || r.land || !r.view || r.dom || r.mf || r.aim !== null || r.vp !== 'width=device-width, initial-scale=1' || !r.go || !r.roll || !r.fk);
+    assert(!bad.length, '桌面不应开触屏、「开始」应在屏内、翻滚键画图标、首领条的 F 照旧：' + JSON.stringify(bad));
     await ev(() => G.ui.close());
     return out.map((r) => r.size).join(' / ');
   });

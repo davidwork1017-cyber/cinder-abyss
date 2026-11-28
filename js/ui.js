@@ -245,6 +245,7 @@
     hud.flaskLife = flask('life');
     hud.flaskMana = flask('mana');
     hud.dodge = { root: $('dodge'), cd: $('dodge').querySelector('.d-cd'), q: -1 };
+    G.icons.cls('ui-roll'); // 翻滚键的图标（index.html 里 .d-ui 写好了类名，这里画出来、注册规则；桌面和触屏一样，touch-icons）
     hud.xp = { fill: $('xp-fill'), lv: $('xp-lv'), pct: $('xp-pct'), level: -1, need: 1, q: -1 };
     hud.zone = { name: $('zone-name'), sub: $('zone-sub'), seal: $('seal-chips'), ref: null, tier: -1 };
     hud.boss = { box: $('boss-box'), name: $('boss-name'), fill: $('boss-fill'), trail: $('boss-trail'), num: $('boss-num'), ail: $('boss-ail'), ailSig: '', on: false, ref: null, q: -1, hp: -1, poise: $('boss-poise-fill'), pq: -1, brk: false, far: false, brkTxt: $('boss-break-txt') };
@@ -1739,7 +1740,7 @@
     },
     // B4a：地图、帮助。渊印的图例放在地图的 [?] 里
     map: {
-      touch: { once: '点区域卡片看详情，再点「进入」', list: ['点区域卡片：怪物等级、首领和「进入」', '按住卡片：看浮窗', '轮回层级越高，怪物和物品等级越高', '<i class="sc mob">戾</i> 怪物侧印纹，强化怪物', '<i class="sc player">竭</i> 玩家侧印纹，削弱你', '<i class="lg-ring"></i> 小地图上的领群者', '拾取、画质、删除角色：≡ → 设置'] },
+      touch: { once: '点区域卡片看详情，再点「进入」', list: ['点区域卡片：怪物等级、首领和「进入」', '按住卡片：看浮窗', '轮回层级越高，怪物和物品等级越高', '<i class="sc mob">戾</i> 怪物侧印纹，强化怪物', '<i class="sc player">竭</i> 玩家侧印纹，削弱你', '<i class="lg-ring"></i> 小地图上的领群者', '拾取、画质、删除角色：菜单 → 设置'] },
       desk: { once: '选好轮回层级，点区域卡片上的「进入」', list: ['选好轮回层级，点区域卡片上的「进入」', '轮回层级越高，怪物和物品等级越高', '<i class="sc mob">戾</i> 怪物侧印纹，强化怪物', '<i class="sc player">竭</i> 玩家侧印纹，削弱你', '<i class="lg-ring"></i> 小地图上的领群者', '拾取、画质、删除角色：Esc → 设置'] },
     },
     help: {
@@ -4167,36 +4168,45 @@
   // 触屏模式（js/touch.js）开着：提示、操作说明换成触屏说法
   const touchOn = () => !!(G.touch && G.touch.on);
   // 提示卡、飘出的提示、追踪条里写着键位的地方：触屏模式下换成对应的按钮（桌面原样返回）
-  const TOUCH_PANEL = { I: '点顶栏的「包」', G: '点顶栏的「技」', P: '点顶栏的「赋」', M: '点顶栏的「图」', H: '点顶栏的 ≡ 看操作说明' };
+  // 触屏顶栏的按钮是图标（touch-icons）：说法写成「点顶栏的 [图标]「背包」」，图标夹在字里（.ui-in），用到时才画。
+  // 写着 <kbd> 的是 HTML（提示卡、面板提示条），才夹图标；不带 <kbd> 的那一类也会进纯文字的地方（飘字、追踪条、异兆条用 textContent），只写字
+  const tIco = (id) => G.icons.ui(id, 'ui-in');
+  const TOUCH_PANEL = { I: ['bag', '「背包」'], G: ['skills', '「技能」'], P: ['tree', '「天赋」'], M: ['map', '「地图」'], H: ['menu', '菜单看操作说明'] };
+  const touchPanel = (k, html) => '点顶栏的' + (html ? tIco(TOUCH_PANEL[k][0]) : '') + TOUCH_PANEL[k][1];
   const TOUCH_TXT = [
     [/按 ?<kbd>([QE]|左键)<\/kbd> 开关<b>自动召唤<\/b>（补到上限，魔力不够时暂停），<kbd>Shift<\/kbd>\+<kbd>\1<\/kbd> 在准星处召唤/g, '轻点技能键开关<b>自动召唤</b>（补到上限，魔力不够时暂停），拖出去松手在准星处召唤'],
-    [/按 ?<kbd>([IGPMH])<\/kbd>/g, (m, k) => TOUCH_PANEL[k]],
-    [/按 ([IGPMH])(?![A-Za-z])/g, (m, k) => TOUCH_PANEL[k]],
+    [/按 ?<kbd>([IGPMH])<\/kbd>/g, (m, k) => touchPanel(k, true)],
+    [/按 ([IGPMH])(?![A-Za-z])/g, (m, k) => touchPanel(k, false)],
     [/按 ?<kbd>R<\/kbd>/g, '点<b>武器技键</b>'],
-    [/按 ?<kbd>F<\/kbd>/g, '点 <kbd>F</kbd> 键'],
-    [/按 F(?![A-Za-z])/g, '点 F 键'],
+    [/按 ?<kbd>F<\/kbd>/g, () => '点' + tIco('hand') + '<b>互动键</b>'],
+    [/按 F(?![A-Za-z])/g, '点互动键'],
     [/按住 ?<kbd>右键<\/kbd>/g, '按住<b>普攻键</b>'],
     [/<kbd>右键<\/kbd>/g, '<b>普攻键</b>'],
     [/<kbd>左键<\/kbd>/g, '<b>大按钮</b>'],
-    [/<kbd>空格<\/kbd>/g, '<b>翻</b>键'],
+    [/<kbd>空格<\/kbd>/g, () => tIco('roll') + '<b>翻滚键</b>'],
   ];
   function touchText(s) {
     if (!touchOn() || typeof s !== 'string') return s;
     for (const [re, to] of TOUCH_TXT) s = s.replace(re, to);
     return s;
   }
-  // 触屏的操作说明（标题画面 / 暂停菜单的「操作说明」）
+  // 触屏的操作说明（标题画面 / 暂停菜单的「操作说明」）。键名以 ui: 开头的画成按钮上的图标（touch-icons），说明里照样写出中文名
   const HELP_TOUCH = [
     [['左下'], '拖动移动'],
     [['大按钮'], '主攻技能，按住连放'],
     [['技能键'], '轻点自动瞄准；拖出去手动瞄准，松手放出，拖回按钮上取消'],
-    [['翻'], '翻滚，短暂无敌，可取消挥砍'],
+    [['ui:roll'], '翻滚：短暂无敌，可取消挥砍'],
     [['药瓶'], '生命 / 魔力药剂'],
-    [['F'], '附近有破绽中的敌人或掉落时出现：处决或拾取'],
+    [['ui:hand'], '互动：附近有破绽中的敌人或掉落时出现，处决或拾取'],
     [['点名牌'], '拾取地上的物品；点宝箱打开'],
-    [['包', '技', '赋', '图'], '背包 / 技能 / 天赋 / 地图'],
-    [['名牌'], '展开地上所有的名牌'],
+    [['ui:bag', 'ui:skills', 'ui:tree', 'ui:map'], '背包 / 技能 / 天赋 / 地图'],
+    [['ui:labels'], '名牌：展开地上所有的名牌'],
+    [['ui:menu'], '菜单：暂停、设置、操作说明'],
+    [['ui:rot', 'rot'], '换方向：转着横屏时，画面换个方向'],
   ];
+  // 一个键名的写法：图标键（ui:xxx）画图标，普通键写字；第二格写 rot 的只在旋转横屏时列出
+  const helpKeyCap = (x) => (x.indexOf('ui:') === 0 ? '<kbd class="kb-ico">' + tIco(x.slice(3)) + '</kbd>' : '<kbd>' + x + '</kbd>');
+  const helpRows = () => (touchOn() ? HELP_TOUCH.filter((k) => k[0][1] !== 'rot' || document.documentElement.classList.contains('t-rot')).map((k) => [k[0].filter((x) => x !== 'rot'), k[1]]) : HELP_KEYS);
   // 按键表：帮助页和标题画面 / 暂停菜单里的「操作说明」共用
   const HELP_KEYS = [
     [['W', 'A', 'S', 'D'], '移动（方向键亦可）'],
@@ -4212,11 +4222,11 @@
   ];
   // 帮助页（B4a）：左边一列话题，右边只显示一个话题（唯一的滚动区）；竖屏话题是顶上一排横滑的标签。
   // 暂停菜单的「操作说明」直接打开「操作」这一节，只留一份文字
-  const helpKey = (k, t) => '<div class="hk"><span class="hk-keys">' + k.map((x) => '<kbd>' + x + '</kbd>').join('') + '</span><span>' + t + '</span></div>';
+  const helpKey = (k, t) => '<div class="hk"><span class="hk-keys">' + k.map(helpKeyCap).join('') + '</span><span>' + t + '</span></div>';
   const HELP_TOPICS = [
     ['keys', '操作', () =>
       '<div class="sec-title">操作</div>' +
-      (touchOn() ? HELP_TOUCH : HELP_KEYS).map((k) => helpKey(k[0], k[1])).join('') +
+      helpRows().map((k) => helpKey(k[0], k[1])).join('') +
       '<div class="help-foot"><button type="button" tabindex="-1" class="btn sm" data-act="tut-reset">重新显示新手提示</button>' +
       '<span>' + (ui.tutMsg || '已看过 ' + Object.keys(G.save.tut).length + ' / ' + HINTS.length + ' 条') + '</span></div>'
     ],
@@ -6632,6 +6642,37 @@
       );
     return setSw(OFFCLS_NAME, '捡到本职业用不了的武器时直接分解（不动仓库和身上的装备）', !!o.salvageOffCls, 'data-tact="offcls"');
   }
+  // 设置 → 实验（style-pixel / map-open）：两个开关存在这台设备上（localStorage 'cinder-abyss-lab' = { px, map }，两个都关时删掉这个键），不进存档，
+  // 标题画面上还没有存档时也存得住。脚本在开机时由 index.html 按它加载，所以改了要重新载入才生效：开关和这一次实际加载的不一样时，
+  // 下面多一行「重新载入后生效」+ 按钮。网址带 ?proto= 时这一次以网址为准
+  const LAB_KEY = 'cinder-abyss-lab', LAB_TIP = '试玩中的新画面和地图，可能有显示问题';
+  function labGet() {
+    try {
+      const o = JSON.parse(localStorage.getItem(LAB_KEY) || 'null');
+      return { px: !!(o && o.px === true), map: !!(o && o.map === true) };
+    } catch (e) {
+      return { px: false, map: false };
+    }
+  }
+  function labFlip(k) {
+    const o = labGet();
+    o[k] = !o[k];
+    try {
+      if (o.px || o.map) localStorage.setItem(LAB_KEY, JSON.stringify(Object.assign(o.px ? { px: true } : {}, o.map ? { map: true } : {})));
+      else localStorage.removeItem(LAB_KEY);
+    } catch (e) {}
+  }
+  function setLabRows() {
+    const L = window.CA_LAB || {}, cur = labGet(), px = cur.px, mp = cur.map;
+    const tip = ' data-tip="txt:' + LAB_TIP + '"';
+    let h =
+      setSw('像素画面（实验）', '像素风画面，暗处只靠火光照亮', px, 'data-tact="labpx"' + tip) +
+      setSw('开放式荒原（实验）', '灰烬荒原换成一整片连着的大地图，约现在 4 倍大', mp, 'data-tact="labmap"' + tip);
+    if (L.url) h += '<div class="m-row lab-note"><span class="opt-text"><b>这次由网址决定</b><span>网址里带了 proto 参数，开关下次打开游戏时生效</span></span></div>';
+    else if (px !== !!L.px || mp !== !!L.map)
+      h += '<div class="m-row lab-note"><span class="opt-text"><b>重新载入后生效</b><span>进度会先存好</span></span><button type="button" tabindex="-1" class="btn" data-tact="labreload">重新载入</button></div>';
+    return h;
+  }
   function menuSettings() {
     const S = G.save, o = S.opts, Q = S.quest;
     const q = G.world.quality ? G.world.quality() : o.quality;
@@ -6658,6 +6699,7 @@
         setSw('镜头震动', '大招落地、挨重击时镜头晃一下', o.shake !== false, 'data-tact="opt" data-opt="shake"')) +
       // sfx-synth：声音。滑条拖动时立即生效（onMenuInput），松手才存档
       setGrp('声音', setSw('静音', '关掉所有声音', !!o.mute, 'data-tact="opt" data-opt="mute"') + SET_VOL.map((v) => setRow(v[1], v[2], volSlider(v[0]))).join('')) +
+      setGrp('实验', setLabRows()) +
       (menu.title ? '' : setGrp('角色', setDelRow())) +
       '</div>' +
       (touchOn() ? '<p class="m-note">设置会存进存档；触屏的几项只存在这台设备上。</p>' + setDevRow() : '<p class="m-note">设置会存进存档。</p>')
@@ -6677,7 +6719,7 @@
   }
   function menuHelp() {
     return (
-      '<div class="m-keys">' + (touchOn() ? HELP_TOUCH : HELP_KEYS).map((k) => '<div class="hk"><span class="hk-keys">' + k[0].map((x) => '<kbd>' + x + '</kbd>').join('') + '</span><span>' + k[1] + '</span></div>').join('') + '</div>' +
+      '<div class="m-keys">' + helpRows().map((k) => helpKey(k[0], k[1])).join('') + '</div>' +
       '<p class="m-note">沿着路一直向前，击败尽头的首领。战斗、宝石、天赋和通货的说明在游戏里按 <kbd>H</kbd> 查看。</p>'
     );
   }
@@ -6894,6 +6936,21 @@
     hideTitle();
   }
   const MENU_ACT = {
+    // 设置 → 实验：存在这台设备上（见 setLabRows），不改存档
+    labpx() {
+      labFlip('px');
+      G.sfx('click');
+      renderMenu();
+    },
+    labmap() {
+      labFlip('map');
+      G.sfx('click');
+      renderMenu();
+    },
+    labreload() {
+      G.persist();
+      location.reload();
+    },
     devinfo() {
       menu.devInfo = !menu.devInfo;
       G.sfx('click');
@@ -7580,7 +7637,7 @@
       '<path class="pa-track" d="' + arcL + '"/><path class="pa-track" d="' + arcR + '"/>' +
       '<path class="pa-life" d="' + arcL + '" pathLength="100"/><path class="pa-mana" d="' + arcR + '" pathLength="100"/>' +
       '</svg></div><div id="nameplate"></div><div id="mplate"></div><div id="arrows"></div>' +
-      '<div id="execp"><div class="ep"><kbd>F</kbd><span></span></div><i></i></div>';
+      '<div id="execp"><div class="ep"><kbd>F</kbd><i class="ico ico-ui-hand ui-in t-fk"></i><span></span></div><i></i></div>';
     wui.exec = $('execp');
     wui.execTxt = wui.exec.querySelector('span');
     wui.arc = $('parc');
@@ -8353,7 +8410,7 @@
     {
       id: 'execute', urgent: true, max: 10,
       get html() {
-        return '敌人露出<b class="c-gold">破绽</b>：靠近' + (touchOn() ? '点 <kbd>F</kbd> 键' : '按 <kbd>F</kbd>') + ' <b>处决</b>，重创并回复生命、魔力和药剂';
+        return '敌人露出<b class="c-gold">破绽</b>：靠近' + (touchOn() ? '点' + tIco('hand') : '按 <kbd>F</kbd>') + ' <b>处决</b>，重创并回复生命、魔力和药剂';
       },
       when: () => enemyNear(16, (e) => e.brokenT > 0.8 && !e.executed),
       done: (b) => G.state.stats.execs > b.execs,
@@ -8441,7 +8498,7 @@
       id: 'dodge', basic: true, need: 'attack', max: 40,
       known: () => coach.ever.rolled,
       get html() {
-        return (touchOn() ? '点<b>翻</b>键' : '<kbd>空格</kbd>') + ' 翻滚，途中无敌。滚出地上的<b class="c-red">红色区域</b>';
+        return (touchOn() ? '点' + tIco('roll') + '<b>翻滚</b>，' : '<kbd>空格</kbd> 翻滚，') + '途中无敌。滚出地上的<b class="c-red">红色区域</b>';
       },
       when: () => G.state.enemies.some((e) => e.awake && !e.dead),
       done: () => coach.rolled,
@@ -8452,7 +8509,7 @@
         const bid = G.weaponBasic ? G.weaponBasic() : null;
         const sk = bid && G.SKILLS[bid];
         const n = sk && sk.combo ? sk.combo.length : 3;
-        if (touchOn()) return '按住<b>普攻键</b>连出<b>' + (['', '一', '两', '三', '四'][n] || n) + '段</b>' + (sk ? '「' + sk.name + '」' : '') + '，末段是<b>终结技</b>，伤害最高。出招中可点<b>翻</b>键取消';
+        if (touchOn()) return '按住<b>普攻键</b>连出<b>' + (['', '一', '两', '三', '四'][n] || n) + '段</b>' + (sk ? '「' + sk.name + '」' : '') + '，末段是<b>终结技</b>，伤害最高。出招中可点' + tIco('roll') + '<b>翻滚</b>取消';
         return '按住 <kbd>右键</kbd> 连出<b>' + (['', '一', '两', '三', '四'][n] || n) + '段</b>' + (sk ? '「' + sk.name + '」' : '') + '，末段是<b>终结技</b>，伤害最高。出招中可按 <kbd>空格</kbd> 翻滚取消';
       },
       when: () => comboOnBar() && enemyNear(9, (e) => e.awake),
@@ -8637,7 +8694,7 @@
     {
       id: 'loot', calm: true, max: 22,
       get html() {
-        return touchOn() ? '有掉落：魔法、稀有物品走过去就捡，普通物品点名牌或 <kbd>F</kbd> 键。<br>顶栏的「名牌」展开全部名牌' : '有掉落：魔法、稀有物品走过去就捡，普通物品按 <kbd>F</kbd> 或点名牌。<br>准星停在名牌上看属性，按住 <kbd>Alt</kbd> 看概要';
+        return touchOn() ? '有掉落：魔法、稀有物品走过去就捡，普通物品点名牌，或点' + tIco('hand') + '捡起。<br>点顶栏的' + tIco('labels') + '展开全部名牌' : '有掉落：魔法、稀有物品走过去就捡，普通物品按 <kbd>F</kbd> 或点名牌。<br>准星停在名牌上看属性，按住 <kbd>Alt</kbd> 看概要';
       },
       when: () => G.state.loot.some((l) => l.kind === 'item' && Math.hypot(l.x - G.player.x, l.z - G.player.z) < 9),
       done: (b) => coach.sawGround || G.save.bag.length > b.bag,

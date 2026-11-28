@@ -74,7 +74,7 @@
     <div class="boss-poise"><div id="boss-poise-fill"></div></div>
     <!-- 元素异常值：火 / 冰 / 雷，满了触发爆燃 / 冰缓 / 感电 -->
     <div class="boss-bu"><i class="fire"><b></b></i><i class="cold"><b></b></i><i class="light"><b></b></i></div>
-    <div id="boss-break">破绽<kbd>F</kbd><span id="boss-break-txt">处决</span></div>
+    <div id="boss-break">破绽<kbd>F</kbd><i class="ico ico-ui-hand ui-in t-fk"></i><span id="boss-break-txt">处决</span></div>
   </div>
 
   <!-- 连击计数 -->
@@ -115,8 +115,8 @@
   <div id="console">
     <button type="button" id="pp-remind" tabindex="-1" data-open="tree"></button>
     <div id="bar">
-      <div id="dodge">
-        <div class="d-icon"><span>翻</span><div class="d-cd"></div></div>
+      <div id="dodge" aria-label="翻滚">
+        <div class="d-icon"><i class="ico ico-ui-roll t-ico d-ui"></i><span>翻</span><div class="d-cd"></div></div>
         <div class="s-key">空格</div>
       </div>
       <div class="bar-sep"></div>
@@ -262,12 +262,29 @@
 <script src="js/assets/index.js"></script>
 <!-- 角色模型（Quaternius CC0，GLB 打成 base64）：开场就要用，同步引入；缺了就用程序化角色 -->
 <script src="js/assets/chars.js"></script>
+<!-- AI 生成的武器 / 装备模型包（ai3d-weapons）：建主角骨架之前就要到，同步引入。&aiwpn=0（或页面加载前 window.CA_AIWPN = 0）关掉，照旧用脚本件，A/B 用 -->
+<script>if (window.CA_AIWPN !== 0 && !/[?&]aiwpn=0\b/.test(location.search)) { window.CA_AIWPN = 1; document.write('<script src="js/assets/kit-aiwpn.js"><\/script>'); } else window.CA_AIWPN = 0;</script>
+<!-- AI 生成的烬骸仆从剑和盾（ai3d-enemies）：仆从骨架第一次建的时候就要，同步引入；页面加载前 window.CA_OLD_ENEMY = true 时不引入（照旧用 Quaternius 的模型和脚本件，A/B 用） -->
+<script>if (window.CA_OLD_ENEMY !== true) document.write('<script src="js/assets/kit-aithrall.js"><\/script>');</script>
 <!-- 特效贴图库（tools/gen-vfx-textures.mjs 程序化生成，打成 base64）：同步引入，js/vfx.js 解码成纹理、提供共用的特效着色器 -->
 <script src="js/assets/vfx.js"></script>
 <script src="js/assets.js"></script>
+<!-- AI 生成的技能件（冰晶、冰凌、冰碴、冰簇、雷桩、冰棱；art/ai/pieces.py 生成的小网格，没有贴图）：同步引入，js/vfx.js / js/world.js 建几何体时读；缺了就用原来的几何体 -->
+<script src="js/assets/skill-pieces.js"></script>
 <script src="js/vfx.js"></script>
 <script src="js/items.js"></script>
 <script src="js/world.js"></script>
+<!-- 实验（默认不加载、不改任何行为）：js/pixel.js 像素 + 暗色地牢画面，js/openmap.js 开放式第 1 区。
+     加载条件：网址参数（?px= / ?openmap=1）或「设置 → 实验」的开关（存在这台设备上：localStorage 'cinder-abyss-lab' = { px, map }，
+     两个都关时没有这个键；不进存档）；?proto=1 这一次两个都开，?proto=0 两个都关（都不改设置）。window.CA_LAB 记着这一次实际加载了哪个 -->
+<script>(function () {
+  var q = location.search, o = {};
+  try { o = JSON.parse(localStorage.getItem('cinder-abyss-lab') || 'null') || {}; } catch (e) {}
+  var p0 = /[?&]proto=0\b/.test(q), p1 = /[?&]proto=1\b/.test(q);
+  var L = (window.CA_LAB = { px: !p0 && (p1 || /[?&]px=(?!0(&|$))/.test(q) || o.px === true), map: !p0 && (p1 || /[?&]openmap=1\b/.test(q) || o.map === true), url: p0 || p1 });
+  if (L.px) document.write('<script src="js/pixel.js"><\/script>');
+  if (L.map) document.write('<script src="js/openmap.js"><\/script>');
+})();</script>
 <script src="js/game.js"></script>
 <script src="js/enemies.js"></script>
 <script src="js/minions.js"></script>

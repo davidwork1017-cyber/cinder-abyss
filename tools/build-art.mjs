@@ -82,8 +82,11 @@ export function manifestEntry(st) {
     r: r3(Math.max(-s.min[0], s.max[0], -s.min[2], s.max[2])),
     y0: r3(s.min[1]),
     // golem_ai（ai3d-golem）：AI 生成的源模型经 art/ai/golem_rig.py 处理；参数 + 源文件 sha256 在 args.spec 里，来源记录在 assets/ca/boss/golem.provenance.json
+    // boss_ai（ai3d-bosses：雷霆监察者 / 衔星巨兽）：同样的路子，经 art/ai/boss_rig.py 处理，来源记录在 assets/ca/boss/<kind>.provenance.json
     source: st.gen === 'golem_ai'
       ? { script: 'art/ai/golem_rig.py', fit: 'art/ai/golem_fit.py', clips: 'art/ca/boss/golem_clips.py', gen: st.gen, catalog: 'art/catalog.py', seed: st.seed, args: st.args, provenance: 'assets/ca/boss/golem.provenance.json' }
+      : st.gen === 'boss_ai'
+      ? { script: 'art/ai/boss_rig.py', fit: 'art/ai/boss_fit.py', parts: 'art/ai/boss_parts.py', clips: 'art/ca/boss/' + st.id.split('_')[1] + '_clips.py', gen: st.gen, catalog: 'art/catalog.py', seed: st.seed, args: st.args, provenance: 'assets/ca/boss/' + st.id.split('_')[1] + '.provenance.json' }
       : st.cat === 'boss'
       ? { script: 'art/ca/boss/' + st.gen + '.py', clips: 'art/ca/boss/' + st.gen + '_clips.py', gen: st.gen, catalog: 'art/catalog.py', seed: st.seed, args: st.args, bake: st.bake }
       : st.gen === 'ai'
@@ -91,7 +94,7 @@ export function manifestEntry(st) {
         : { script: 'art/ca/gen.py', gen: st.gen, catalog: 'art/catalog.py', seed: st.seed, args: st.args, bake: st.bake },
     ...(st.cat === 'boss' ? { bones: st.bones, clips: st.clips, home: st.home } : {}),
     // AI 件（gen='ai'，art/ai/importer.py）：哪一档（hi / lo）、外观（albedo 带贴图 / vc 调色板顶点色）、贴图 id（albedo 才有，tools/asset-sources.json 的 textures 里）
-    ...(st.gen === 'ai' ? { lod: st.ai.lod, mode: st.ai.mode, ...(st.ai.mode === 'albedo' ? { tex: aiProv(st.ai.prov).processing.tex.id } : {}) } : {}),
+    ...(st.gen === 'ai' ? { lod: st.ai.lod, mode: st.ai.mode, ...(st.ai.part ? { part: st.ai.part } : {}), ...(st.ai.mode === 'albedo' ? { tex: aiProv(st.ai.prov).processing.tex.id } : {}) } : {}),
     sha256: crypto.createHash('sha256').update(buf).digest('hex'),
   };
 }
@@ -139,6 +142,15 @@ async function main() {
     fs.writeFileSync(path.join(outDir, 'palette.png'), first.bin.subarray(bv.byteOffset || 0, (bv.byteOffset || 0) + bv.byteLength));
   }
   console.log('Blender ' + (ms / 1000).toFixed(1) + ' s（' + groups.length + ' 个进程 × 烘焙线程 ' + threads + '），' + built.length + ' 件 → assets/ca/，清单 ' + assets.length + ' 件');
+  // ai3d-skills：全量构建时顺带出 AI 技能件（art/ai/pieces.py → js/assets/skill-pieces.js；源文件不在就保留已提交的）
+  if (!only) {
+    const r = spawnSync(blender, ['-b', '--factory-startup', '--python-exit-code', '1', '--python', path.join(root, 'art/ai/pieces.py')], { cwd: root, encoding: 'utf8' });
+    for (const l of (r.stdout || '').split('\n')) if (l.startsWith('CA_PIECE ')) console.log(l.length > 160 ? l.slice(0, 160) + '…' : l);
+    if (r.status !== 0) {
+      console.error('art/ai/pieces.py 失败：\n' + (r.stderr || '').slice(-2000));
+      process.exit(1);
+    }
+  }
   if (opt('no-pack') === null) {
     const r = spawnSync(process.execPath, [path.join(root, 'tools/pack-assets.mjs')], { cwd: root, stdio: 'inherit' });
     if (r.status !== 0) process.exit(r.status || 1);

@@ -317,6 +317,9 @@ export const PANELS = {
       TT.tp(s.x, s.z + 10, Math.PI);
       TT.settle(30);
       const b = G.spawnBoss('warden', s.x, s.z - 2, 9, {});
+      // 外观实体出生时的时钟 / 相位取自画面随机数（G.vr），它的序列跟着开场前跑了几个模拟步走，每次不一样：定住，两次烘出来一样
+      b.ent.clock = 0;
+      b.ent.phase = 0;
       b.awake = false;
       b.ang = 0.3;
       G.world.setEnt(b.ent, b.x, b.z, b.ang);

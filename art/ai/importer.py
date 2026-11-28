@@ -328,8 +328,11 @@ def _lab(rgb_lin):
 
 
 # ---------- 入口（catalog 的 gen='ai'） ----------
-def ai(k, prov, lod='hi', mode='albedo'):
-    """k = core.Kit；prov = provenance.json 的仓库内路径；lod = processing.lods 里的哪一档；mode = albedo / vc"""
+def ai(k, prov, lod='hi', mode='albedo', part=None):
+    """k = core.Kit；prov = provenance.json 的仓库内路径；lod = processing.lods 里的哪一档；mode = albedo / vc / fc（武器：逐面取色 + 发光拆分，见 art/ai/weapon.py）"""
+    if mode == 'fc':
+        from ai import weapon
+        return weapon.build(k, prov, lod, part)
     P = load_prov(dict(prov=prov))
     spec = P['processing']
     log = {}
@@ -426,7 +429,16 @@ def _vc_tags(k, faces, fuv, px, spec, log):
     clab = _lab(s2l(np.array([c[2] for c in cand])))
     Ls, Lc = lab[:, 0], clab[:, 0]
     lo, hi = np.percentile(Ls, 3), np.percentile(Ls, 97)
-    L = Lc.min() + (Ls - lo) / max(1e-6, hi - lo) * (Lc.max() - Lc.min())
+    tn = (Ls - lo) / max(1e-6, hi - lo)
+    if V.get('gamma', 1.0) != 1.0:  # gamma < 1：中间调往亮里提（暗色为主的源模型，比如 AI 的绊雷）；缺省 1 和原来完全一样
+        tn = np.clip(tn, 0, 1) ** V['gamma']
+    if V.get('lift'):
+        # lift = {h: 高度比例, add: 提亮量}：面的中心高于件高 × h 的面往亮里提 add（绊雷：盘身留暗铁，竖起来的爪和中间的灯钮提亮，俯视时不沉进地面）
+        zs = [v.co.z for f in faces for v in f.verts]
+        z0, z1 = min(zs), max(zs)
+        up = np.array([f.calc_center_median().z > z0 + V['lift']['h'] * (z1 - z0) for f in faces])
+        tn = np.where(up, np.clip(np.clip(tn, 0, 1) + V['lift']['add'], 0, 1), tn)
+    L = Lc.min() + tn * (Lc.max() - Lc.min())
     q = np.stack([L, lab[:, 1] * V.get('chroma', 1.0), lab[:, 2] * V.get('chroma', 1.0)], axis=-1)
     d = ((q[:, None, :] - clab[None, :, :]) ** 2).sum(-1)
     pick = d.argmin(axis=1)

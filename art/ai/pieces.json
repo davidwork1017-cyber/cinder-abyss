@@ -1,0 +1,12 @@
+{
+ "_comment": "art/ai/pieces.py 要处理的 AI 技能件（来源记录的仓库内路径），输出 js/assets/skill-pieces.js",
+ "provenance": [
+  "assets/ai/skill-ice-spike/provenance.json",
+  "assets/ai/skill-ice-icicle/provenance.json",
+  "assets/ai/skill-ice-shard/provenance.json",
+  "assets/ai/skill-ice-chunk/provenance.json",
+  "assets/ai/skill-ice-cluster/provenance.json",
+  "assets/ai/skill-turret/provenance.json",
+  "assets/ai/skill-pylon/provenance.json"
+ ]
+}

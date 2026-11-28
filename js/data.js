@@ -113,14 +113,18 @@
   // ---------- 远程武器：量表 ----------
   // 拿着枪械或弓时右键是这把武器的普攻（G.rangedWeapon()），R 被量表卡住：满了（max）才亮，放出去清零。
   // 热度（枪械）：开火时上涨（每种普攻的 heat / heatShot），最近 hitKeep 秒内没打中任何东西时只涨 miss 倍（对着空地预热很慢）；
-  //   停火 hold 秒后每秒回落 decay。没有过热惩罚。
+  //   停火 hold 秒后每秒回落 decay（hold 够长：两群怪之间走过去、翻滚几下，热度不掉）。没有过热惩罚。
   // 专注（弓）：普攻的箭每命中一次 +hit，暴击 × crit，离你 farD 米以外命中 × far；一支箭最多算 cap 次命中（贯穿进怪堆不会一下灌满）；
   //   你每挨一下 −hurt；hold 秒没有命中后每秒回落 decay；增益生效期间不涨。按发积攒的量（专注、左轮的热度）除以出手速度倍率：射得快不等于 R 来得快。
-  // 节奏（平衡机器人量过）：持续作战时第一次 R 在 11–16 秒，枪械之后每 12–16 秒一次；弓的增益 8 秒里专注不涨，一轮约 18–22 秒。
+  // 节奏（平衡机器人量过）：弓的增益 8 秒里专注不涨，一轮约 18–22 秒。
+  // 枪械（gun-gauge，用户 2026-11-27「枪械的武器技好久才能用一次」）：原来 hold 1.5 / decay 6、每秒 6.5 热度，接近真实打法
+  //   （走过去、每 4 秒翻滚一次、两群怪之间停 2–4 秒）时第一次 R 要打 17–47 秒、之后每 22–37 秒一次，喷枪 150 秒里只放得出 1–2 次。
+  //   现在 hold 4 / decay 3、每秒 16 热度（左轮每发 5.5）：同样的打法第一次 R 约 7–9 秒、之后每 9–11 秒；对着木桩一直打每 6–7.5 秒一次。
+  //   R 来得勤了，每一发的伤害相应调低（见三招的 basicSec / dur），「普攻 + R」的秒伤仍在规则 (a) 之内
   // 远距离：命中点离你 farMin 米以内不算远，到 farMax 米算满（鹰眼的额外伤害、rangeDmg 都按这个比例）
   G.RANGED = {
     max: 100,
-    heat: { hold: 1.5, decay: 6, miss: 0.5, hitKeep: 1.0 },
+    heat: { hold: 4, decay: 3, miss: 0.5, hitKeep: 1.0 },
     focus: { hit: 2.5, crit: 1.6, far: 1.5, farD: 8, cap: 3, hurt: 5, hold: 8, decay: 3 },
     farMin: 4, farMax: 14,
   };
@@ -539,7 +543,7 @@
       // spin：枪管空转多久才开火；rate0：刚转起来时的射速比例，ramp 秒后到最快；spread：弹道散布（度）
       // pierce：每发子弹自带穿透 1 个敌人（扫怪群时打得到后排）
       wm: 0.7, time: 0.083, mana: 0, cd: 0, spin: 0.5, rate0: 0.4, ramp: 2.5, speed: 42, projR: 0.18, range: 18, spread: 4, pierce: 1,
-      heat: 6.5, move: 0.35, w: 0, kb: 0.06, poise: 4, addEff: 0.25,
+      heat: 16, move: 0.35, w: 0, kb: 0.06, poise: 4, addEff: 0.25,
       desc: '按住右键：空转约 0.5 秒后开火，射速渐快，子弹穿透 1 个敌人。开火时移动很慢。', alt: '约 2.5 秒射速最快。每发削不少架势。装备附加伤害按 25% 计。',
     },
     basic_flamer: {
@@ -548,14 +552,14 @@
       // 同一个敌人站在几团余烬里也只按一团算）
       wm: 0.45, time: 0.1, mana: 0, cd: 0, range: 5.5, arc: 60, conv: { fire: 1 }, ailment: 50,
       ember: { gap: 0.3, r: 1.5, dur: 2.5, tick: 0.5, mult: 0.3 },
-      heat: 6.5, move: 0.55, w: 0, kb: 0, poise: 2, addEff: 0.3, // 火舌不推人：一秒十跳，推开了就喷不到了
+      heat: 16, move: 0.55, w: 0, kb: 0, poise: 2, addEff: 0.3, // 火舌不推人：一秒十跳，推开了就喷不到了
       desc: '按住右键喷火，灼烧身前短扇面内的敌人，异常值累积快，地上留下燃烧的余烬。', alt: '纯火焰伤害。装备附加伤害按 30% 计。',
     },
     basic_revolver: {
       name: '开火', icon: '射', color: '#ffd28a', tags: ['attack', 'projectile', 'phys'], kind: 'rbasic', rtype: 'revolver', weaponOnly: true, basic: true,
       // clip 发一轮，打空后 reload 秒自动装填
       wm: 1.05, time: 0.27, mana: 0, cd: 0, clip: 6, reload: 0.6, speed: 46, projR: 0.2, range: 20,
-      heatShot: 2.4, move: 0.8, w: 0, kb: 0.35, poise: 9, stop: 12, addEff: 0.75,
+      heatShot: 5.5, move: 0.8, w: 0, kb: 0.35, poise: 9, stop: 12, addEff: 0.75,
       desc: '右键开枪：单发伤害高，可边走边打，每 6 发自动装填。', alt: '装备附加伤害按 75% 计。',
     },
     basic_huntbow: {
@@ -722,27 +726,29 @@
       // 伤害按机炮普攻折算（basicOf / basicSec，见 game.js 的 G.basicShots）：两座炮台活满全程打在同一个敌人身上 = 机炮转满之后扫射 basicSec 秒，
       //   普攻每发的武器伤害 × 普攻 wm、装备附加 × 普攻 addEff，乘上这几秒的发数（武器攻速、攻击速度算在内，辅助宝石不算），再按这招自己的伤害加成、暴击和「热度技伤害」结算。
       //   每一跳 = ctx 一击的 1 / (n × dur / tick)。不是召唤物：伤害、暴击都按你的攻击算，不吃召唤物加成，也不吃持续时间
-      // basicSec 8（laser-beam 实测，等装备、物品等级 10 / 40）：机炮「普攻 + 炮台」比只打普攻高约四成（旧的蓄力射线约两成），
-      //   和其他远程武器最好的那套比最多高约两成（机炮的普攻本来就最强，再高就成了唯一值得拿的武器）
-      wm: 1, basicOf: 'basic_gatling', basicSec: 8, time: 0.15, mana: 0, cd: 0, conv: { fire: 0.5, light: 0.5 }, ailment: 100,
-      turret: { n: 2, dur: 6, side: 1.6, back: 0.4, tick: 0.2, len: 14, width: 1.2, range: 14, turn: 3.5, y: 0.95 },
+      // basicSec 2.6、炮台活 3 秒（gun-gauge 实测，等装备、物品等级 10 / 40）：热度攒得快了（对着木桩每 6.2 秒一次，原来 15.4 秒、basicSec 8），
+      //   「普攻 + 炮台」仍比只打普攻高约四成，和改版前一样；机炮单体已经在其他武器（含近战）最好的那套之上，没有再加的余地。
+      //   两座炮台活着的 3 秒里合计约等于你自己扫射的 0.85 倍：放下去等于这 3 秒伤害翻倍，扫射不停
+      wm: 1, basicOf: 'basic_gatling', basicSec: 2.6, time: 0.15, mana: 0, cd: 0, conv: { fire: 0.5, light: 0.5 }, ailment: 100,
+      turret: { n: 2, dur: 3, side: 1.6, back: 0.4, tick: 0.2, len: 14, width: 1.2, range: 14, turn: 3.5, y: 0.95 },
       w: 0, kb: 0.12, poise: 6, move: 1,
       wclip: null, // 不另播动作：右键照常扫射（炮台落地的特效由 world 的 W.turret 画）
       wt: { phases: [0], cancel: 0, dur: 0.15 },
       useMult: 1, // 单体整招就是 ctx 一击（倍率已经折算进伤害里）
-      desc: '热度满时可用：放下两座熔光炮台，6 秒内自动发射贯穿直线的射线，约合机炮扫射 {basicSec} 秒的伤害。', alt: '放的时候不停火。伤害一半火焰、一半闪电，同时累积两种异常值。炮台优先打你正在打的敌人，否则打最近的。不能被攻击，换区域或倒下时收起。伤害随武器、附加伤害与攻击速度成长，不算召唤物。',
+      desc: '热度满时可用：放下两座熔光炮台，{dur} 秒内自动发射贯穿直线的射线，约合机炮扫射 {basicSec} 秒的伤害。', alt: '放的时候不停火。伤害一半火焰、一半闪电，同时累积两种异常值。炮台优先打你正在打的敌人，否则打最近的。不能被攻击，换区域或倒下时收起。伤害随武器、附加伤害与攻击速度成长，不算召唤物。',
     },
     firestorm: {
       name: '焚天炎爆', icon: '爆', color: '#ff6a2c', tags: ['weapon', 'attack', 'area', 'fire'], kind: 'rflamer', weaponOnly: true, wtype: 'flamer', rgauge: true,
       // 半径 radius 的火浪（全部火焰）；之后留下半径 burn.r 的火场，burn.dur 秒内每 burn.tick 秒一跳。
       // 伤害和熔光炮台一样按普攻折算（basicOf / basicSec，见 game.js 的 G.basicShots）：火浪 = 喷枪持续喷射 basicSec 秒，
-      //   火场每一跳 = 喷射 burn.sec 秒（不算余烬）；整招单体 = 3.3 + 10 × 0.23 ≈ 5.6 秒。原来是火浪 wm 14、每跳 1 倍武器伤害：
-      //   装备附加只算一份、攻速不算，40 级时放一发只比一直喷多赚约 1.5 秒普攻（镶了辅助只剩 0.5 秒）
-      wm: 1, basicOf: 'basic_flamer', basicSec: 3.3, time: 0.75, mana: 0, cd: 0, radius: 7.5, conv: { fire: 1 }, ailment: 100, burn: { r: 6, dur: 8, tick: 0.8, sec: 0.23 }, // dur-tune：火场 5 → 8 秒、每 0.5 → 0.8 秒一跳，还是 10 跳
+      //   火场每一跳 = 喷射 burn.sec 秒（不算余烬）；整招单体 = 1.6 + 10 × 0.11 = 2.7 秒，约是放招那 0.75 秒普攻的 3.6 倍。
+      //   gun-gauge：热度攒得快了（对着木桩每 7.4 秒一次，原来 16.5 秒、3.3 + 10 × 0.23），每发相应调低；喷枪打一群怪时
+      //   本来就在其他武器最好的那套之上，没有再加的余地（「普攻 + R」单体、成群都和改版前持平）
+      wm: 1, basicOf: 'basic_flamer', basicSec: 1.6, time: 0.75, mana: 0, cd: 0, radius: 7.5, conv: { fire: 1 }, ailment: 100, burn: { r: 6, dur: 8, tick: 0.8, sec: 0.11 }, // dur-tune：火场 5 → 8 秒、每 0.5 → 0.8 秒一跳，还是 10 跳
       w: 2, kb: 2.6, poise: 70, stop: 110, move: 0.1,
       wclip: 'r_flamer',
       wt: { phases: [0.42], cancel: 0.75, dur: 0.9 },
-      // 单体整招按火浪那一击的倍数计：火浪 1 击 + 火场 10 跳 × (0.23 / 3.3) ≈ 1.7（G.SKILLS 定义完之后按 burn.sec 重算一遍）
+      // 单体整招按火浪那一击的倍数计：火浪 1 击 + 火场 10 跳 × (0.11 / 1.6) ≈ 1.7（G.SKILLS 定义完之后按 burn.sec 重算一遍）
       useMult: 1.7,
       desc: '排空热度，以你为中心炸开巨大火浪，震退周围敌人，留下 8 秒火场。总伤害约等于喷枪持续喷射 {basicSec} 秒。', alt: '伤害随武器、附加伤害与攻击速度成长。',
     },
@@ -750,12 +756,14 @@
       name: '乱射', icon: '乱', color: '#ffcf7a', tags: ['weapon', 'attack', 'projectile', 'phys'], kind: 'rrevolver', weaponOnly: true, wtype: 'revolver', rgauge: true, uskill: true,
       // dur 秒里每 gap 秒朝 range 米内的敌人开一枪：在最近的 spread 个敌人之间轮流点射，没有敌人时朝四周乱射；期间照常走动、不会被打断
       // 每发子弹贯穿 pierce 个敌人，命中处炸开半径 splash.r 的弹片，波及周围其他敌人（splash.mult 倍，不伤被打中的那个）
-      wm: 0.5, time: 0.2, mana: 0, cd: 0, dur: 3, gap: 0.07, range: 13, speed: 46, projR: 0.2, spread: 8, pierce: 1, splash: { r: 2, mult: 0.45 },
+      // gun-gauge：R 来得勤了（约 2.3 倍），3 秒 / 每 0.07 秒一枪改成 2 秒 / 每 0.085 秒（43 → 24 枪）。不降 wm：装备附加伤害每枪照算，
+      //   降 wm 在物品等级 40 时几乎不减。一次乱射约是这 2 秒普攻的 2.2–2.7 倍；左轮「普攻 + R」单体比改版前高约 5–7 %、成群约 +25 %，都还在其他武器最好的那套之下
+      wm: 0.5, time: 0.2, mana: 0, cd: 0, dur: 2, gap: 0.085, range: 13, speed: 46, projR: 0.2, spread: 8, pierce: 1, splash: { r: 2, mult: 0.45 },
       w: 0, kb: 0.25, poise: 5, move: 1,
       wclip: 'r_revolver',
-      wt: { phases: [0.08], cancel: 0.15, dur: 0.2, clip: { dur: 3, at: 0.08 } },
-      useMult: 18,
-      desc: '3 秒内朝身边最多 8 个敌人轮流扫射，每发贯穿 1 个，弹片波及周围。可边走边打，不会被打断。',
+      wt: { phases: [0.08], cancel: 0.15, dur: 0.2, clip: { dur: 2, at: 0.08 } },
+      useMult: 10, // 单体整招：原来 43 枪按 18 计，现在 24 枪
+      desc: '2 秒内朝身边最多 8 个敌人轮流扫射，每发贯穿 1 个，弹片波及周围。可边走边打，不会被打断。',
     },
     volley: {
       name: '万矢', icon: '矢', color: '#bfe8a0', tags: ['weapon', 'attack'], kind: 'rbuff', weaponOnly: true, wtype: 'huntbow', rgauge: true,
@@ -867,7 +875,7 @@
     const s = G.SKILLS[id];
     if (!s.basicOf || typeof s.desc !== 'string') continue;
     const B = s.burn, sec = s.basicSec + (B && B.sec !== undefined ? Math.round(B.dur / B.tick) * B.sec : 0);
-    s.desc = s.desc.replace('{basicSec}', String(Math.round(sec * 10) / 10));
+    s.desc = s.desc.replace('{basicSec}', String(Math.round(sec * 10) / 10)).replace('{dur}', String(s.turret ? s.turret.dur : ''));
     s.useMult = sec / s.basicSec; // 单体整招按 ctx 一击的倍数（熔光炮台 1，焚天炎爆 = 5.6 / 3.3），和上面写的一致
   }
   // 混沌技能的前期补偿（只乘在 chaosEarly 的技能上）：倍率按宝石等级从 k0 / k1（1 级）缓缓降到 1（lvl 级），之后不变。

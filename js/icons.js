@@ -2331,6 +2331,118 @@
       gem(g, 0, 14, 3.4, col, 4, null, { glow: 3, lw: 1.2 });
     },
   };
+  // =====================================================================
+  // 触屏按钮（touch-icons）：翻滚、背包、技能、天赋、地图、名牌、菜单、换方向、互动。
+  // 按钮只有 44 px 上下，图标约 30 px：形状要粗、件要少，描边比装备图标粗一档；1× 屏也认得出。
+  // 用到时才画（触屏模式打开时），不进 keys()：桌面和低画质的图标预热列表不变
+  // =====================================================================
+  const UI_LW = 2.9; // 描边
+  const UI_BONE = '#eadcbc'; // 菜单、换方向这类「界面零件」用骨白
+  // 一段圆弧的点：圆心 (cx, cy)、半径 r、角度 a0 → a1（弧度，画布 y 朝下）
+  const arcPts = (cx, cy, r, a0, a1, n) => {
+    const out = [];
+    for (let i = 0; i <= n; i++) { const a = a0 + ((a1 - a0) * i) / n; out.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]); }
+    return out;
+  };
+  // 粗弧形箭头：沿圆弧由细到粗，末端一个三角箭头（翻滚用实心彗尾，换方向用等宽的管）
+  function arcArrow(g, cx, cy, r, a0, a1, w0, w1, col, head) {
+    const n = 22, dir = a1 > a0 ? 1 : -1, outer = [], inner = [];
+    for (let i = 0; i <= n; i++) {
+      const t = i / n, a = a0 + (a1 - a0) * t, w = w0 + (w1 - w0) * Math.pow(t, 0.7);
+      outer.push([cx + Math.cos(a) * (r + w / 2), cy + Math.sin(a) * (r + w / 2)]);
+      inner.push([cx + Math.cos(a) * (r - w / 2), cy + Math.sin(a) * (r - w / 2)]);
+    }
+    // 箭头：从弧的末端沿切线往前 head 长，底边比弧宽出一截
+    const tx = -Math.sin(a1) * dir, ty = Math.cos(a1) * dir, rx = Math.cos(a1), ry = Math.sin(a1);
+    const ex = cx + rx * r, ey = cy + ry * r, hw = w1 * 0.5 + head * 0.55;
+    const tip = [ex + tx * head, ey + ty * head];
+    solid(g, (p) => {
+      p.M(outer[0][0], outer[0][1]);
+      for (let i = 1; i <= n; i++) p.L(outer[i][0], outer[i][1]);
+      p.L(ex + rx * hw, ey + ry * hw).L(tip[0], tip[1]).L(ex - rx * hw, ey - ry * hw);
+      for (let i = n; i >= 0; i--) p.L(inner[i][0], inner[i][1]);
+      return p.Z();
+    }, col, { hi: 0.45, lo: 0.4, bevel: 1.6, lw: UI_LW });
+  }
+  const UI_DRAW = {
+    // 翻滚：一道从左下跃起、落到右下的彗尾弧，尾后三道速度线
+    roll(g) {
+      const col = '#ffa253';
+      for (const [y, x0, x1] of [[4, -27, -18], [11, -25.5, -14.5], [18, -27, -18]]) tube(g, (p) => p.M(x0, y).L(x1, y), lite(col, 0.25), 2.8);
+      arcArrow(g, 2, 8, 18, Math.PI * 1.06, Math.PI * 1.93, 2.4, 10, col, 10.5);
+      glow(g, (p) => p.E(-15.6, 4.6, 1.6), col, { blur: 4, core: '#fff1dc' });
+    },
+    // 背包：一只皮挎包，提手、盖子、金扣
+    bag(g) {
+      const L = '#c2804a';
+      tube(g, (p) => p.M(-10, -9).C(-10, -25, 10, -25, 10, -9), C.leatherD, 4.2);
+      solid(g, (p) => p.M(-19, -7).L(19, -7).Q(23, 8, 20, 21).Q(19, 25, 14, 25).L(-14, 25).Q(-19, 25, -20, 21).Q(-23, 8, -19, -7).Z(), L, { hi: 0.32, lo: 0.5, lw: UI_LW });
+      solid(g, (p) => p.M(-20.5, -10).L(20.5, -10).Q(22, 2, 16, 9).Q(0, 14, -16, 9).Q(-22, 2, -20.5, -10).Z(), dark(L, 0.12), { hi: 0.4, lo: 0.45, bevel: 1.8, lw: UI_LW });
+      line(g, (p) => p.M(-16, 5.4).Q(0, 10.6, 16, 5.4), rgba('#3a200e', 0.7), 1.3, null, [2.2, 1.8]);
+      solid(g, (p) => p.R(-4.6, 5, 9.2, 9, 1.6), C.gold, { hi: 0.5, lo: 0.45, bevel: 1.1, lw: 2.2 });
+      solid(g, (p) => p.R(-1.5, 7.6, 3, 3.8, 0.8), dark(C.gold, 0.55), { bevel: 0, lw: 0 });
+    },
+    // 技能：一颗刻面技能宝石
+    skills(g) {
+      gem(g, 0, 1, 23, '#79a6ff', 6, null, { glow: 6, lw: UI_LW });
+      spark(g, 15, -18, 5.4, '#e4eeff');
+    },
+    // 天赋：三颗相连的节点，顶上一颗是核心
+    tree(g) {
+      for (const [x, y] of [[-16, 16], [16, 16]]) tube(g, (p) => p.M(x, y).L(0, -12), '#c79a52', 4.4);
+      tube(g, (p) => p.M(-16, 16).L(16, 16), '#c79a52', 4.4);
+      for (const [x, y] of [[-16, 16], [16, 16]]) {
+        solid(g, (p) => p.E(x, y, 8.2), C.gold, { hi: 0.5, lo: 0.45, bevel: 1.4, lw: UI_LW });
+        solid(g, (p) => p.E(x, y, 3.3), dark(C.gold, 0.45), { bevel: 0, lw: 0 });
+      }
+      glow(g, (p) => p.E(0, -13, 12), C.ember, { blur: 7, core: rgba(C.ember, 0.35) });
+      gem(g, 0, -13, 14, C.ember, 4, null, { glow: 0, lw: UI_LW });
+    },
+    // 地图：折成三折的羊皮纸，一道虚线路线通到红叉
+    map(g) {
+      const P = '#e3cf9c';
+      const pts = [[-23, -15], [-8, -20], [8, -15], [23, -20], [23, 15], [8, 20], [-8, 15], [-23, 20]];
+      solid(g, (p) => p.P([].concat(...pts)), P, { hi: 0.3, lo: 0.35, lw: UI_LW });
+      // 中间那折背光，压暗
+      g.save();
+      g.beginPath();
+      pen(g).P([-8, -20, 8, -15, 8, 20, -8, 15]);
+      g.fillStyle = 'rgba(70,40,15,0.26)';
+      g.fill();
+      g.restore();
+      line(g, (p) => p.M(-8, -20).L(-8, 15).M(8, -15).L(8, 20), rgba('#5a3a1c', 0.85), 1.6);
+      line(g, (p) => p.M(-17, 11).Q(-9, 1, -2, 4).Q(6, 7, 13, -7), '#a8301c', 2.6, null, [3.4, 2.8]);
+      tube(g, (p) => p.M(10.4, -13.4).L(18.6, -5.2).M(18.6, -13.4).L(10.4, -5.2), '#d4422a', 3);
+    },
+    // 名牌：两块叠着的地面名牌（深底亮框），里面一行金字、一行蓝字
+    labels(g) {
+      const plate = (x, y, w, txt) => {
+        solid(g, (p) => p.R(x, y, w, 13, 2.4), '#3b2a1c', { hi: 0.25, lo: 0.3, bevel: 0, lw: UI_LW });
+        line(g, (p) => p.R(x + 1.6, y + 1.6, w - 3.2, 9.8, 1.4), '#d8b270', 1.5);
+        tube(g, (p) => p.M(x + 6, y + 6.5).L(x + w - 6, y + 6.5), txt, 2.6, { ink: 'rgba(0,0,0,0)' });
+      };
+      plate(-24, -15, 40, '#ffd25e');
+      plate(-14, 2, 38, '#8db8ff');
+      solid(g, (p) => p.P([-2, 15, 4, 15, 1, 22]), '#3b2a1c', { bevel: 0, lw: 2.2 });
+    },
+    // 菜单：三道横杠
+    menu(g) {
+      for (const y of [-12, 0, 12]) tube(g, (p) => p.M(-16, y).L(16, y), UI_BONE, 5.4);
+    },
+    // 换方向：一道逆时针的弧形箭头
+    rot(g) {
+      arcArrow(g, 0, 2, 17.5, Math.PI * 0.16, Math.PI * -1.42, 6.4, 6.4, UI_BONE, 10);
+    },
+    // 互动（触屏的 F 键）：一只伸开的手
+    hand(g) {
+      const S = '#f2d3a6';
+      tube(g, (p) => p.M(-10, 13).Q(-17, 7, -20, -1), S, 6.6);
+      for (const [x, y] of [[-8.5, -16], [-2.8, -21], [3, -20], [8.6, -14]]) tube(g, (p) => p.M(x, 8).L(x, y), S, 5.2);
+      solid(g, (p) => p.M(-12, 1).Q(0, -3, 12, 1).L(12, 13).Q(11, 24, 0, 24).Q(-11, 24, -12, 13).Z(), S, { hi: 0.3, lo: 0.35, lw: UI_LW });
+      line(g, (p) => p.M(-5, 9).Q(0, 12, 6, 8), rgba('#8a5a34', 0.7), 1.3);
+    },
+  };
+
   function build(key) {
     const k = key.split('-');
     if (k[0] === 'fr') return G.FRAGS && G.FRAGS[k[1]] && FRAG_DRAW[k[1]] ? render((g) => { g.scale(1.1, 1.1); FRAG_DRAW[k[1]](g, G.FRAGS[k[1]].color); }) : null;
@@ -2362,6 +2474,7 @@
     if (k[0] === 'sup') return G.SUPPORTS[k[1]] ? render((g) => drawSupport(g, k[1])) : null;
     if (k[0] === 'blank') return render((g) => { g.scale(1.08, 1.08); drawBlank(g); });
     if (k[0] === 'basicnone') return render((g) => drawBasicBlank(g));
+    if (k[0] === 'ui') return UI_DRAW[k[1]] ? render((g) => { g.scale(1.1, 1.1); UI_DRAW[k[1]](g); }) : null;
     if (k[0] === 'ail') {
       const a = AIL[k[1]];
       return a ? render((g) => drawGlyph(g, a[0], a[1], rot(0, 2.5, 0, 0), 1.9)) : null;
@@ -2475,6 +2588,8 @@
     blank: (extra) => html('blank', extra), // 无铭技能宝石
     frag: (id, extra) => html('fr-' + id, extra), // 烛芯：用到时才画，不进 keys()（低画质的图标预热不多画）
     fragIcons: () => Object.keys(FRAG_DRAW).map((id) => 'fr-' + id), // 测试用
+    ui: (id, extra) => html('ui-' + id, extra), // 触屏按钮图标：用到时才画，不进 keys()（不加重图标预热）
+    uiIcons: () => Object.keys(UI_DRAW), // 测试用
     basicBlank: (extra) => html('basicnone', extra), // 武器普攻卡没拿远程武器时的空白图标
     wsk: (type, extra) => html('wsk-' + type, extra), // 按武器类型的武器技图标（技能数据还没有时的退路）
     weaponType, // 武器基底下标 → 'blade' | 'staff' | 'wand' | 'daggers' | 'hammer' | 'bow' | 'katana' | 'banner'

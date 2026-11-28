@@ -4449,6 +4449,26 @@ html.touch-ui #flask-mana[data-tb] { --x: 214; }
 #t-f { --x: 212; --y: 66; display: none; z-index: 6; width: max(44px, calc(52px * var(--tk))); height: max(44px, calc(52px * var(--tk))); box-sizing: border-box; place-items: center; font-size: 20px; font-weight: 700; color: #1a0f08; background: radial-gradient(circle at 50% 35%, #ffe2a0, #d88a2c); border: 2px solid #fff1d0; border-radius: 50%; box-shadow: 0 0 14px rgba(255, 170, 60, 0.7); }
 #t-f.on { display: grid; }
 
+/* touch-icons：触屏按钮只画图标（js/icons.js 的 G.icons.ui，画法同技能 / 物品图标），名字在 aria-label / 操作说明里。
+   .t-ico 是按钮里的（顶栏 30 px、圆键约占 72%）；.ui-in 是夹在文字里的（提示卡、操作说明、开场卡片）。
+   翻滚键桌面也画图标（ui.js 启动时画 ui-roll，下面空格的键名照旧）；首领条 / 处决提示的 F 在桌面是真按键，照旧写 F */
+.t-ico { width: 30px; height: 30px; margin: auto; pointer-events: none; }
+#t-f .t-ico { width: 72%; height: 72%; }
+#t-rot-flip .t-ico { width: 30px; height: 30px; }
+.ui-in { display: inline-block; width: 1.5em; height: 1.5em; margin: -0.32em 0.08em -0.38em; vertical-align: baseline; }
+.t-fk { display: none; }
+.d-icon > .d-ui { display: block; width: 76%; height: 76%; }
+.d-icon > span { display: none; } /* 「翻」字留在 DOM 里：图标没画出来（比如 icons.js 出错）时，删掉这一条就回到字 */
+#dodge.cooling .d-ui { filter: brightness(0.6) saturate(0.45); }
+html.touch-ui .t-fk { display: inline-block; }
+html.touch-ui #boss-break kbd, html.touch-ui #execp .ep kbd { display: none; }
+#boss-break .t-fk { width: 22px; height: 22px; margin: -5px 4px -6px 8px; }
+#execp .ep .t-fk { width: 22px; height: 22px; margin: -3px 0; }
+#execp.far .ep .t-fk { filter: saturate(0.4) brightness(0.8); }
+.hk kbd.kb-ico { min-width: 0; padding: 0 2px; line-height: 0; }
+.kb-ico .ui-in { width: 20px; height: 20px; margin: 0; vertical-align: top; }
+.intro-keys .t-ik .ui-in { width: 24px; height: 24px; margin: 0; }
+
 /* 浮动摇杆：左下 45% 宽、下一半高的区域里落指生成 */
 #t-stick { position: fixed; left: 0; bottom: 0; width: 45%; height: 50%; z-index: 5; border-bottom-left-radius: 50px; } /* 圆角跟着屏幕的圆角走（圆角外本来也按不到） */
 #t-stick i { position: fixed; left: 0; top: 0; display: none; border-radius: 50%; pointer-events: none; }
