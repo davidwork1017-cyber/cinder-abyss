@@ -1,0 +1,70 @@
+{
+ "name": "spitter_a03",
+ "kind": "spitter",
+ "source": {
+  "name": "enemy-spitter-03",
+  "file": "model.glb",
+  "sha256": "6915517d06f5826529eacc51a83bba8b2746746f48abadf5a67edf4ea8e1e29e"
+ },
+ "skeleton": "assets/quaternius-easy-enemy/Spider.glb",
+ "fit": {
+  "top_y": 0.75,
+  "legs": {
+   "order": [
+    "FrontLeg",
+    "MidFrontLeg",
+    "MidBackLeg"
+   ],
+   "back": "MidBackLeg"
+  },
+  "body": {
+   "head_z": 0.07,
+   "abd_z": -0.06
+  },
+  "cut": {
+   "y": -0.062,
+   "z": 0.0,
+   "x": 0.04
+  },
+  "band": 0.03
+ },
+ "tris": 2700,
+ "colour": {
+  "grade": {
+   "lift": 4.25,
+   "sat": 1.15,
+   "knee": [
+    0.62,
+    0.45
+   ]
+  },
+  "glow": {
+   "hue": [
+    35,
+    75
+   ],
+   "sat": 0.35,
+   "val": 0.55
+  },
+  "shift": {
+   "hue": 82,
+   "sat": 0.5,
+   "keep": [
+    {
+     "hue": [
+      35,
+      75
+     ],
+     "sat": 0.35
+    },
+    {
+     "hue": [
+      0,
+      32
+     ],
+     "sat": 0.45
+    }
+   ]
+  }
+ }
+}

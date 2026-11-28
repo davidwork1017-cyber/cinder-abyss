@@ -1,0 +1,189 @@
+{
+ "_comment": "喷吐者的 AI 生成外观（ai3d-spitter）的来源记录。源 GLB、概念图都不进仓库，只记 sha256（存放在私有的 cinder-ai-src）。生成：art/ai/char_rig.py 按 art/ai/char/spitter_a03.json 的参数，把源模型贴到 Spider（Easy Enemy）原来的骨架上，写出 assets/ai/spitter/spitter.glb（骨骼、蒙皮、绑定姿态和动作取自 assets/quaternius-easy-enemy/Spider.glb）；chars 包里的 spider 指向它。",
+ "id": "chars/spider",
+ "title": "喷吐者（八条腿的蜘蛛形小怪，冷橄榄绿的甲壳，腹背上四个发光囊）",
+ "source": {
+  "name": "enemy-spitter-03",
+  "file": "models/enemy-spitter-03/model.glb",
+  "sha256": "6915517d06f5826529eacc51a83bba8b2746746f48abadf5a67edf4ea8e1e29e",
+  "faces": 59994,
+  "textures": "1024 JPEG（底色 / 金属粗糙度 / 法线，只用底色）",
+  "committed": false,
+  "concept_image": {
+   "file": "models/enemy-spitter-03/concept.png",
+   "sha256": "fa9e5344c951129327bc686d2c3155958d1d57c6a59653ba6bbce552dee1393a",
+   "committed": false,
+   "use": "只用于挑选，不进处理流程"
+  }
+ },
+ "generation": {
+  "prompt": "Stylized low-poly toon game enemy, a single eight-legged spider-like creature, original design, side view slightly from above, standing neutral rest pose, all eight legs planted on the ground, no leg raised, legs spread wide and evenly spaced, four on each side, legs not touching each other or the body, plain white background. Segmented body in three clear parts in a horizontal line: a small head with a cluster of small glowing amber eyes, a compact armoured thorax, and a large swollen round abdomen behind it. Medium slate-grey chitin (mid grey, not black) with light grey edges on each plate and lighter grey legs. A row of three large round glowing warm-yellow sacs along the top of the abdomen and two smaller glowing sacs on the back of the thorax, clearly readable as separate glowing bulbs. Eight long thin legs, each with three clearly separate straight segments and visible joints, rising up to a high knee and then down to small pointed tips touching the ground. Matte, clean flat colour blocks, soft simple shading, no text, no logos, no emblems, no web, no background.",
+  "negative_prompt": null,
+  "seed": 2026,
+  "text_to_image": {
+   "model": "Z-Image Turbo",
+   "weights": [
+    "z_image_turbo_int8_convrot.safetensors",
+    "qwen_3_4b_fp8_mixed.safetensors",
+    "ae.safetensors"
+   ]
+  },
+  "image_to_3d": {
+   "model": "TRELLIS.2",
+   "weights": [
+    "birefnet.safetensors",
+    "dino_v3_L_naf_fp32.safetensors",
+    "moge_2_vitl_normal_fp16.safetensors",
+    "trellis_2_int8_convrot.safetensors",
+    "trellis_2_shape_vae_bf16.safetensors",
+    "trellis_2_texture_vae_bf16.safetensors"
+   ]
+  },
+  "target_faces": 60000,
+  "texture_size": 1024,
+  "comfyui_version": "0.43.0",
+  "generated_at": "2026-11-27T11:16:45-0800",
+  "comfyui": {
+   "repo": "https://github.com/Comfy-Org/ComfyUI",
+   "release": "v0.43.0 (windows portable, nvidia)",
+   "commit": "426f5eea52a7ece1dd599fff4cb6cd1f352ddd24",
+   "license": "GPL-3.0"
+  },
+  "nodes": "全部是 ComfyUI 内置节点（comfy_extras/nodes_trellis2.py、nodes_bg_removal.py、nodes_mesh_postprocess.py），没有自定义节点",
+  "nvdiffrast": "未安装、未使用",
+  "weight_sources": {
+   "birefnet.safetensors": {
+    "hf": "Comfy-Org/BiRefNet",
+    "rev": "884af709e9b795d89dafbf97f29c8d6a2386f5c6",
+    "base": "ZhengPeng7/BiRefNet",
+    "license": "MIT"
+   },
+   "dino_v3_L_naf_fp32.safetensors": {
+    "hf": "Comfy-Org/Pixal3D",
+    "rev": "f37641be376725d324c56626007cc477f1249a69",
+    "base": "Meta DINOv3 ViT-L（Comfy-Org 转换）",
+    "license": "DINOv3 License (https://ai.meta.com/resources/models-and-libraries/dinov3-license/)"
+   },
+   "moge_2_vitl_normal_fp16.safetensors": {
+    "hf": "Comfy-Org/MoGe",
+    "rev": "1484985258ba7ef45c314144fcf0e90924ffbf44",
+    "base": "Ruicheng MoGe-2 ViT-L（normal 版）",
+    "license": "MIT"
+   },
+   "trellis_2_int8_convrot.safetensors": {
+    "hf": "Comfy-Org/TRELLIS.2",
+    "rev": "430a9d09b2416687018c8fe8edced2ad4858a439",
+    "base": "microsoft/TRELLIS.2-4B",
+    "license": "MIT"
+   },
+   "trellis_2_shape_vae_bf16.safetensors": {
+    "hf": "Comfy-Org/Pixal3D",
+    "rev": "f37641be376725d324c56626007cc477f1249a69",
+    "base": "microsoft/TRELLIS.2-4B",
+    "license": "MIT"
+   },
+   "trellis_2_texture_vae_bf16.safetensors": {
+    "hf": "Comfy-Org/Pixal3D",
+    "rev": "f37641be376725d324c56626007cc477f1249a69",
+    "base": "microsoft/TRELLIS.2-4B",
+    "license": "MIT"
+   },
+   "z_image_turbo_int8_convrot.safetensors": {
+    "hf": "Comfy-Org/Z-Image-Turbo",
+    "rev": "6fc90a3b1b653e935a0d175e260736de25b84df5",
+    "base": "Tongyi-MAI/Z-Image-Turbo",
+    "license": "Apache-2.0"
+   },
+   "qwen_3_4b_fp8_mixed.safetensors": {
+    "hf": "Comfy-Org/Z-Image-Turbo",
+    "rev": "6fc90a3b1b653e935a0d175e260736de25b84df5",
+    "base": "Qwen3-4B (Z-Image Turbo 文本编码器)",
+    "license": "Apache-2.0"
+   },
+   "ae.safetensors": {
+    "hf": "Comfy-Org/Z-Image-Turbo",
+    "rev": "6fc90a3b1b653e935a0d175e260736de25b84df5",
+    "base": "Z-Image Turbo VAE",
+    "license": "Apache-2.0"
+   }
+  }
+ },
+ "selection": "三个候选（01 / 02 / 03）里选 03：腹背上四个凸出的囊，游戏镜头（50° 俯角）看得最清楚，也最好切成按元素色发光的一块；腿的关节有浅色关节环，方便分段；底色 38（01 是 28）。",
+ "licences": {
+  "audit": "编排者笔记 notes/ai3d/licence-audit.md：生成流程 CLEAR",
+  "generation": "ComfyUI GPL-3.0（工具）、Z-Image Turbo / Qwen3-4B / VAE Apache-2.0、TRELLIS.2 / BiRefNet / MoGe-2 MIT、DINOv3 License（NAF Apache-2.0）：都不限制输出、不禁止商用、不要求在输出上署名",
+  "rigging": "不用自动蒙皮：按段刚性绑定到原来的骨架上",
+  "skeleton_and_clips": "骨骼、绑定姿态和 5 段动作（Spider_Idle / Walk / Attack / Death / Jump）原样取自 Quaternius Easy Enemy 的 Spider（CC0，assets/quaternius-easy-enemy/License_EasyEnemy.txt）；换成自己的动作以后，char_rig.py --anims 0 写不带动作的版本，再去掉这个包",
+  "re_review": "换生成流程 / 权重或者商业发行之前重新审一遍"
+ },
+ "processing": {
+  "script": "art/ai/char_rig.py（+ art/ai/char_fit.py；读 / 减面 / 取样 / 调色调 art/ai/golem_rig.py 的函数）",
+  "spec": "art/ai/char/spitter_a03.json",
+  "blender": "5.2.4 LTS",
+  "command": "blender -b --factory-startup --python-exit-code 1 --python art/ai/char_rig.py -- --spec art/ai/char/spitter_a03.json --out assets/ai/spitter/spitter.glb",
+  "fit": {
+   "assign": {
+    "BackLegL": 2,
+    "BackLegR": 1,
+    "FrontLegL": 6,
+    "FrontLegR": 5,
+    "MidBackLegL": 2,
+    "MidBackLegR": 1,
+    "MidFrontLegL": 3,
+    "MidFrontLegR": 4
+   },
+   "k": 1.24689,
+   "t": [
+    0.000512,
+    0.327053,
+    -0.084055
+   ]
+  },
+  "tris": 2674,
+  "glow_tris": 275,
+  "ymax": 0.7504,
+  "parts": "身体等比缩放 1.247、源的髋部重心对到骨架的髋部；头 / 胸 / 腹按 z 刚性绑 Head / Thorax / Abdomen；每条腿三段各自转 + 沿轴拉伸到骨架的 髋→膝→跗→脚（粗细跟身体一起缩放），关节两边 3 厘米里两段渐变；源模型的后腿粘在腹部下面，切掉，后腿用同一边中后腿的拷贝；腹背上的囊（色相 35–75°、饱和度 ≥ 0.35、亮度 ≥ 0.55 的三角形）进发光图元 Material.001；甲壳换成冷橄榄绿（色相 82°、饱和度 0.5，亮度不变；暖黄的囊和眼、浅色的关节环按色相留着），在暖红褐的灰烬地面上靠色相分得开，和原来的苔绿一个意思",
+  "grade": {
+   "lift": 4.25,
+   "sat": 1.15,
+   "knee": [
+    0.62,
+    0.45
+   ]
+  },
+  "game": "js/world.js 的 CSPEC.spitter：身高 0.9（模型最高点 0.75 × 1.2，骨架的缩放和原来一样），颜色取 GLB 每角的反照率，囊的发光 1.5（原来 1.1），原来程序化的余烬囊去掉，嘴的挂点往前到口器",
+  "shift": {
+   "hue": 82,
+   "sat": 0.5,
+   "keep": [
+    {
+     "hue": [
+      35,
+      75
+     ],
+     "sat": 0.35
+    },
+    {
+     "hue": [
+      0,
+      32
+     ],
+     "sat": 0.45
+    }
+   ]
+  },
+  "format": "和 convert-chars 的 GLB 一样的结构；位置 float32、骨骼 / 权重 / 颜色 8 位（权重四个加起来 255），位置 + 骨骼 + 权重相同的角并成一个顶点（颜色取平均），带索引；身体 1411 个顶点、囊 179 个；GLB 287 KB（其中 155 KB 是拷来的 5 段动作）"
+ },
+ "outputs": {
+  "assets/ai/spitter/spitter.glb": "61eb5600c9e263c6c41b8783b7b11cbaddd40693e2580c041d3f0a8cde0a1325"
+ },
+ "review": {
+  "resemblance": "通用的八条腿蜘蛛形怪：头小、腹大，腹背一排发光囊。提示词没有提任何游戏或作品；没有和已知游戏素材或 IP 的造型、配色、标志对得上的地方。",
+  "value": "游戏镜头灰度（遮罩法）：身子比地面 灰烬荒原 高 −3.6 / 低 11.5（现网 −4.0 / 10.6），霜骨沼泽 1.6 / 22.1（现网 1.6 / 21.4），雷鸣遗迹 −1.7 / 15.4（现网 −1.4 / 15.0）；提亮 4.25、肩部（sRGB 0.62 以上按 0.45 压）",
+  "glow": "出手那一下囊的亮度 p90 高 80.0 / 低 81.6（现网 77.0 / 78.2）；元素色本身的亮度封顶，两边都到不了 85",
+  "footprint": "俯视占地半径 0.615（碰撞半径 0.55，+11.8%；现网 0.619）",
+  "tris": "2674 个三角形（现网 2984，含程序化的余烬囊）；所有画质同一份",
+  "sim": "灰烬荒原的标准战斗（12 只游魂 + 3 只喷吐者 + 1 只壮汉，perf.mjs --count）：战斗指纹 aed0283e 高 / 低都和现网一样，draw 一样（均值 126.2 / 90，峰值 133 / 97），每帧三角形少 141",
+  "hue": "色相距离（躯体和地面平均 Lab 的 ab 距离）：灰烬荒原 高 17.8 / 低 41.2（现网 15.6 / 35.0），霜骨沼泽 28.9 / 53.5（现网 28.8 / 48.7），雷鸣遗迹 28.8 / 55.1（现网 27.0 / 48.9）"
+ }
+}

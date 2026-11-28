@@ -1,27 +1,26 @@
-# 外部素材（CC0，另有 AI 生成的件：一件布景、三只首领的外观、主角和两种小怪的外观、一批技能件和绊雷、武器和装备掉落）
+# 外部素材（CC0，另有 AI 生成的件：一件布景、三只首领的外观、主角和三种小怪的外观、一批技能件和绊雷、武器和装备掉落）
+
+地面和岩石的贴图从 2026-11-27（tex-rest）起全由我们自己的脚本生成，仓库里没有第三方贴图了。
 
 | 目录 | 来源 | 许可证 |
 | --- | --- | --- |
-| `polyhaven/` | Poly Haven 贴图，https://polyhaven.com | CC0（`polyhaven/LICENSE.txt`） |
-| `ambientcg/` | ambientCG 贴图，https://ambientcg.com | CC0（`ambientcg/LICENSE.txt`） |
-| `generated/` | `tools/gen-ground-textures.mjs` 按固定种子程序化生成的地面覆盖层（`g_cover_*`）和贴花图集（`g_decals`）；`tools/gen-paint-textures.mjs` 按固定种子画的平铺贴图（`p_mud` 龟裂焦土、`p_burn` 焦痕碎石、`p_rock` 棱面石头，第 0 区的路面 / 粗糙地面 / 虚空地面和岩石三向投影；`p_ice` 冰面、`p_snow` 带雪的冻泥、`p_frock` 层状岩，第 1 区的同样几处；种子写在 `tools/paint-tex.mjs` 每张图的 `seed` 里：p_mud 211、p_burn 307、p_rock 101、p_ice 401、p_snow 503、p_frock 607），清单 `generated/manifest.json` 记着生成器、种子、原始像素和 JPEG 的 sha256 | 原创（我们自己画的，不是第三方素材） |
+| `generated/` | `tools/gen-ground-textures.mjs` 按固定种子程序化生成的地面覆盖层（`g_cover_*`）和贴花图集（`g_decals`）；`tools/gen-paint-textures.mjs` 按固定种子画的平铺贴图（`p_mud` 龟裂焦土、`p_burn` 焦痕碎石、`p_rock` 棱面石头，第 0 区的路面 / 粗糙地面 / 虚空地面和岩石三向投影；`p_ice` 冰面、`p_snow` 带雪的冻泥、`p_frock` 层状岩，第 1 区的同样几处；`p_slab` 错缝的切石板、`p_grit` 砂砾地、`p_srock` 方正的层状岩块，第 2 区的同样几处；`p_basalt` 层状的玄武岩台面、`p_cinder` 积灰的熔渣壳、`p_drock` 柱状节理的暗岩，第 3 区（余烛殿沿用）的同样几处；`p_glass` 熔融琉璃板、`p_regol` 月岩碎屑地、`p_slate` 劈开的板岩，第 4 区的同样几处；种子写在 `tools/paint-tex.mjs` 每张图的 `seed` 里：p_mud 211、p_burn 307、p_rock 101、p_ice 401、p_snow 503、p_frock 607、p_slab 701、p_grit 809、p_srock 907、p_basalt 1103、p_cinder 1201、p_drock 1307、p_glass 1409、p_regol 1511、p_slate 1613），清单 `generated/manifest.json` 记着生成器、种子、原始像素和 JPEG 的 sha256 | 原创（我们自己画的，不是第三方素材） |
 | `ca/` | 自产布景件：`art/` 下的 Blender 生成脚本按固定种子生成（`npm run build:art`，见 `docs/art-pipeline.md`），清单 `ca/manifest.json` 记着每件的生成器、参数、种子和 sha256；`ship` 为 true 的件打进 `js/assets/kit-<区>.js` | 原创（我们自己的脚本生成，不是第三方素材） |
 | `ai/` | AI 生成的布景件和武器（试点，2026-11-26 起；见下面「AI 生成」）：用户用文生图 → 图生 3D 生成源模型，`art/ai/importer.py`（武器走 `art/ai/weapon.py`）处理成游戏用的件，每件一个目录（来源记录 `provenance.json`，布景件另有反照率贴图） | 组件许可证见下面「AI 生成」；输出不受限制 |
-| `story/` | 开场故事的画格（`js/story.js` 放的时候才加载）：`tools/story/bake.mjs` 用游戏自己的引擎摆拍（角色、区域、首领都是游戏里现成的，用到的第三方模型和贴图就是上面这些 CC0 包），再加墨线 / 平涂分阶 / 网点烘成分层 webp，见 `tools/story/README.md` | 原创（游戏画面的渲染图，不是第三方素材） |
+| `story/` | 开场故事的画格（`js/story.js` 放的时候才加载）：`tools/story/bake.mjs` 用游戏自己的引擎摆拍（角色、区域、首领都是游戏里现成的，用到的第三方模型就是上面这些 CC0 包），再加墨线 / 平涂分阶 / 网点烘成分层 webp，见 `tools/story/README.md` | 原创（游戏画面的渲染图，不是第三方素材） |
 | `kaykit-dungeon-remastered/` | KayKit Dungeon Remastered 1.0，Kay Lousberg，https://kaylousberg.itch.io/kaykit-dungeon-remastered | CC0（`LICENSE.txt`）；2026-11-22（models-drop）起不再打进游戏，源文件和许可证留作记录 |
 | `kaykit-halloween-bits/` | KayKit Halloween Bits 1.0，Kay Lousberg，https://kaylousberg.itch.io/halloween-bits | CC0（`LICENSE.txt`）；2026-11-22（models-drop）起不再打进游戏，源文件和许可证留作记录 |
 | `kenney-nature-kit/` | Kenney Nature Kit 2.1，https://kenney.nl/assets/nature-kit | CC0（`License.txt`）；2026-11-22（models-drop）起不再打进游戏，源文件和许可证留作记录 |
 | `quaternius-modular-men/` | Quaternius Ultimate Modular Men（Adventurer），https://quaternius.com/packs/ultimatemodularcharacters.html | CC0（`License_ModularMen.txt`） |
 | `quaternius-animated-zombie/` | Quaternius Animated Zombie（Zombie），https://quaternius.com/packs/animatedzombie.html | CC0（包里没有许可证文件，按包页面的 CC0 记在 `License_AnimatedZombie.txt`） |
 | `quaternius-animated-monster/` | Quaternius Animated Monster（Skeleton），https://quaternius.com/packs/animatedmonster.html | CC0（`License_AnimatedMonster.txt`） |
-| `quaternius-easy-enemy/` | Quaternius Easy Enemy（Spider），https://quaternius.com/packs/easyenemy.html | CC0（`License_EasyEnemy.txt`） |
+| `quaternius-easy-enemy/` | Quaternius Easy Enemy（Spider），https://quaternius.com/packs/easyenemy.html；ai3d-spitter 起喷吐者的网格换成 AI 生成的（见下面「AI 生成」），骨架、绑定姿态和动作还从这里的 `Spider.glb` 取 | CC0（`License_EasyEnemy.txt`） |
 | `ual/` | Quaternius Universal Animation Library [Standard]（https://opengameart.org/content/universal-animation-library ，`universal_animation_librarystandard.zip`）和 Universal Animation Library 2 [Standard]（https://opengameart.org/content/universal-animation-library-2 ，`universal_animation_library_2standard.zip`），作者本人在 OpenGameArt 的上传；sha256 记在 `tools/asset-sources.json` 的 `sources.ual` | CC0（下载包里的许可证文件原样复制：`License_UAL1.txt`、`License_UAL2.txt`） |
 
-- 贴图：`node tools/prep-textures.mjs` 下载 1k 原图（缓存在 `.asset-cache/`，不进仓库），压成每套三张 JPEG：`albedo.jpg`、`normal.jpg`（OpenGL 法线）、`arh.jpg`（R 遮蔽 / G 粗糙度 / B 高度；Lava001 的 R 放自发光）。清单在 `tools/asset-sources.json`。
+- 贴图的格式：每套三张 JPEG，`albedo.jpg`、`normal.jpg`（OpenGL 法线）、`arh.jpg`（R 遮蔽 / G 粗糙度 / B 高度）。清单在 `tools/asset-sources.json`。原来下载照片贴图的 `tools/prep-textures.mjs` 已经用不上，tex-rest 时删掉了，要看的话在 git 历史里。
 - 程序化贴图：`node tools/gen-ground-textures.mjs` 重新生成 `generated/` 下的贴图（像素在 `tools/ground-tex.mjs` 里只用 Node 按固定种子算，同样的代码出同样的像素；JPEG 编码借 playwright-core 的 Chrome），格式同上，但只出 `tools/asset-sources.json` 里 `kinds` 列的通道（贴花图集和覆盖层的法线游戏里不采样，不出）；贴花图集的 `arh.jpg` 的 G 通道是不透明度。每张图的生成函数、原始像素和 JPEG 的 sha256 记在 `generated/manifest.json`，`npm run check:art` 重新算像素核对（tex-t2）。
 - 贴图的画质档（tex-t2）：`tools/asset-sources.json` 的贴图条目可以写 `lo: true`（低档用 `<id>/lo/` 下的小图）或 `skipLow: true`（低档整套不解码，游戏给透明占位图，比如低档不画的贴花图集 `g_decals`）。贴图预算在 `art/budgets.json` 的 `textures`，check-art 按每区、每档算显存。
-- `ambientcg/Lava001` 从 zones-polish 起游戏里不用了，tex-t2 起不再打包（文件和许可证留着）。
-- 画的平铺贴图：像素在 `tools/paint-tex.mjs`（只用 Node），`node tools/gen-paint-textures.mjs` 重新生成 `generated/p_*/`（512² 的 albedo / normal / arh，另有低档用的 256² `lo/albedo.jpg`、`lo/arh.jpg`，低档不传法线贴图）。JPEG 由清单里钉住的 Chrome 版本编码，版本不同会拒绝（换版本加 `--rebase`）；`node tools/gen-paint-textures.mjs --check` 只用 Node 重算像素、核对清单里的 sha256。2026-11-24（tex-t1）起第 0 区不再用照片贴图，只有第 0 区用过的 `mud_cracked_dry_03`、`burned_ground_01` 从 `polyhaven/` 删掉了（`dark_rock` 深渊还在用）。2026-11-26（tex-t3）起第 1 区也不再用照片贴图：`ambientcg/Ice002`、`Snow013` 只有第 1 区用过，删掉了；`Rock035` 雷鸣遗迹和坠星裂谷还在用（rock-grey 包），留着。
+- 画的平铺贴图：像素在 `tools/paint-tex.mjs`（只用 Node），`node tools/gen-paint-textures.mjs` 重新生成 `generated/p_*/`（512² 的 albedo / normal / arh，另有低档用的 256² `lo/albedo.jpg`、`lo/arh.jpg`，低档不传法线贴图）。JPEG 由清单里钉住的 Chrome 版本编码，版本不同会拒绝（换版本加 `--rebase`）；`node tools/gen-paint-textures.mjs --check` 只用 Node 重算像素、核对清单里的 sha256。2026-11-24（tex-t1）起第 0 区不再用照片贴图，只有第 0 区用过的 `mud_cracked_dry_03`、`burned_ground_01` 从 `polyhaven/` 删掉了（`dark_rock` 深渊还在用）。2026-11-26（tex-t3）起第 1 区也不再用照片贴图：`ambientcg/Ice002`、`Snow013` 只有第 1 区用过，删掉了；`Rock035` 雷鸣遗迹和坠星裂谷还在用（rock-grey 包），留着。2026-11-27（tex-rest）起第 2、3、4 区和余烛殿也不再用照片贴图：`polyhaven/`（dark_rock、dark_rock_02、monastery_stone_floor、rocky_trail、slate_floor、moon_01）和 `ambientcg/`（Rock035，还有从 zones-polish 起就没用的 Lava001）整个删掉了，连同许可证文件；rock-dark、rock-grey 两个包也不再打。
 - 模型：原样从各素材包复制（KayKit 的 `.gltf.glb` 改名为 `.glb`）。KayKit / Kenney 这三个包从 2026-11-22 起不再打包（`tools/asset-sources.json` 里没有 `models` 包了，布景全是 `ca/` 自产件）。`ca/` 下的自产件是生成物，不要手改：改 `art/` 下的脚本或 `art/catalog.py` 再重新生成，`npm run check:art`（也是 test:func 的第一步）核对预算、命名、原点和清单。
 - 人形标准骨架的动作（`ual/ual-clips.glb`）：`node tools/ual-pack.mjs <UAL1 的 AnimationLibrary_Godot_Standard.glb> <UAL2 的 UAL2_Standard.glb>` 从两个下载包里只挑用到的动作
   （Zombie_Idle_Loop / Zombie_Walk_Fwd_Loop / Hit_Chest / Death01 的前 1.6 秒），骨架是 UAL2 的 65 骨骼去掉手指和末端骨骼（23 根），没有网格；
@@ -34,11 +33,12 @@
 
 ## AI 生成
 
-2026-11-26 起用 AI 生成模型（用户批准）：先是一件静态布景（试点），之后熔渣巨像、雷霆监察者、衔星巨兽的外观也换成 AI 生成的模型，骨架、动作和招式都没动，只换了网格和贴图。2026-11-27 起技能放出来的实心小件（冰系、雷桩、熔光炮台）和绊雷也换成 AI 生成的模型，判定和数值都没动；主角的外观也换成 AI 生成的模型，程序化骨架、动作、挂点和模拟都没动，Adventurer 留作退路。2026-11-26 用户还要求武器也试一试：先试点剑、长杖、战锤、机炮四种，通过审核以后所有武器种类和七种装备掉落都换上了（手里拿的和掉在地上的），处理见下面。游魂和烬骸仆从的外观随后也换了，骨骼集合和现网的 Zombie / Skeleton 一样，原来的模型留作退路。
+2026-11-26 起用 AI 生成模型（用户批准）：先是一件静态布景（试点），之后熔渣巨像、雷霆监察者、衔星巨兽的外观也换成 AI 生成的模型，骨架、动作和招式都没动，只换了网格和贴图。2026-11-27 起技能放出来的实心小件（冰系、雷桩、熔光炮台）和绊雷也换成 AI 生成的模型，判定和数值都没动；主角的外观也换成 AI 生成的模型，程序化骨架、动作、挂点和模拟都没动，Adventurer 留作退路。2026-11-26 用户还要求武器也试一试：先试点剑、长杖、战锤、机炮四种，通过审核以后所有武器种类和七种装备掉落都换上了（手里拿的和掉在地上的），处理见下面。游魂和烬骸仆从的外观随后也换了，骨骼集合和现网的 Zombie / Skeleton 一样，原来的模型留作退路。喷吐者的网格也换成 AI 生成的，贴在原来 Spider 的骨架上，骨架和动作没动。
 
 | 件 | 用在哪 | 来源记录 |
 | --- | --- | --- |
 | `ca/frost_waystone`（路标石：风化的石柱立在碎石和积雪的基座上） | 霜骨沼泽岸边，每区 3–6 块，低画质不显示 | `ai/frost_waystone/provenance.json` |
+| `ai/spitter/spitter.glb`（喷吐者：八条腿的蜘蛛形小怪，冷橄榄绿的甲壳，腹背上四个发光囊） | 喷吐者的网格（`js/assets/chars.js` 的 spider），所有画质同一份 | `ai/spitter/provenance.json` |
 | `ca/boss_golem`（熔渣巨像：玄武岩块拼成的巨像，胸口是拱形铁栅炉膛，肩上两根短烟囱）、`ca/boss_golem_lo`（低画质的减面版） | 第 0 区首领，`js/assets/boss-golem.js`；低画质用减面版 | `ca/boss/golem.provenance.json` |
 | `ca/boss_warden`（雷霆监察者：悬浮的石柱，青铜领环上一只眼，两只石护手，三块护盾板绕着转）、`ca/boss_warden_lo`（低画质的减面版） | 雷鸣遗迹首领，`js/assets/boss-warden.js`；低画质用减面版 | `ca/boss/warden.provenance.json` |
 | `ca/boss_behemoth`（衔星巨兽：石墨灰的四足巨兽，背上一排岩甲，两只青色晶角，嘴里含着一颗星）、`ca/boss_behemoth_lo`（低画质的减面版） | 坠星裂谷首领，`js/assets/boss-behemoth.js`；低画质用减面版 | `ca/boss/behemoth.provenance.json` |
@@ -62,7 +62,8 @@
   - 主角：`art/ai/hero_rig.py`（拟合在 `art/ai/hero_fit.py`）把 A 字站姿的源模型对到 53 根的标准人形骨架（UE / UAL 骨骼名），先做几处脚本修形（头放大 1.15、护膝压平），权重用 UniRig 算的再按区域改（头和头发、手掌、四指三节、拇指、护腕、后摆各有固定的规则），拳头烘进绑定姿态，减面到 `art/budgets.json` 的 `hero` 以内（高 10032、低 7632，低画质不比 Adventurer 的 8450 重）。颜色按角从反照率里取，再按定点改色把头发、围巾、衬衣、长裤调回游戏里主角的配色；脸上的暗条改回肤色，另贴两只小眼睛和细眉。导出时同色的角并成一个顶点，颜色存 8 位，没有贴图。`--ship` 把选定的一份复制到 `ai/hero/`。
   - 游魂、烬骸仆从：同一套 `hero_rig.py`，配置在 `art/ai/enemy/`（`g01.json`、`t06.json`）。骨骼集合换成现网模型的那一组（游魂 41 根、仆从 12 根，标准名，父子关系也一样），所以程序化关节和动作照旧；权重用 UniRig 的，手和锁骨按区域改；仆从的头缩到 0.88；游魂整体去饱和、往冷紫调，和米白的仆从分开。高画质 2400 个三角形，低画质不比原来的模型重（游魂 2100 对 Zombie 2116，仆从 1800 对 Skeleton 1810）。
   - 武器：`art/ai/weapon.py`（`gen='ai'`、外观 `fc`）逐面取色、发光区拆成单独的一层壳（按稀有度着色），不带贴图，见 `docs/art-pipeline.md`「AI 生成的武器」。烬骸仆从的剑和盾走同一条流程（`zone='aithrall'`），源模型上没有发光的部分，刃中线和盾心按位置补一层发光壳；低画质不比原来的脚本件重（剑 164、盾 339 个三角形，原来约 220 和 470）。
-  - 布景件、巨像、监察者、巨兽和武器由 `npm run build:art` 调用，主角和两种小怪用 `hero_rig.py` 单独生成；源文件不在的机器上保留已提交的生成物。
+  - 喷吐者：`art/ai/char_rig.py` 把源模型贴到 Spider 原来的骨架上（骨架、绑定姿态、动作都不变）：身体按段刚性绑定，每条腿三段各自转过去、沿骨骼拉伸，后腿用中后腿的拷贝；颜色烘进每角的顶点色（甲壳换成冷橄榄绿，和原来的苔绿一样在暖色地面上靠色相分得开），腹背上的囊单独一块按元素色发光。这一件不走 `npm run build:art`，命令写在 `ai/spitter/provenance.json` 里。
+  - 布景件、巨像、监察者、巨兽和武器由 `npm run build:art` 调用，主角和两种小怪用 `hero_rig.py`、喷吐者用 `char_rig.py` 单独生成；源文件不在的机器上保留已提交的生成物。
 - **许可证**：生成时用到的每个组件都读过许可证原文：
   - ComfyUI：GPL-3.0，只是工具，输出不受约束；
   - Z-Image Turbo、Qwen3-4B 文本编码器、VAE（和 FLUX.1-schnell 的 ae 逐字节相同）：Apache-2.0；
