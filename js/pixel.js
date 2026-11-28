@@ -156,8 +156,8 @@
     rh = h;
     rtA = W._px.displayRT(new T.WebGLRenderTarget(w, h, { minFilter: T.NearestFilter, magFilter: T.NearestFilter, format: T.RGBAFormat, type: T.UnsignedByteType }));
     rtA.depthTexture = new T.DepthTexture(w, h);
-    rtB = new T.WebGLRenderTarget(w, h, { minFilter: T.LinearFilter, magFilter: T.LinearFilter, format: T.RGBAFormat, type: T.UnsignedByteType, depthBuffer: false });
-    rtS = new T.WebGLRenderTarget(w, h, { minFilter: T.NearestFilter, magFilter: T.NearestFilter, format: T.RGBAFormat, type: T.UnsignedByteType, depthBuffer: false });
+    rtB = new T.WebGLRenderTarget(w, h, { minFilter: T.LinearFilter, magFilter: T.LinearFilter, format: T.RGBAFormat, type: T.UnsignedByteType, depthBuffer: false }); // check-three: ok（低分辨率处理的输出：着色器写的已经是显示空间，只给放大那一步读，不画场景）
+    rtS = new T.WebGLRenderTarget(w, h, { minFilter: T.NearestFilter, magFilter: T.NearestFilter, format: T.RGBAFormat, type: T.UnsignedByteType, depthBuffer: false }); // check-three: ok（rtA 的原样拷贝，不画场景）
     rtS.texture.internalFormat = 'RGBA8';
   }
 
